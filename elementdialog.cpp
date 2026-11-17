@@ -13,6 +13,7 @@
 #include <QVBoxLayout>
 
 namespace {
+constexpr double MinimumAbundance = 1e-6; // Isotopes listed by default
 constexpr int LanthanideRow = 8; // Lanthanides and actinides are shown below the main table, after a gap row
 
 // Column (x) and row (y) of an element in the periodic table
@@ -116,6 +117,10 @@ void ElementDialog::setElement(int z, int a) {
     if(m_z > 0) {
         m_isotopeCombo->addItem("Not specified", 0);
         for(const auto &isotope : Elements::isotopes(m_z)) {
+            // Only naturally occurring isotopes, unless another one was asked for explicitly
+            if(isotope.abundance <= MinimumAbundance && isotope.a != a) {
+                continue;
+            }
             const QString name = Elements::label(m_z, isotope.a);
             m_isotopeCombo->addItem(isotope.abundance > 0 ? QString("%1 (%2 %)").arg(name).arg(isotope.abundance * 100, 0, 'g', 4)
                                                           : name,
