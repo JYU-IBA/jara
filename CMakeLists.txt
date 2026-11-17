@@ -16,12 +16,27 @@ add_executable(jara
         main.cpp
         mainwindow.cpp
         mainwindow.h
+        project.cpp
+        project.h
+        projectpanel.cpp
+        projectpanel.h
+        measurementview.cpp
+        measurementview.h
+        histogramwidget.cpp
+        histogramwidget.h
+        tofedata.cpp
+        tofedata.h
 )
 
 target_compile_definitions(jara PRIVATE JARA_VERSION="${PROJECT_VERSION}")
 target_link_libraries(jara PRIVATE Qt6::Widgets GSL::gsl jibal)
 
+# macOS refuses to show native file dialogs for an app bundle without an identifier
 set_target_properties(jara PROPERTIES
         MACOSX_BUNDLE ON
+        MACOSX_BUNDLE_GUI_IDENTIFIER fi.jyu.jara
+        MACOSX_BUNDLE_BUNDLE_NAME JaRA
+        MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
+        MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
         WIN32_EXECUTABLE ON
 )

@@ -1,9 +1,15 @@
 #include "mainwindow.h"
+#include "measurementview.h"
+#include "projectpanel.h"
 
+#include <QCloseEvent>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QSplitter>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabWidget>
 
@@ -12,34 +18,291 @@ extern "C" {
 #include <jibal.h>
 }
 
+namespace {
+const QString ProjectFileFilter = QStringLiteral("JaRA projects (*.json);;All files (*)");
+
+QLabel *centeredLabel(const QString &text) {
+    auto *label = new QLabel(text);
+    label->setAlignment(Qt::AlignCenter);
+    return label;
+}
+}
+
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-    setWindowTitle("JaRA");
-    resize(1024, 768);
+    resize(1280, 800);
 
-    auto *tabs = new QTabWidget(this);
-    auto *placeholder = new QLabel("No data loaded.", tabs);
-    placeholder->setAlignment(Qt::AlignCenter);
-    tabs->addTab(placeholder, "Histogram");
-    setCentralWidget(tabs);
+    m_stack = new QStackedWidget(this);
+    m_stack->addWidget(centeredLabel("No project open.\nCreate a new project or open an existing one from the File menu."));
+    m_stack->addWidget(createProjectView());
+    setCentralWidget(m_stack);
 
+    createActions();
     createMenus();
     statusBar()->showMessage(QString("JIBAL %1, GSL %2").arg(jibal_version(), GSL_VERSION));
+    updateWindowState();
+}
+
+QWidget *MainWindow::createProjectView() {
+    m_projectPanel = new ProjectPanel;
+
+    m_tabs = new QTabWidget;
+    m_tabs->setTabsClosable(true);
+    m_tabs->setMovable(true);
+    m_tabs->setDocumentMode(true);
+    m_workArea = new QStackedWidget;
+    m_workArea->addWidget(centeredLabel("Double-click a measurement in the project tree to open it here."));
+    m_workArea->addWidget(m_tabs);
+
+    auto *splitter = new QSplitter;
+    splitter->addWidget(m_projectPanel);
+    splitter->addWidget(m_workArea);
+    splitter->setStretchFactor(1, 1);
+    splitter->setSizes({320, 960});
+
+    connect(m_projectPanel, &ProjectPanel::modified, this, &MainWindow::projectModified);
+    connect(m_projectPanel, &ProjectPanel::currentSampleChanged, this, &MainWindow::updateWindowState);
+    connect(m_projectPanel, &ProjectPanel::sampleAboutToBeRemoved, this, &MainWindow::closeSampleTabs);
+    connect(m_projectPanel, &ProjectPanel::measurementAboutToBeRemoved, this, &MainWindow::closeMeasurementTab);
+    connect(m_projectPanel, &ProjectPanel::measurementOpenRequested, this, &MainWindow::openMeasurement);
+    connect(m_projectPanel, &ProjectPanel::measurementRenamed, this, &MainWindow::measurementRenamed);
+    connect(m_tabs, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
+    return splitter;
+}
+
+void MainWindow::createActions() {
+    m_newAction = new QAction("&New Project", this);
+    m_newAction->setShortcut(QKeySequence::New);
+    connect(m_newAction, &QAction::triggered, this, &MainWindow::newProject);
+
+    m_openAction = new QAction("&Open Project...", this);
+    m_openAction->setShortcut(QKeySequence::Open);
+    connect(m_openAction, &QAction::triggered, this, &MainWindow::openProject);
+
+    m_saveAction = new QAction("&Save Project", this);
+    m_saveAction->setShortcut(QKeySequence::Save);
+    connect(m_saveAction, &QAction::triggered, this, &MainWindow::saveProject);
+
+    m_saveAsAction = new QAction("Save Project &As...", this);
+    m_saveAsAction->setShortcut(QKeySequence::SaveAs);
+    connect(m_saveAsAction, &QAction::triggered, this, &MainWindow::saveProjectAs);
+
+    m_closeAction = new QAction("&Close Project", this);
+    m_closeAction->setShortcut(QKeySequence::Close);
+    connect(m_closeAction, &QAction::triggered, this, &MainWindow::closeProject);
+
+    m_quitAction = new QAction("&Quit", this);
+    m_quitAction->setShortcut(QKeySequence::Quit);
+    connect(m_quitAction, &QAction::triggered, this, &QWidget::close);
+
+    m_addSampleAction = new QAction("&Add Sample", this);
+    connect(m_addSampleAction, &QAction::triggered, m_projectPanel, &ProjectPanel::addSample);
+
+    m_removeSampleAction = new QAction("&Remove Sample", this);
+    connect(m_removeSampleAction, &QAction::triggered, m_projectPanel, &ProjectPanel::removeSample);
+
+    m_addFilesAction = new QAction("Add &Files...", this);
+    connect(m_addFilesAction, &QAction::triggered, m_projectPanel, &ProjectPanel::addFiles);
+
+    m_addMeasurementsAction = new QAction("Add &Measurements...", this);
+    connect(m_addMeasurementsAction, &QAction::triggered, m_projectPanel, &ProjectPanel::addMeasurements);
 }
 
 void MainWindow::createMenus() {
     QMenu *fileMenu = menuBar()->addMenu("&File");
-    fileMenu->addAction("&Open...", QKeySequence::Open, this, &MainWindow::openFile);
+    fileMenu->addAction(m_newAction);
+    fileMenu->addAction(m_openAction);
+    fileMenu->addAction(m_saveAction);
+    fileMenu->addAction(m_saveAsAction);
+    fileMenu->addAction(m_closeAction);
     fileMenu->addSeparator();
-    fileMenu->addAction("&Quit", QKeySequence::Quit, this, &QWidget::close);
+    fileMenu->addAction(m_quitAction);
+
+    QMenu *sampleMenu = menuBar()->addMenu("&Sample");
+    sampleMenu->addAction(m_addSampleAction);
+    sampleMenu->addAction(m_removeSampleAction);
+    sampleMenu->addSeparator();
+    sampleMenu->addAction(m_addMeasurementsAction);
+    sampleMenu->addAction(m_addFilesAction);
 
     QMenu *helpMenu = menuBar()->addMenu("&Help");
     helpMenu->addAction("&About JaRA", this, &MainWindow::about);
 }
 
-void MainWindow::openFile() {
-    const QString fileName = QFileDialog::getOpenFileName(this, "Open ToF-ERDA data");
-    if(!fileName.isEmpty()) {
-        statusBar()->showMessage(QString("Opening files is not implemented yet (%1)").arg(fileName));
+void MainWindow::closeEvent(QCloseEvent *event) {
+    if(maybeSave()) {
+        event->accept();
+    } else {
+        event->ignore();
+    }
+}
+
+bool MainWindow::maybeSave() {
+    if(!m_project || !m_project->isModified()) {
+        return true;
+    }
+    const auto answer = QMessageBox::warning(this, "JaRA", "The project has unsaved changes. Do you want to save them?",
+                                             QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
+                                             QMessageBox::Save);
+    if(answer == QMessageBox::Save) {
+        return saveProject();
+    }
+    return answer == QMessageBox::Discard;
+}
+
+void MainWindow::setProject(std::unique_ptr<Project> project) {
+    // Views refer to the old project, so they are closed before it is destroyed
+    while(m_tabs->count() > 0) {
+        closeTab(0);
+    }
+    m_projectPanel->setProject(project.get());
+    m_project = std::move(project);
+    m_stack->setCurrentIndex(m_project ? 1 : 0);
+    updateWindowState();
+}
+
+void MainWindow::updateWindowState() {
+    const bool open = m_project != nullptr;
+    const bool hasSample = open && m_projectPanel->currentSample();
+    m_saveAction->setEnabled(open);
+    m_saveAsAction->setEnabled(open);
+    m_closeAction->setEnabled(open);
+    m_addSampleAction->setEnabled(open);
+    m_removeSampleAction->setEnabled(hasSample);
+    m_addFilesAction->setEnabled(hasSample);
+    m_addMeasurementsAction->setEnabled(hasSample);
+    if(!open) {
+        setWindowTitle("JaRA");
+        setWindowModified(false);
+        return;
+    }
+    const QString name = m_project->fileName().isEmpty() ? QStringLiteral("Untitled")
+                                                         : QFileInfo(m_project->fileName()).fileName();
+    setWindowTitle(QString("%1[*] - JaRA").arg(name));
+    setWindowModified(m_project->isModified());
+}
+
+void MainWindow::newProject() {
+    if(maybeSave()) {
+        setProject(std::make_unique<Project>());
+    }
+}
+
+void MainWindow::openProject() {
+    if(!maybeSave()) {
+        return;
+    }
+    const QString fileName = QFileDialog::getOpenFileName(this, "Open Project", {}, ProjectFileFilter);
+    if(fileName.isEmpty()) {
+        return;
+    }
+    openProjectFile(fileName);
+}
+
+void MainWindow::openProjectFile(const QString &fileName) {
+    QString errorMessage;
+    auto project = Project::load(fileName, errorMessage);
+    if(!project) {
+        QMessageBox::critical(this, "JaRA", QString("Could not open project %1:\n%2").arg(fileName, errorMessage));
+        return;
+    }
+    setProject(std::move(project));
+    statusBar()->showMessage(QString("Opened %1").arg(fileName), 5000);
+}
+
+bool MainWindow::saveProject() {
+    if(!m_project) {
+        return false;
+    }
+    if(m_project->fileName().isEmpty()) {
+        return saveProjectAs();
+    }
+    QString errorMessage;
+    if(!m_project->save(m_project->fileName(), errorMessage)) {
+        QMessageBox::critical(this, "JaRA", QString("Could not save project:\n%1").arg(errorMessage));
+        return false;
+    }
+    updateWindowState();
+    statusBar()->showMessage(QString("Saved %1").arg(m_project->fileName()), 5000);
+    return true;
+}
+
+bool MainWindow::saveProjectAs() {
+    if(!m_project) {
+        return false;
+    }
+    QString fileName = QFileDialog::getSaveFileName(this, "Save Project As", m_project->fileName(), ProjectFileFilter);
+    if(fileName.isEmpty()) {
+        return false;
+    }
+    if(QFileInfo(fileName).suffix().isEmpty()) {
+        fileName += ".json";
+    }
+    QString errorMessage;
+    if(!m_project->save(fileName, errorMessage)) {
+        QMessageBox::critical(this, "JaRA", QString("Could not save project:\n%1").arg(errorMessage));
+        return false;
+    }
+    updateWindowState();
+    statusBar()->showMessage(QString("Saved %1").arg(fileName), 5000);
+    return true;
+}
+
+void MainWindow::closeProject() {
+    if(maybeSave()) {
+        setProject(nullptr);
+    }
+}
+
+void MainWindow::projectModified() {
+    m_project->setModified(true);
+    updateWindowState();
+}
+
+int MainWindow::measurementTabIndex(const Measurement *measurement) const {
+    for(int i = 0; i < m_tabs->count(); i++) {
+        const auto *view = qobject_cast<MeasurementView *>(m_tabs->widget(i));
+        if(view && view->measurement() == measurement) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void MainWindow::openMeasurement(Measurement *measurement) {
+    int index = measurementTabIndex(measurement);
+    if(index < 0) {
+        index = m_tabs->addTab(new MeasurementView(measurement), measurement->name);
+    }
+    m_tabs->setCurrentIndex(index);
+    m_workArea->setCurrentWidget(m_tabs);
+}
+
+void MainWindow::measurementRenamed(Measurement *measurement) {
+    const int index = measurementTabIndex(measurement);
+    if(index >= 0) {
+        m_tabs->setTabText(index, measurement->name);
+    }
+}
+
+void MainWindow::closeSampleTabs(Sample *sample) {
+    for(const auto &measurement : sample->measurements) {
+        closeMeasurementTab(measurement.get());
+    }
+}
+
+void MainWindow::closeMeasurementTab(Measurement *measurement) {
+    const int index = measurementTabIndex(measurement);
+    if(index >= 0) {
+        closeTab(index);
+    }
+}
+
+void MainWindow::closeTab(int index) {
+    QWidget *widget = m_tabs->widget(index);
+    m_tabs->removeTab(index);
+    delete widget;
+    if(m_tabs->count() == 0) {
+        m_workArea->setCurrentIndex(0);
     }
 }
 
