@@ -1,15 +1,19 @@
 #include "project.h"
 
+#include <algorithm>
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QSaveFile>
 
 namespace {
 const QString FormatName = QStringLiteral("jara-project");
+const QString SettingsFormatName = QStringLiteral("jara-settings");
 constexpr int FormatVersion = 1;
 
 QString pathToJson(const QString &path, const QDir &baseDir) {
@@ -28,7 +32,33 @@ QString pathFromJson(const QJsonValue &value, const QDir &baseDir) {
     return path.isEmpty() ? QString() : QDir::cleanPath(baseDir.absoluteFilePath(path));
 }
 
-QJsonObject sampleToJson(const Sample &sample, const QDir &baseDir) {
+// "Name" when it is not taken, otherwise "Name (2)", "Name (3)" and so on
+QString uniqueName(const QString &name, const QStringList &taken) {
+    if(!taken.contains(name)) {
+        return name;
+    }
+    static const QRegularExpression numbered(QStringLiteral(R"(^(.*) \((\d+)\)$)"));
+    const QRegularExpressionMatch match = numbered.match(name);
+    const QString base = match.hasMatch() ? match.captured(1) : name;
+    for(int n = 2;; n++) {
+        const QString candidate = QString("%1 (%2)").arg(base).arg(n);
+        if(!taken.contains(candidate)) {
+            return candidate;
+        }
+    }
+}
+
+template<typename T>
+int indexOf(const std::vector<std::unique_ptr<T>> &list, const T *item) {
+    for(size_t i = 0; i < list.size(); i++) {
+        if(list[i].get() == item) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+QJsonObject sampleToJson(const Sample &sample, const QDir &baseDir, const Project &project) {
     QJsonArray metadata;
     for(const auto &entry : sample.metadata) {
         metadata.append(QJsonObject{{"key", entry.key}, {"value", entry.value}});
@@ -39,11 +69,19 @@ QJsonObject sampleToJson(const Sample &sample, const QDir &baseDir) {
     }
     QJsonArray measurements;
     for(const auto &measurement : sample.measurements) {
-        measurements.append(QJsonObject{
+        QJsonObject object{
                 {"name", measurement->name},
                 {"description", measurement->description},
                 {"path", pathToJson(measurement->path, baseDir)},
-                {"cuts", cutsToJson(measurement->cuts)}});
+                {"cuts", cutsToJson(measurement->cuts)}};
+        // Settings are referred to by their index in the project
+        if(const int index = project.settingsIndex(measurement->settings); index >= 0) {
+            object["settings"] = index;
+        }
+        if(const int index = project.detectorIndex(measurement->detector); index >= 0) {
+            object["detector"] = index;
+        }
+        measurements.append(object);
     }
     return QJsonObject{
             {"name", sample.name},
@@ -53,7 +91,7 @@ QJsonObject sampleToJson(const Sample &sample, const QDir &baseDir) {
             {"measurements", measurements}};
 }
 
-std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &baseDir) {
+std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &baseDir, Project &project) {
     auto sample = std::make_unique<Sample>();
     sample->name = json["name"].toString();
     sample->description = json["description"].toString();
@@ -74,6 +112,14 @@ std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &base
         sample->measurements.push_back(std::make_unique<Measurement>(
                 measurement["name"].toString(), measurement["description"].toString(),
                 pathFromJson(measurement["path"], baseDir), cutsFromJson(measurement["cuts"].toArray())));
+        const int settingsIndex = measurement["settings"].toInt(-1);
+        if(settingsIndex >= 0 && settingsIndex < static_cast<int>(project.settingsCount())) {
+            sample->measurements.back()->settings = project.settings(settingsIndex);
+        }
+        const int detectorIndex = measurement["detector"].toInt(-1);
+        if(detectorIndex >= 0 && detectorIndex < static_cast<int>(project.detectorCount())) {
+            sample->measurements.back()->detector = project.detector(detectorIndex);
+        }
     }
     return sample;
 }
@@ -105,6 +151,83 @@ QList<Cut> cutsFromJson(const QJsonArray &json) {
     return cuts;
 }
 
+QJsonObject settingsToJson(const ExperimentalSettings &settings) {
+    return QJsonObject{
+            {"name", settings.name},
+            {"beamEnergy", settings.beamEnergy},
+            {"beam", QJsonObject{{"z", settings.beamZ}, {"a", settings.beamA}}},
+            {"incidentAngle", settings.incidentAngle}};
+}
+
+QJsonObject detectorToJson(const DetectorSettings &detector) {
+    return QJsonObject{
+            {"name", detector.name},
+            {"scatteringAngle", detector.scatteringAngle},
+            {"tofLength", detector.tofLength},
+            {"tofSlope", detector.tofSlope},
+            {"tofOffset", detector.tofOffset}};
+}
+
+DetectorSettings detectorFromJson(const QJsonObject &json) {
+    DetectorSettings detector;
+    detector.name = json["name"].toString();
+    detector.scatteringAngle = std::clamp(json["scatteringAngle"].toDouble(MinScatteringAngle), MinScatteringAngle, MaxScatteringAngle);
+    detector.tofLength = json["tofLength"].toDouble();
+    detector.tofSlope = json["tofSlope"].toDouble();
+    detector.tofOffset = json["tofOffset"].toDouble();
+    return detector;
+}
+
+ExperimentalSettings settingsFromJson(const QJsonObject &json) {
+    ExperimentalSettings settings;
+    settings.name = json["name"].toString();
+    settings.beamEnergy = json["beamEnergy"].toDouble();
+    settings.beamZ = json["beam"]["z"].toInt();
+    settings.beamA = json["beam"]["a"].toInt();
+    settings.incidentAngle = std::clamp(json["incidentAngle"].toDouble(), MinIncidentAngle, MaxIncidentAngle);
+    return settings;
+}
+
+QByteArray settingsCollectionToJson(const SettingsCollection &collection) {
+    QJsonArray settings;
+    for(const auto &s : collection.experimental) {
+        settings.append(settingsToJson(s));
+    }
+    QJsonArray detectors;
+    for(const auto &detector : collection.detectors) {
+        detectors.append(detectorToJson(detector));
+    }
+    const QJsonObject root{
+            {"format", SettingsFormatName},
+            {"version", FormatVersion},
+            {"experimentalSettings", settings},
+            {"detectorSettings", detectors}};
+    return QJsonDocument(root).toJson();
+}
+
+bool settingsCollectionFromJson(const QByteArray &data, SettingsCollection &collection, QString &errorMessage) {
+    QJsonParseError parseError{};
+    const QJsonDocument document = QJsonDocument::fromJson(data, &parseError);
+    if(document.isNull()) {
+        errorMessage = parseError.errorString();
+        return false;
+    }
+    const QJsonObject root = document.object();
+    const QString format = root["format"].toString();
+    if(format != SettingsFormatName && format != FormatName) {
+        errorMessage = QStringLiteral("Not a JaRA settings or project file.");
+        return false;
+    }
+    collection = {};
+    for(const auto &value : root["experimentalSettings"].toArray()) {
+        collection.experimental.append(settingsFromJson(value.toObject()));
+    }
+    for(const auto &value : root["detectorSettings"].toArray()) {
+        collection.detectors.append(detectorFromJson(value.toObject()));
+    }
+    return true;
+}
+
 std::unique_ptr<Project> Project::load(const QString &fileName, QString &errorMessage) {
     QFile file(fileName);
     if(!file.open(QIODevice::ReadOnly)) {
@@ -131,8 +254,14 @@ std::unique_ptr<Project> Project::load(const QString &fileName, QString &errorMe
     auto project = std::make_unique<Project>();
     const QFileInfo fileInfo(fileName);
     const QDir baseDir = fileInfo.absoluteDir();
+    for(const auto &value : root["experimentalSettings"].toArray()) {
+        project->m_settings.push_back(std::make_unique<ExperimentalSettings>(settingsFromJson(value.toObject())));
+    }
+    for(const auto &value : root["detectorSettings"].toArray()) {
+        project->m_detectors.push_back(std::make_unique<DetectorSettings>(detectorFromJson(value.toObject())));
+    }
     for(const auto &value : root["samples"].toArray()) {
-        project->m_samples.push_back(sampleFromJson(value.toObject(), baseDir));
+        project->m_samples.push_back(sampleFromJson(value.toObject(), baseDir, *project));
     }
     project->m_fileName = fileInfo.absoluteFilePath();
     return project;
@@ -141,13 +270,23 @@ std::unique_ptr<Project> Project::load(const QString &fileName, QString &errorMe
 bool Project::save(const QString &fileName, QString &errorMessage) {
     const QFileInfo fileInfo(fileName);
     const QDir baseDir = fileInfo.absoluteDir();
+    QJsonArray settings;
+    for(const auto &s : m_settings) {
+        settings.append(settingsToJson(*s));
+    }
+    QJsonArray detectors;
+    for(const auto &detector : m_detectors) {
+        detectors.append(detectorToJson(*detector));
+    }
     QJsonArray samples;
     for(const auto &sample : m_samples) {
-        samples.append(sampleToJson(*sample, baseDir));
+        samples.append(sampleToJson(*sample, baseDir, *this));
     }
     const QJsonObject root{
             {"format", FormatName},
             {"version", FormatVersion},
+            {"experimentalSettings", settings},
+            {"detectorSettings", detectors},
             {"samples", samples}};
 
     QSaveFile file(fileName);
@@ -163,6 +302,79 @@ bool Project::save(const QString &fileName, QString &errorMessage) {
     m_fileName = fileInfo.absoluteFilePath();
     m_modified = false;
     return true;
+}
+
+ExperimentalSettings *Project::addSettings(const ExperimentalSettings &settings) {
+    m_settings.push_back(std::make_unique<ExperimentalSettings>(settings));
+    m_modified = true;
+    return m_settings.back().get();
+}
+
+void Project::removeSettings(size_t index) {
+    const ExperimentalSettings *settings = m_settings.at(index).get();
+    for(Measurement *measurement : measurementsUsing(settings)) {
+        measurement->settings = nullptr;
+    }
+    m_settings.erase(m_settings.begin() + static_cast<std::ptrdiff_t>(index));
+    m_modified = true;
+}
+
+QString Project::uniqueSettingsName(const QString &name) const {
+    QStringList names;
+    for(const auto &settings : m_settings) {
+        names.append(settings->name);
+    }
+    return uniqueName(name, names);
+}
+
+QString Project::uniqueDetectorName(const QString &name) const {
+    QStringList names;
+    for(const auto &detector : m_detectors) {
+        names.append(detector->name);
+    }
+    return uniqueName(name, names);
+}
+
+int Project::settingsIndex(const ExperimentalSettings *settings) const {
+    return indexOf(m_settings, settings);
+}
+
+QList<Measurement *> Project::measurementsUsing(const ExperimentalSettings *settings) const {
+    QList<Measurement *> result;
+    forEachMeasurement([&](Measurement *measurement) {
+        if(settings && measurement->settings == settings) {
+            result.append(measurement);
+        }
+    });
+    return result;
+}
+
+DetectorSettings *Project::addDetector(const DetectorSettings &detector) {
+    m_detectors.push_back(std::make_unique<DetectorSettings>(detector));
+    m_modified = true;
+    return m_detectors.back().get();
+}
+
+void Project::removeDetector(size_t index) {
+    for(Measurement *measurement : measurementsUsing(m_detectors.at(index).get())) {
+        measurement->detector = nullptr;
+    }
+    m_detectors.erase(m_detectors.begin() + static_cast<std::ptrdiff_t>(index));
+    m_modified = true;
+}
+
+int Project::detectorIndex(const DetectorSettings *detector) const {
+    return indexOf(m_detectors, detector);
+}
+
+QList<Measurement *> Project::measurementsUsing(const DetectorSettings *detector) const {
+    QList<Measurement *> result;
+    forEachMeasurement([&](Measurement *measurement) {
+        if(detector && measurement->detector == detector) {
+            result.append(measurement);
+        }
+    });
+    return result;
 }
 
 Sample *Project::addSample(const QString &name) {

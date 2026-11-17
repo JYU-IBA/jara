@@ -55,8 +55,9 @@ QPoint tablePosition(int z) {
 }
 }
 
-ElementDialog::ElementDialog(int z, int a, QWidget *parent) : QDialog(parent) {
-    setWindowTitle("Select Element");
+ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
+    : QDialog(parent), m_requireIsotope(requireIsotope) {
+    setWindowTitle(requireIsotope ? "Select Isotope" : "Select Element");
 
     auto *table = new QGridLayout;
     table->setSpacing(2);
@@ -115,7 +116,18 @@ void ElementDialog::setElement(int z, int a) {
 
     m_isotopeCombo->clear();
     if(m_z > 0) {
-        m_isotopeCombo->addItem("Not specified", 0);
+        if(m_requireIsotope && a == 0) {
+            double maxAbundance = 0;
+            for(const auto &isotope : Elements::isotopes(m_z)) {
+                if(isotope.abundance > maxAbundance) {
+                    maxAbundance = isotope.abundance;
+                    a = isotope.a;
+                }
+            }
+        }
+        if(!m_requireIsotope) {
+            m_isotopeCombo->addItem("Not specified", 0);
+        }
         for(const auto &isotope : Elements::isotopes(m_z)) {
             // Only naturally occurring isotopes, unless another one was asked for explicitly
             if(isotope.abundance <= MinimumAbundance && isotope.a != a) {
@@ -129,12 +141,12 @@ void ElementDialog::setElement(int z, int a) {
         m_isotopeCombo->setCurrentIndex(std::max(0, m_isotopeCombo->findData(a)));
     }
     m_isotopeCombo->setEnabled(m_z > 0);
-    m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(m_z > 0);
+    m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(m_z > 0 && (!m_requireIsotope || this->a() > 0));
 }
 
 void ElementDialog::elementClicked(int z) {
     setElement(z, 0);
-    m_edit->setText(Elements::symbol(z));
+    m_edit->setText(m_requireIsotope ? Elements::label(z, a()) : Elements::symbol(z));
 }
 
 void ElementDialog::textEdited(const QString &text) {

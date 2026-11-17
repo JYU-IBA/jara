@@ -61,11 +61,17 @@ private:
     QAction *m_saveAction;
     QAction *m_saveAsAction;
     QAction *m_closeAction;
+    QAction *m_preferencesAction;
+    QAction *m_importSettingsAction;
     QAction *m_quitAction;
     QAction *m_addSampleAction;
     QAction *m_removeSampleAction;
     QAction *m_addFilesAction;
     QAction *m_addMeasurementsAction;
+    QAction *m_addSettingsAction;
+    QAction *m_removeSettingsAction;
+    QAction *m_addDetectorAction;
+    QAction *m_removeDetectorAction;
 };
 
 #endif // JARA_MAINWINDOW_H

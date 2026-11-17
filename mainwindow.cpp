@@ -1,5 +1,7 @@
 #include "mainwindow.h"
+#include "defaults.h"
 #include "measurementview.h"
+#include "preferencesdialog.h"
 #include "projectpanel.h"
 
 #include <QCloseEvent>
@@ -73,6 +75,8 @@ QWidget *MainWindow::createProjectView() {
 
     connect(m_projectPanel, &ProjectPanel::modified, this, &MainWindow::projectModified);
     connect(m_projectPanel, &ProjectPanel::currentSampleChanged, this, &MainWindow::updateWindowState);
+    connect(m_projectPanel, &ProjectPanel::currentSettingsChanged, this, &MainWindow::updateWindowState);
+    connect(m_projectPanel, &ProjectPanel::currentDetectorChanged, this, &MainWindow::updateWindowState);
     connect(m_projectPanel, &ProjectPanel::sampleAboutToBeRemoved, this, &MainWindow::closeSampleTabs);
     connect(m_projectPanel, &ProjectPanel::measurementAboutToBeRemoved, this, &MainWindow::closeMeasurementTab);
     connect(m_projectPanel, &ProjectPanel::measurementOpenRequested, this, &MainWindow::openMeasurement);
@@ -102,6 +106,17 @@ void MainWindow::createActions() {
     m_closeAction->setShortcut(QKeySequence::Close);
     connect(m_closeAction, &QAction::triggered, this, &MainWindow::closeProject);
 
+    m_preferencesAction = new QAction("&Preferences...", this);
+    m_preferencesAction->setShortcut(QKeySequence::Preferences);
+    m_preferencesAction->setMenuRole(QAction::PreferencesRole); // In the application menu on macOS
+    connect(m_preferencesAction, &QAction::triggered, this, [this]() {
+        PreferencesDialog dialog(this);
+        dialog.exec();
+    });
+
+    m_importSettingsAction = new QAction("&Import Settings...", this);
+    connect(m_importSettingsAction, &QAction::triggered, m_projectPanel, &ProjectPanel::importSettings);
+
     m_quitAction = new QAction("&Quit", this);
     m_quitAction->setShortcut(QKeySequence::Quit);
     connect(m_quitAction, &QAction::triggered, this, &QWidget::close);
@@ -117,6 +132,18 @@ void MainWindow::createActions() {
 
     m_addMeasurementsAction = new QAction("Add &Measurements...", this);
     connect(m_addMeasurementsAction, &QAction::triggered, m_projectPanel, &ProjectPanel::addMeasurements);
+
+    m_addSettingsAction = new QAction("&Add Experimental Settings", this);
+    connect(m_addSettingsAction, &QAction::triggered, m_projectPanel, &ProjectPanel::addSettings);
+
+    m_removeSettingsAction = new QAction("&Remove Experimental Settings", this);
+    connect(m_removeSettingsAction, &QAction::triggered, m_projectPanel, &ProjectPanel::removeSettings);
+
+    m_addDetectorAction = new QAction("Add &Detector Settings", this);
+    connect(m_addDetectorAction, &QAction::triggered, m_projectPanel, &ProjectPanel::addDetector);
+
+    m_removeDetectorAction = new QAction("Remove D&etector Settings", this);
+    connect(m_removeDetectorAction, &QAction::triggered, m_projectPanel, &ProjectPanel::removeDetector);
 }
 
 void MainWindow::createMenus() {
@@ -129,6 +156,8 @@ void MainWindow::createMenus() {
     fileMenu->addAction(m_saveAsAction);
     fileMenu->addAction(m_closeAction);
     fileMenu->addSeparator();
+    fileMenu->addAction(m_preferencesAction);
+    fileMenu->addSeparator();
     fileMenu->addAction(m_quitAction);
 
     QMenu *sampleMenu = menuBar()->addMenu("&Sample");
@@ -137,6 +166,15 @@ void MainWindow::createMenus() {
     sampleMenu->addSeparator();
     sampleMenu->addAction(m_addMeasurementsAction);
     sampleMenu->addAction(m_addFilesAction);
+
+    QMenu *experimentMenu = menuBar()->addMenu("&Experiment");
+    experimentMenu->addAction(m_addSettingsAction);
+    experimentMenu->addAction(m_removeSettingsAction);
+    experimentMenu->addSeparator();
+    experimentMenu->addAction(m_addDetectorAction);
+    experimentMenu->addAction(m_removeDetectorAction);
+    experimentMenu->addSeparator();
+    experimentMenu->addAction(m_importSettingsAction);
 
     QMenu *helpMenu = menuBar()->addMenu("&Help");
     helpMenu->addAction("&About JaRA", this, &MainWindow::about);
@@ -184,6 +222,11 @@ void MainWindow::updateWindowState() {
     m_removeSampleAction->setEnabled(hasSample);
     m_addFilesAction->setEnabled(hasSample);
     m_addMeasurementsAction->setEnabled(hasSample);
+    m_addSettingsAction->setEnabled(open);
+    m_removeSettingsAction->setEnabled(open && m_projectPanel->currentSettings());
+    m_addDetectorAction->setEnabled(open);
+    m_removeDetectorAction->setEnabled(open && m_projectPanel->currentDetector());
+    m_importSettingsAction->setEnabled(open);
     if(!open) {
         setWindowTitle("JaRA");
         setWindowModified(false);
@@ -196,9 +239,14 @@ void MainWindow::updateWindowState() {
 }
 
 void MainWindow::newProject() {
-    if(maybeSave()) {
-        setProject(std::make_unique<Project>());
+    if(!maybeSave()) {
+        return;
     }
+    auto project = std::make_unique<Project>();
+    project->addSettings(Defaults::experimentalSettings());
+    project->addDetector(Defaults::detectorSettings());
+    project->setModified(false); // Nothing to save until something is changed
+    setProject(std::move(project));
 }
 
 void MainWindow::openProject() {

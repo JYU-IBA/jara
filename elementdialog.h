@@ -14,7 +14,8 @@ class ElementDialog : public QDialog {
     Q_OBJECT
 
 public:
-    explicit ElementDialog(int z = 0, int a = 0, QWidget *parent = nullptr);
+    // With requireIsotope, a specific isotope must be selected, the most abundant one is preselected
+    explicit ElementDialog(int z = 0, int a = 0, QWidget *parent = nullptr, bool requireIsotope = false);
     int z() const { return m_z; }
     int a() const; // Zero when no specific isotope is selected
 
@@ -27,6 +28,7 @@ private:
     void setElement(int z, int a);
 
     int m_z = 0;
+    bool m_requireIsotope;
     QLineEdit *m_edit;
     QComboBox *m_isotopeCombo;
     QDialogButtonBox *m_buttonBox;
