@@ -6,6 +6,7 @@
 #include <QImage>
 #include <QList>
 #include <QPointF>
+#include <QPolygonF>
 #include <QWidget>
 
 #include "tofedata.h"
@@ -13,17 +14,17 @@
 struct Cut;
 class QRubberBand;
 
-// 2D ToF-E histogram with logarithmic color scale. Supports box zoom, moving the view and drawing polygon
-// selections. Existing cuts are drawn on top of the histogram.
+// 2D ToF-E histogram with logarithmic color scale. Supports box zoom, moving the view, drawing polygon
+// selections and editing existing cuts, which are drawn on top of the histogram.
 class HistogramWidget : public QWidget {
     Q_OBJECT
 
 public:
-    enum class Mode { Zoom, Move, Select };
+    enum class Mode { Zoom, Move, Select, Edit };
 
     explicit HistogramWidget(QWidget *parent = nullptr);
     void setEvents(const std::vector<ToFEEvent> *events); // Not owned, must outlive the widget
-    void setCuts(const QList<Cut> *cuts); // Not owned, call update() after changing them
+    void setCuts(QList<Cut> *cuts); // Not owned, edited in Edit mode. Call update() after changing them.
     void setHighlightedCut(int index); // -1 for none
 
 public slots:
@@ -35,6 +36,8 @@ public slots:
 signals:
     void cursorInfoChanged(const QString &text);
     void polygonCompleted(const QList<QPointF> &polygon); // ToF and E in channels
+    void cutClicked(int index); // In Edit mode
+    void cutEdited(int index);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -60,12 +63,18 @@ private:
     void rebin();
     void updateCursorInfo(const QPoint &pos);
     void completePolygon();
+    QPolygonF cutInPixels(int index) const;
+    int cutAt(const QPoint &pos) const; // Topmost cut containing pos, -1 if none
+    int vertexAt(const QPoint &pos) const; // Vertex of the highlighted cut at pos, -1 if none
+    bool insertVertexAt(const QPoint &pos); // On an edge of the highlighted cut
+    void updateEditCursor(const QPoint &pos);
     void drawAxes(QPainter &painter, const QRect &plot) const;
     void drawCuts(QPainter &painter) const;
+    void drawCutLabel(QPainter &painter, const Cut &cut, const QPolygonF &polygon) const;
     void drawPolygonInProgress(QPainter &painter) const;
 
     const std::vector<ToFEEvent> *m_events = nullptr;
-    const QList<Cut> *m_cuts = nullptr;
+    QList<Cut> *m_cuts = nullptr;
     int m_highlightedCut = -1;
     Mode m_mode = Mode::Zoom;
     Range m_fullX{0, 1}, m_fullY{0, 1};
@@ -83,6 +92,11 @@ private:
     Range m_moveStartX{0, 1}, m_moveStartY{0, 1};
     QList<QPointF> m_polygon; // Selection being drawn, in channels
     QPoint m_cursor; // Last mouse position, for the line to the next polygon vertex
+    int m_dragVertex = -1; // Vertex of the highlighted cut being dragged in Edit mode
+    bool m_draggingCut = false; // The whole highlighted cut is being dragged in Edit mode
+    bool m_cutChanged = false;
+    QPointF m_dragStartData;
+    QList<QPointF> m_cutAtDragStart;
 };
 
 #endif // JARA_HISTOGRAMWIDGET_H

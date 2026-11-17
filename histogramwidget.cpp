@@ -52,6 +52,19 @@ double niceStep(double range, int targetTicks) {
 double distance(const QPointF &a, const QPointF &b) {
     return std::hypot(a.x() - b.x(), a.y() - b.y());
 }
+
+// Closest point to p on the segment from a to b
+QPointF closestPointOnSegment(const QPointF &p, const QPointF &a, const QPointF &b) {
+    const QPointF ab = b - a;
+    const double lengthSquared = QPointF::dotProduct(ab, ab);
+    if(lengthSquared == 0) {
+        return a;
+    }
+    const double t = std::clamp(QPointF::dotProduct(p - a, ab) / lengthSquared, 0.0, 1.0);
+    return a + t * ab;
+}
+
+const QColor CutColor(220, 20, 60);
 }
 
 HistogramWidget::HistogramWidget(QWidget *parent) : QWidget(parent) {
@@ -77,7 +90,7 @@ void HistogramWidget::setEvents(const std::vector<ToFEEvent> *events) {
     resetZoom();
 }
 
-void HistogramWidget::setCuts(const QList<Cut> *cuts) {
+void HistogramWidget::setCuts(QList<Cut> *cuts) {
     m_cuts = cuts;
     update();
 }
@@ -92,7 +105,9 @@ void HistogramWidget::setMode(HistogramWidget::Mode mode) {
     m_polygon.clear();
     m_rubberBand->hide();
     m_moving = false;
-    setCursor(mode == Mode::Move ? Qt::OpenHandCursor : Qt::CrossCursor);
+    m_dragVertex = -1;
+    m_draggingCut = false;
+    setCursor(mode == Mode::Move ? Qt::OpenHandCursor : mode == Mode::Edit ? Qt::ArrowCursor : Qt::CrossCursor);
     update();
 }
 
@@ -208,34 +223,75 @@ void HistogramWidget::paintEvent(QPaintEvent *) {
     drawAxes(painter, plot);
 }
 
+QPolygonF HistogramWidget::cutInPixels(int index) const {
+    QPolygonF polygon;
+    for(const QPointF &point : m_cuts->at(index).polygon) {
+        polygon.append(dataToPixel(point));
+    }
+    return polygon;
+}
+
 void HistogramWidget::drawCuts(QPainter &painter) const {
     if(!m_cuts) {
         return;
     }
     for(int i = 0; i < m_cuts->size(); i++) {
-        const Cut &cut = m_cuts->at(i);
-        QPolygonF polygon;
-        for(const QPointF &point : cut.polygon) {
-            polygon.append(dataToPixel(point));
-        }
+        const QPolygonF polygon = cutInPixels(i);
         const bool highlighted = i == m_highlightedCut;
         // A light outline under the line keeps it visible on both dark and light parts of the histogram
         painter.setBrush(Qt::NoBrush);
         painter.setPen(QPen(QColor(255, 255, 255, 200), highlighted ? 5 : 3.5));
         painter.drawPolygon(polygon);
-        painter.setPen(QPen(QColor(220, 20, 60), highlighted ? 2.5 : 1.5));
+        painter.setPen(QPen(CutColor, highlighted ? 2.5 : 1.5));
         painter.drawPolygon(polygon);
-
-        const QString label = Elements::label(cut.z, cut.a);
-        const QRectF bounds = polygon.boundingRect();
-        QRectF labelRect = painter.fontMetrics().boundingRect(label).adjusted(-3, -1, 3, 1);
-        labelRect.moveBottomLeft(bounds.topRight() + QPointF(2, -2));
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(255, 255, 255, 220));
-        painter.drawRoundedRect(labelRect, 3, 3);
-        painter.setPen(QColor(220, 20, 60));
-        painter.drawText(labelRect, Qt::AlignCenter, label);
+        if(highlighted && m_mode == Mode::Edit) {
+            painter.setPen(CutColor);
+            painter.setBrush(Qt::white);
+            for(const QPointF &vertex : polygon) {
+                painter.drawRect(QRectF(vertex - QPointF(4, 4), QSizeF(8, 8)));
+            }
+        }
+        drawCutLabel(painter, m_cuts->at(i), polygon);
     }
+}
+
+void HistogramWidget::drawCutLabel(QPainter &painter, const Cut &cut, const QPolygonF &polygon) const {
+    if(polygon.isEmpty()) {
+        return;
+    }
+    // Just above and right of the topmost vertex, mass number as a superscript
+    const QPointF anchor = *std::min_element(polygon.begin(), polygon.end(),
+                                             [](const QPointF &a, const QPointF &b) { return a.y() < b.y(); });
+    const QString symbol = Elements::symbol(cut.z);
+    const QString mass = cut.a > 0 ? QString::number(cut.a) : QString();
+    const QFont symbolFont = painter.font();
+    QFont massFont = symbolFont;
+    if(symbolFont.pointSizeF() > 0) {
+        massFont.setPointSizeF(symbolFont.pointSizeF() * 0.7);
+    } else {
+        massFont.setPixelSize(std::max(1, static_cast<int>(symbolFont.pixelSize() * 0.7)));
+    }
+    const QFontMetricsF symbolMetrics(symbolFont);
+    const QFontMetricsF massMetrics(massFont);
+    const double raise = symbolMetrics.ascent() * 0.4;
+    const double massWidth = mass.isEmpty() ? 0 : massMetrics.horizontalAdvance(mass);
+    const double ascent = std::max(symbolMetrics.ascent(), mass.isEmpty() ? 0 : raise + massMetrics.ascent());
+    const double baseline = anchor.y() - 5 - symbolMetrics.descent();
+    const QRectF box(QPointF(anchor.x() + 5, baseline - ascent - 1),
+                     QPointF(anchor.x() + 5 + massWidth + symbolMetrics.horizontalAdvance(symbol) + 4, baseline + symbolMetrics.descent() + 1));
+
+    painter.save();
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(255, 255, 255, 200));
+    painter.drawRoundedRect(box, 3, 3);
+    painter.setPen(CutColor);
+    if(!mass.isEmpty()) {
+        painter.setFont(massFont);
+        painter.drawText(QPointF(box.left() + 2, baseline - raise), mass);
+    }
+    painter.setFont(symbolFont);
+    painter.drawText(QPointF(box.left() + 2 + massWidth, baseline), symbol);
+    painter.restore();
 }
 
 void HistogramWidget::drawPolygonInProgress(QPainter &painter) const {
@@ -302,6 +358,16 @@ void HistogramWidget::resizeEvent(QResizeEvent *) {
 }
 
 void HistogramWidget::mousePressEvent(QMouseEvent *event) {
+    if(event->button() == Qt::RightButton && m_mode == Mode::Edit) {
+        // Remove a vertex, a polygon needs at least three
+        const int vertex = vertexAt(event->pos());
+        if(vertex >= 0 && (*m_cuts)[m_highlightedCut].polygon.size() > 3) {
+            (*m_cuts)[m_highlightedCut].polygon.removeAt(vertex);
+            update();
+            emit cutEdited(m_highlightedCut);
+        }
+        return;
+    }
     if(event->button() != Qt::LeftButton || !plotRect().contains(event->pos())) {
         return;
     }
@@ -326,6 +392,27 @@ void HistogramWidget::mousePressEvent(QMouseEvent *event) {
                 update();
             }
             break;
+        case Mode::Edit: {
+            m_cutChanged = false;
+            m_dragVertex = vertexAt(event->pos());
+            if(m_dragVertex >= 0) {
+                break;
+            }
+            const int cut = cutAt(event->pos());
+            if(cut < 0) {
+                break;
+            }
+            if(cut != m_highlightedCut) {
+                m_highlightedCut = cut;
+                emit cutClicked(cut);
+                update();
+            }
+            m_draggingCut = true;
+            m_dragStartData = pixelToData(event->position());
+            m_cutAtDragStart = m_cuts->at(cut).polygon;
+            setCursor(Qt::ClosedHandCursor);
+            break;
+        }
     }
 }
 
@@ -341,10 +428,75 @@ void HistogramWidget::mouseMoveEvent(QMouseEvent *event) {
         const double dy = std::round((event->pos().y() - m_dragStart.y()) * m_moveStartY.size() / plot.height());
         setView({m_moveStartX.min + dx, m_moveStartX.max + dx}, {m_moveStartY.min + dy, m_moveStartY.max + dy});
     }
+    if(m_dragVertex >= 0) {
+        (*m_cuts)[m_highlightedCut].polygon[m_dragVertex] = pixelToData(event->position());
+        m_cutChanged = true;
+        update();
+    } else if(m_draggingCut) {
+        const QPointF delta = pixelToData(event->position()) - m_dragStartData;
+        QList<QPointF> &polygon = (*m_cuts)[m_highlightedCut].polygon;
+        for(int i = 0; i < polygon.size(); i++) {
+            polygon[i] = m_cutAtDragStart.at(i) + delta;
+        }
+        m_cutChanged = true;
+        update();
+    } else if(m_mode == Mode::Edit) {
+        updateEditCursor(event->pos());
+    }
     if(!m_polygon.isEmpty()) {
         update();
     }
     updateCursorInfo(event->pos());
+}
+
+void HistogramWidget::updateEditCursor(const QPoint &pos) {
+    if(vertexAt(pos) >= 0) {
+        setCursor(Qt::SizeAllCursor);
+    } else if(cutAt(pos) >= 0) {
+        setCursor(Qt::OpenHandCursor);
+    } else {
+        setCursor(Qt::ArrowCursor);
+    }
+}
+
+int HistogramWidget::cutAt(const QPoint &pos) const {
+    if(!m_cuts) {
+        return -1;
+    }
+    for(int i = static_cast<int>(m_cuts->size()) - 1; i >= 0; i--) {
+        if(cutInPixels(i).containsPoint(pos, Qt::OddEvenFill)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int HistogramWidget::vertexAt(const QPoint &pos) const {
+    if(!m_cuts || m_highlightedCut < 0 || m_highlightedCut >= m_cuts->size()) {
+        return -1;
+    }
+    const QPolygonF polygon = cutInPixels(m_highlightedCut);
+    for(int i = 0; i < polygon.size(); i++) {
+        if(distance(polygon.at(i), pos) < CloseDistance) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool HistogramWidget::insertVertexAt(const QPoint &pos) {
+    if(!m_cuts || m_highlightedCut < 0 || m_highlightedCut >= m_cuts->size()) {
+        return false;
+    }
+    const QPolygonF polygon = cutInPixels(m_highlightedCut);
+    for(int i = 0; i < polygon.size(); i++) {
+        const QPointF closest = closestPointOnSegment(pos, polygon.at(i), polygon.at((i + 1) % polygon.size()));
+        if(distance(closest, pos) < CloseDistance) {
+            (*m_cuts)[m_highlightedCut].polygon.insert(i + 1, pixelToData(closest));
+            return true;
+        }
+    }
+    return false;
 }
 
 void HistogramWidget::updateCursorInfo(const QPoint &pos) {
@@ -377,6 +529,15 @@ void HistogramWidget::mouseReleaseEvent(QMouseEvent *event) {
         setCursor(Qt::OpenHandCursor);
         return;
     }
+    if(m_dragVertex >= 0 || m_draggingCut) {
+        m_dragVertex = -1;
+        m_draggingCut = false;
+        updateEditCursor(event->pos());
+        if(m_cutChanged) {
+            emit cutEdited(m_highlightedCut);
+        }
+        return;
+    }
     if(!m_rubberBand->isVisible()) {
         return;
     }
@@ -405,6 +566,9 @@ void HistogramWidget::mouseDoubleClickEvent(QMouseEvent *event) {
         }
     } else if(m_mode == Mode::Zoom) {
         resetZoom();
+    } else if(m_mode == Mode::Edit && insertVertexAt(event->pos())) {
+        update();
+        emit cutEdited(m_highlightedCut);
     }
 }
 

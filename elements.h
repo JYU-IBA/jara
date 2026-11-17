@@ -17,6 +17,7 @@ int maxZ();
 bool isKnown(int z);
 QString symbol(int z);
 QString label(int z, int a); // "Si" or "28Si", a = 0 means no specific isotope
+QString displayLabel(int z, int a); // Like label(), but with the mass number in Unicode superscript digits
 QList<Isotope> isotopes(int z);
 bool hasIsotope(int z, int a);
 // Accepts a symbol ("Si", case insensitive), an atomic number ("14") or an isotope ("28Si", "Si-28", "Si28").

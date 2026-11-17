@@ -57,6 +57,18 @@ QString Elements::label(int z, int a) {
     return a > 0 ? QString("%1%2").arg(a).arg(symbol(z)) : symbol(z);
 }
 
+QString Elements::displayLabel(int z, int a) {
+    if(a <= 0) {
+        return symbol(z);
+    }
+    static const QString superscripts = QStringLiteral("\u2070\u00B9\u00B2\u00B3\u2074\u2075\u2076\u2077\u2078\u2079");
+    QString mass;
+    for(const QChar digit : QString::number(a)) {
+        mass.append(superscripts.at(digit.digitValue()));
+    }
+    return mass + symbol(z);
+}
+
 QList<Elements::Isotope> Elements::isotopes(int z) {
     QList<Isotope> result;
     if(const jibal_element *e = element(z)) {

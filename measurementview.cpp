@@ -22,6 +22,9 @@ const QString MoveHint = QStringLiteral("Drag to move the view.");
 const QString SelectHint = QStringLiteral(
         "Click to add polygon vertices. Click the first vertex, double-click or press Enter to complete. "
         "Backspace removes the last vertex, Esc cancels.");
+const QString EditHint = QStringLiteral(
+        "Click a selection to edit it. Drag vertices or the whole selection, double-click an edge to add a vertex, "
+        "right-click a vertex to remove it.");
 
 size_t countEvents(const std::vector<ToFEEvent> &events, const QList<QPointF> &points) {
     const QPolygonF polygon(points);
@@ -80,6 +83,11 @@ MeasurementView::MeasurementView(Measurement *measurement, QWidget *parent) : QW
         m_statusLabel->setText(text.isEmpty() ? m_hint : text);
     });
     connect(m_histogram, &HistogramWidget::polygonCompleted, this, &MeasurementView::polygonCompleted);
+    connect(m_histogram, &HistogramWidget::cutClicked, this, [this](int index) { m_cutList->setCurrentRow(index); });
+    connect(m_histogram, &HistogramWidget::cutEdited, this, [this]() {
+        updateCutList();
+        emit modified();
+    });
     updateCutList();
 }
 
@@ -114,6 +122,7 @@ QWidget *MeasurementView::createToolBar() {
     addMode("Zoom Box", HistogramWidget::Mode::Zoom, ZoomHint)->setChecked(true);
     addMode("Move", HistogramWidget::Mode::Move, MoveHint);
     addMode("Select", HistogramWidget::Mode::Select, SelectHint);
+    addMode("Edit", HistogramWidget::Mode::Edit, EditHint);
     return toolBar;
 }
 
@@ -148,7 +157,7 @@ void MeasurementView::updateCutList() {
     const int row = m_cutList->currentRow();
     m_cutList->clear();
     for(const Cut &cut : m_measurement->cuts) {
-        m_cutList->addItem(QString("%1 — %2 events").arg(Elements::label(cut.z, cut.a)).arg(countEvents(m_events, cut.polygon)));
+        m_cutList->addItem(QString("%1 — %2 events").arg(Elements::displayLabel(cut.z, cut.a)).arg(countEvents(m_events, cut.polygon)));
     }
     m_cutList->setCurrentRow(std::min(row, static_cast<int>(m_cutList->count()) - 1));
     m_changeCutButton->setEnabled(m_cutList->currentRow() >= 0);
@@ -189,7 +198,7 @@ void MeasurementView::removeCut() {
         return;
     }
     const Cut &cut = m_measurement->cuts.at(row);
-    if(QMessageBox::question(this, "Remove Selection", QString("Remove the %1 selection?").arg(Elements::label(cut.z, cut.a)))
+    if(QMessageBox::question(this, "Remove Selection", QString("Remove the %1 selection?").arg(Elements::displayLabel(cut.z, cut.a)))
        != QMessageBox::Yes) {
         return;
     }
