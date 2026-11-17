@@ -26,7 +26,8 @@ public:
     explicit HistogramWidget(QWidget *parent = nullptr);
     void setEvents(const std::vector<ToFEEvent> *events); // Not owned, must outlive the widget
     void setCuts(QList<Cut> *cuts); // Not owned, edited in Edit mode. Call update() after changing them.
-    void setHighlightedCut(int index); // -1 for none
+    void setHighlightedCut(int index); // The cut edited in Edit mode, -1 for none
+    void setSelectedCuts(const QList<int> &indices); // Drawn highlighted
 
 public slots:
     void setMode(HistogramWidget::Mode mode);
@@ -80,6 +81,7 @@ private:
     const std::vector<ToFEEvent> *m_events = nullptr;
     QList<Cut> *m_cuts = nullptr;
     int m_highlightedCut = -1;
+    QList<int> m_selectedCuts;
     Mode m_mode = Mode::Zoom;
     Range m_fullX{0, 1}, m_fullY{0, 1};
     Range m_viewX{0, 1}, m_viewY{0, 1}; // Edges are whole channels so that channels are not split between bins

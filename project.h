@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include <QJsonArray>
 #include <QList>
 #include <QPointF>
 #include <QString>
@@ -42,6 +43,10 @@ struct Sample {
     QList<AttachedFile> files;
     std::vector<std::unique_ptr<Measurement>> measurements; // Pointers stay valid, measurement views refer to them
 };
+
+// Cuts as stored in project files, also used for copying cuts through the clipboard
+QJsonArray cutsToJson(const QList<Cut> &cuts);
+QList<Cut> cutsFromJson(const QJsonArray &json);
 
 class Project {
 public:

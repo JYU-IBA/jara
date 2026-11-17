@@ -6,10 +6,14 @@
 
 #include <QActionGroup>
 #include <QApplication>
+#include <QClipboard>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QPolygonF>
 #include <QSplitter>
 #include <QToolBar>
@@ -26,6 +30,25 @@ const QString SelectHint = QStringLiteral(
 const QString EditHint = QStringLiteral(
         "Click a selection to edit it. Drag vertices or the whole selection, double-click an edge to add a vertex, "
         "right-click a vertex to remove it.");
+
+// Cuts in the clipboard are JSON: {"format": "jara-cuts", "version": 1, "cuts": [...]}, cuts as in project files
+const QString ClipboardFormat = QStringLiteral("jara-cuts");
+const QString JsonMimeType = QStringLiteral("application/json");
+
+QList<Cut> cutsFromClipboard() {
+    const QMimeData *mimeData = QGuiApplication::clipboard()->mimeData();
+    if(!mimeData) {
+        return {};
+    }
+    const QByteArray data = mimeData->hasFormat(JsonMimeType) ? mimeData->data(JsonMimeType) : mimeData->text().toUtf8();
+    const QJsonObject root = QJsonDocument::fromJson(data).object();
+    if(root["format"].toString() != ClipboardFormat) {
+        return {};
+    }
+    QList<Cut> cuts = cutsFromJson(root["cuts"].toArray());
+    cuts.removeIf([](const Cut &cut) { return !Elements::isKnown(cut.z) || cut.polygon.size() < 3; });
+    return cuts;
+}
 
 size_t countEvents(const std::vector<ToFEEvent> &events, const QList<QPointF> &points) {
     const QPolygonF polygon(points);
@@ -129,7 +152,17 @@ QWidget *MeasurementView::createToolBar() {
 
 QWidget *MeasurementView::createCutPanel() {
     m_cutList = new QListWidget;
+    m_cutList->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_cutList->setContextMenuPolicy(Qt::CustomContextMenu);
+
+    m_copyAction = new QAction("Copy", this);
+    m_copyAction->setShortcut(QKeySequence::Copy);
+    m_pasteAction = new QAction("Paste", this);
+    m_pasteAction->setShortcut(QKeySequence::Paste);
+    for(QAction *action : {m_copyAction, m_pasteAction}) {
+        action->setShortcutContext(Qt::WidgetWithChildrenShortcut); // Several measurements can be open
+        addAction(action);
+    }
 
     auto *panel = new QWidget;
     auto *layout = new QVBoxLayout(panel);
@@ -137,20 +170,44 @@ QWidget *MeasurementView::createCutPanel() {
     layout->addWidget(new QLabel("Selections"));
     layout->addWidget(m_cutList);
 
+    connect(m_copyAction, &QAction::triggered, this, &MeasurementView::copyCuts);
+    connect(m_pasteAction, &QAction::triggered, this, &MeasurementView::pasteCuts);
     connect(m_cutList, &QListWidget::currentRowChanged, m_histogram, &HistogramWidget::setHighlightedCut);
+    connect(m_cutList, &QListWidget::itemSelectionChanged, this, [this]() {
+        m_histogram->setSelectedCuts(selectedCutRows());
+    });
     connect(m_cutList, &QListWidget::itemDoubleClicked, this, &MeasurementView::changeCutElement);
     connect(m_cutList, &QListWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        // Right-clicking an unselected selection selects only it
         QListWidgetItem *item = m_cutList->itemAt(pos);
-        if(!item) {
-            return;
+        if(item && !item->isSelected()) {
+            m_cutList->setCurrentItem(item);
         }
-        m_cutList->setCurrentItem(item);
+        const qsizetype count = selectedCutRows().size();
+        m_copyAction->setEnabled(count > 0);
+        m_pasteAction->setEnabled(!cutsFromClipboard().isEmpty());
         QMenu menu;
-        menu.addAction("Change Element...", this, &MeasurementView::changeCutElement);
-        menu.addAction("Remove", this, &MeasurementView::removeCut);
+        menu.addAction("Change Element...", this, &MeasurementView::changeCutElement)->setEnabled(count == 1);
+        menu.addAction(count > 1 ? QString("Remove %1 Selections").arg(count) : QString("Remove"), this, &MeasurementView::removeCuts)
+                ->setEnabled(count > 0);
+        menu.addSeparator();
+        menu.addAction(m_copyAction);
+        menu.addAction(m_pasteAction);
         menu.exec(m_cutList->viewport()->mapToGlobal(pos));
+        // The shortcuts stay available, they check what there is to copy or paste themselves
+        m_copyAction->setEnabled(true);
+        m_pasteAction->setEnabled(true);
     });
     return panel;
+}
+
+QList<int> MeasurementView::selectedCutRows() const {
+    QList<int> rows;
+    for(const QModelIndex &index : m_cutList->selectionModel()->selectedRows()) {
+        rows.append(index.row());
+    }
+    std::sort(rows.begin(), rows.end());
+    return rows;
 }
 
 void MeasurementView::updateCutList() {
@@ -190,17 +247,54 @@ void MeasurementView::changeCutElement() {
     emit modified();
 }
 
-void MeasurementView::removeCut() {
-    const int row = m_cutList->currentRow();
-    if(row < 0) {
+void MeasurementView::removeCuts() {
+    const QList<int> rows = selectedCutRows();
+    if(rows.isEmpty()) {
         return;
     }
-    const Cut &cut = m_measurement->cuts.at(row);
-    if(QMessageBox::question(this, "Remove Selection", QString("Remove the %1 selection?").arg(Elements::displayLabel(cut.z, cut.a)))
-       != QMessageBox::Yes) {
+    const Cut &first = m_measurement->cuts.at(rows.first());
+    const QString question = rows.size() > 1 ? QString("Remove %1 selections?").arg(rows.size())
+                                             : QString("Remove the %1 selection?").arg(Elements::displayLabel(first.z, first.a));
+    if(QMessageBox::question(this, "Remove Selections", question) != QMessageBox::Yes) {
         return;
     }
-    m_measurement->cuts.removeAt(row);
+    for(auto row = rows.crbegin(); row != rows.crend(); ++row) {
+        m_measurement->cuts.removeAt(*row);
+    }
     updateCutList();
+    emit modified();
+}
+
+void MeasurementView::copyCuts() {
+    QList<Cut> cuts;
+    for(int row : selectedCutRows()) {
+        cuts.append(m_measurement->cuts.at(row));
+    }
+    if(cuts.isEmpty()) {
+        return;
+    }
+    const QJsonObject root{{"format", ClipboardFormat}, {"version", 1}, {"cuts", cutsToJson(cuts)}};
+    const QByteArray json = QJsonDocument(root).toJson();
+    auto *mimeData = new QMimeData;
+    mimeData->setData(JsonMimeType, json);
+    mimeData->setText(QString::fromUtf8(json));
+    QGuiApplication::clipboard()->setMimeData(mimeData);
+    m_statusLabel->setText(QString("Copied %1 selection(s).").arg(cuts.size()));
+}
+
+void MeasurementView::pasteCuts() {
+    const QList<Cut> cuts = cutsFromClipboard();
+    if(cuts.isEmpty()) {
+        return;
+    }
+    const auto first = static_cast<int>(m_measurement->cuts.size());
+    m_measurement->cuts.append(cuts);
+    updateCutList();
+    // Select the pasted selections
+    m_cutList->setCurrentRow(first);
+    for(int row = first; row < m_cutList->count(); row++) {
+        m_cutList->item(row)->setSelected(true);
+    }
+    m_statusLabel->setText(QString("Pasted %1 selection(s).").arg(cuts.size()));
     emit modified();
 }

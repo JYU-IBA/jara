@@ -102,6 +102,11 @@ void HistogramWidget::setHighlightedCut(int index) {
     update();
 }
 
+void HistogramWidget::setSelectedCuts(const QList<int> &indices) {
+    m_selectedCuts = indices;
+    update();
+}
+
 void HistogramWidget::setMode(HistogramWidget::Mode mode) {
     m_mode = mode;
     m_polygon.clear();
@@ -302,14 +307,14 @@ void HistogramWidget::drawCuts(QPainter &painter) const {
     }
     for(int i = 0; i < m_cuts->size(); i++) {
         const QPolygonF polygon = cutInPixels(i);
-        const bool highlighted = i == m_highlightedCut;
+        const bool highlighted = i == m_highlightedCut || m_selectedCuts.contains(i);
         // A light outline under the line keeps it visible on both dark and light parts of the histogram
         painter.setBrush(Qt::NoBrush);
         painter.setPen(QPen(QColor(255, 255, 255, 200), highlighted ? 5 : 3.5));
         painter.drawPolygon(polygon);
         painter.setPen(QPen(CutColor, highlighted ? 2.5 : 1.5));
         painter.drawPolygon(polygon);
-        if(highlighted && m_mode == Mode::Edit) {
+        if(i == m_highlightedCut && m_mode == Mode::Edit) {
             painter.setPen(CutColor);
             painter.setBrush(Qt::white);
             for(const QPointF &vertex : polygon) {

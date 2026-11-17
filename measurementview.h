@@ -11,6 +11,7 @@
 
 struct Measurement;
 class HistogramWidget;
+class QAction;
 class QLabel;
 class QListWidget;
 
@@ -28,17 +29,22 @@ signals:
 private slots:
     void polygonCompleted(const QList<QPointF> &polygon);
     void changeCutElement();
-    void removeCut();
+    void removeCuts();
+    void copyCuts();
+    void pasteCuts();
 
 private:
     QWidget *createToolBar();
     QWidget *createCutPanel();
     void updateCutList();
+    QList<int> selectedCutRows() const; // Ascending
 
     Measurement *m_measurement;
     std::vector<ToFEEvent> m_events;
     HistogramWidget *m_histogram = nullptr;
     QListWidget *m_cutList = nullptr;
+    QAction *m_copyAction = nullptr;
+    QAction *m_pasteAction = nullptr;
     QLabel *m_statusLabel = nullptr;
     QString m_hint;
 };
