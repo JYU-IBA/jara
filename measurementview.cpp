@@ -16,8 +16,10 @@
 #include <QVBoxLayout>
 
 namespace {
-const QString ZoomHint = QStringLiteral("Drag to zoom, double-click to show everything.");
-const QString MoveHint = QStringLiteral("Drag to move the view.");
+const QString ZoomHint = QStringLiteral(
+        "Drag to zoom, double-click to show everything. Scroll the mouse wheel or pinch to zoom, "
+        "scroll with two fingers to move.");
+const QString MoveHint = QStringLiteral("Drag to move the view. Scroll the mouse wheel or pinch to zoom.");
 const QString SelectHint = QStringLiteral(
         "Click to add polygon vertices. Click the first vertex, double-click or press Enter to complete. "
         "Backspace removes the last vertex, Esc cancels.");

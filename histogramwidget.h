@@ -15,7 +15,8 @@ struct Cut;
 class QRubberBand;
 
 // 2D ToF-E histogram with logarithmic color scale. Supports box zoom, moving the view, drawing polygon
-// selections and editing existing cuts, which are drawn on top of the histogram.
+// selections and editing existing cuts, which are drawn on top of the histogram. The mouse wheel and trackpad
+// pinch zoom around the cursor, two-finger trackpad scrolling moves the view.
 class HistogramWidget : public QWidget {
     Q_OBJECT
 
@@ -40,6 +41,7 @@ signals:
     void cutEdited(int index);
 
 protected:
+    bool event(QEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
@@ -47,6 +49,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
 
 private:
     struct Range {
@@ -59,7 +62,8 @@ private:
     QPointF dataToPixel(const QPointF &data) const;
     QPointF pixelToData(const QPointF &pixel) const;
     void setView(const Range &x, const Range &y);
-    void zoom(double factor);
+    void zoomAt(const QPointF &anchor, double factor); // Anchor in channels stays at the same place on screen
+    void moveByPixels(const QPointF &delta);
     void rebin();
     void updateCursorInfo(const QPoint &pos);
     void completePolygon();
@@ -90,6 +94,7 @@ private:
     QPoint m_dragStart;
     bool m_moving = false;
     Range m_moveStartX{0, 1}, m_moveStartY{0, 1};
+    QPointF m_moveRemainder; // Channels not yet moved when scrolling, the view moves by whole channels
     QList<QPointF> m_polygon; // Selection being drawn, in channels
     QPoint m_cursor; // Last mouse position, for the line to the next polygon vertex
     int m_dragVertex = -1; // Vertex of the highlighted cut being dragged in Edit mode

@@ -8,6 +8,8 @@
 
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QNativeGestureEvent>
+#include <QWheelEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QRubberBand>
@@ -116,29 +118,92 @@ void HistogramWidget::resetZoom() {
 }
 
 void HistogramWidget::zoomIn() {
-    zoom(0.5);
+    zoomAt({(m_viewX.min + m_viewX.max) / 2, (m_viewY.min + m_viewY.max) / 2}, 0.5);
 }
 
 void HistogramWidget::zoomOut() {
-    zoom(2.0);
+    zoomAt({(m_viewX.min + m_viewX.max) / 2, (m_viewY.min + m_viewY.max) / 2}, 2.0);
 }
 
-void HistogramWidget::zoom(double factor) {
-    // Zoom around the center of the view, never beyond the full range
-    auto zoomed = [factor](const Range &view, const Range &full) -> Range {
-        const double size = std::max(MinimumViewSize, std::round(view.size() * factor));
+void HistogramWidget::zoomAt(const QPointF &anchor, double factor) {
+    // View edges stay on whole channels, and the view never gets larger than the full range
+    auto zoomed = [factor](const Range &view, const Range &full, double anchor) -> Range {
+        double size = std::round(view.size() * factor);
+        // Small steps must still change the view, otherwise repeated small steps would never zoom
+        if(factor < 1) {
+            size = std::min(size, view.size() - 1);
+        } else if(factor > 1) {
+            size = std::max(size, view.size() + 1);
+        }
+        size = std::max(MinimumViewSize, size);
         if(size >= full.size()) {
             return full;
         }
-        const double min = std::floor(view.min + (view.size() - size) / 2);
+        const double min = std::round(anchor - (anchor - view.min) * size / view.size());
         return {min, min + size};
     };
-    setView(zoomed(m_viewX, m_fullX), zoomed(m_viewY, m_fullY));
+    setView(zoomed(m_viewX, m_fullX, anchor.x()), zoomed(m_viewY, m_fullY, anchor.y()));
+}
+
+void HistogramWidget::moveByPixels(const QPointF &delta) {
+    // The content follows the fingers
+    const QRect plot = plotRect();
+    m_moveRemainder += QPointF(-delta.x() * m_viewX.size() / plot.width(), delta.y() * m_viewY.size() / plot.height());
+    const double dx = std::trunc(m_moveRemainder.x());
+    const double dy = std::trunc(m_moveRemainder.y());
+    if(dx == 0 && dy == 0) {
+        return;
+    }
+    m_moveRemainder -= QPointF(dx, dy);
+    setView({m_viewX.min + dx, m_viewX.max + dx}, {m_viewY.min + dy, m_viewY.max + dy});
+}
+
+void HistogramWidget::wheelEvent(QWheelEvent *event) {
+    // Trackpads report scroll phases, mouse wheels do not
+    const bool trackpad = event->phase() != Qt::NoScrollPhase
+                          || (event->pointingDevice() && event->pointingDevice()->type() == QInputDevice::DeviceType::TouchPad);
+    if(trackpad && !(event->modifiers() & Qt::ControlModifier)) {
+        moveByPixels(event->pixelDelta().isNull() ? QPointF(event->angleDelta()) / 8.0 : QPointF(event->pixelDelta()));
+    } else {
+        const double steps = event->angleDelta().y() / 120.0; // One step per wheel notch
+        if(steps == 0) {
+            event->ignore();
+            return;
+        }
+        zoomAt(pixelToData(event->position()), std::pow(0.8, steps));
+    }
+    updateCursorInfo(event->position().toPoint());
+    event->accept();
+}
+
+bool HistogramWidget::event(QEvent *event) {
+    if(event->type() == QEvent::NativeGesture) {
+        auto *gesture = static_cast<QNativeGestureEvent *>(event);
+        if(gesture->gestureType() == Qt::ZoomNativeGesture) {
+            // Qt passes the gesture on from the window without mapping position() to this widget
+            const QPointF pos = mapFromGlobal(gesture->globalPosition());
+            const double scale = 1.0 + std::clamp(gesture->value(), -0.5, 0.5); // Pinching out gives positive values
+            zoomAt(pixelToData(pos), 1.0 / scale);
+            updateCursorInfo(pos.toPoint());
+            return true;
+        }
+        if(gesture->gestureType() == Qt::SmartZoomNativeGesture) {
+            resetZoom();
+            return true;
+        }
+    }
+    return QWidget::event(event);
 }
 
 void HistogramWidget::setView(const Range &x, const Range &y) {
-    m_viewX = x;
-    m_viewY = y;
+    // Never show areas outside the full range: shrink to it, then shift back inside
+    auto clamped = [](Range view, const Range &full) -> Range {
+        const double size = std::min(view.size(), full.size());
+        const double min = std::clamp(view.min, full.min, full.max - size);
+        return {min, min + size};
+    };
+    m_viewX = clamped(x, m_fullX);
+    m_viewY = clamped(y, m_fullY);
     rebin();
     update();
 }
