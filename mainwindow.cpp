@@ -4,10 +4,12 @@
 
 #include <QCloseEvent>
 #include <QFileDialog>
+#include <QDir>
 #include <QFileInfo>
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QSettings>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
@@ -20,6 +22,16 @@ extern "C" {
 
 namespace {
 const QString ProjectFileFilter = QStringLiteral("JaRA projects (*.json);;All files (*)");
+const QString RecentFilesKey = QStringLiteral("recentFiles");
+constexpr int MaxRecentFiles = 10;
+
+QStringList recentFiles() {
+    return QSettings().value(RecentFilesKey).toStringList();
+}
+
+void setRecentFiles(const QStringList &files) {
+    QSettings().setValue(RecentFilesKey, files);
+}
 
 QLabel *centeredLabel(const QString &text) {
     auto *label = new QLabel(text);
@@ -111,6 +123,8 @@ void MainWindow::createMenus() {
     QMenu *fileMenu = menuBar()->addMenu("&File");
     fileMenu->addAction(m_newAction);
     fileMenu->addAction(m_openAction);
+    m_recentFilesMenu = fileMenu->addMenu("Open &Recent");
+    updateRecentFilesMenu();
     fileMenu->addAction(m_saveAction);
     fileMenu->addAction(m_saveAsAction);
     fileMenu->addAction(m_closeAction);
@@ -206,6 +220,7 @@ void MainWindow::openProjectFile(const QString &fileName) {
         return;
     }
     setProject(std::move(project));
+    addRecentFile(fileName);
     statusBar()->showMessage(QString("Opened %1").arg(fileName), 5000);
 }
 
@@ -243,6 +258,7 @@ bool MainWindow::saveProjectAs() {
         return false;
     }
     updateWindowState();
+    addRecentFile(fileName);
     statusBar()->showMessage(QString("Saved %1").arg(fileName), 5000);
     return true;
 }
@@ -306,6 +322,61 @@ void MainWindow::closeTab(int index) {
     if(m_tabs->count() == 0) {
         m_workArea->setCurrentIndex(0);
     }
+}
+
+void MainWindow::addRecentFile(const QString &fileName) {
+    const QString path = QFileInfo(fileName).absoluteFilePath();
+    QStringList files = recentFiles();
+    files.removeAll(path);
+    files.prepend(path);
+    while(files.size() > MaxRecentFiles) {
+        files.removeLast();
+    }
+    setRecentFiles(files);
+    updateRecentFilesMenu();
+}
+
+void MainWindow::removeRecentFile(const QString &fileName) {
+    QStringList files = recentFiles();
+    files.removeAll(fileName);
+    setRecentFiles(files);
+    updateRecentFilesMenu();
+}
+
+void MainWindow::clearRecentFiles() {
+    setRecentFiles({});
+    updateRecentFilesMenu();
+}
+
+void MainWindow::updateRecentFilesMenu() {
+    m_recentFilesMenu->clear();
+    const QStringList files = recentFiles();
+    const QString home = QDir::homePath();
+    for(int i = 0; i < files.size(); i++) {
+        const QString &file = files.at(i);
+        QString shown = QDir::toNativeSeparators(file.startsWith(home + "/") ? "~" + file.mid(home.size()) : file);
+        shown.replace("&", "&&"); // Not a mnemonic
+        QAction *action = m_recentFilesMenu->addAction(QString("&%1 %2").arg(i + 1).arg(shown));
+        connect(action, &QAction::triggered, this, [this, file]() { openRecentFile(file); });
+    }
+    if(files.isEmpty()) {
+        m_recentFilesMenu->addAction("No Recent Projects")->setEnabled(false);
+    } else {
+        m_recentFilesMenu->addSeparator();
+        m_recentFilesMenu->addAction("Clear Recent Projects", this, &MainWindow::clearRecentFiles);
+    }
+}
+
+void MainWindow::openRecentFile(const QString &fileName) {
+    if(!maybeSave()) {
+        return;
+    }
+    if(!QFileInfo::exists(fileName)) {
+        QMessageBox::warning(this, "JaRA", QString("%1 no longer exists. It was removed from the recent projects.").arg(fileName));
+        removeRecentFile(fileName);
+        return;
+    }
+    openProjectFile(fileName);
 }
 
 void MainWindow::about() {

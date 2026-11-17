@@ -8,6 +8,7 @@
 #include "project.h"
 
 class ProjectPanel;
+class QMenu;
 class QStackedWidget;
 class QTabWidget;
 
@@ -34,6 +35,8 @@ private slots:
     void closeMeasurementTab(Measurement *measurement);
     void closeTab(int index);
     void about();
+    void openRecentFile(const QString &fileName);
+    void clearRecentFiles();
 
 private:
     void createActions();
@@ -43,6 +46,9 @@ private:
     void setProject(std::unique_ptr<Project> project);
     void updateWindowState();
     int measurementTabIndex(const Measurement *measurement) const;
+    void addRecentFile(const QString &fileName);
+    void removeRecentFile(const QString &fileName);
+    void updateRecentFilesMenu();
 
     std::unique_ptr<Project> m_project; // nullptr when no project is open
     QStackedWidget *m_stack;
@@ -51,6 +57,7 @@ private:
     QTabWidget *m_tabs;
     QAction *m_newAction;
     QAction *m_openAction;
+    QMenu *m_recentFilesMenu;
     QAction *m_saveAction;
     QAction *m_saveAsAction;
     QAction *m_closeAction;

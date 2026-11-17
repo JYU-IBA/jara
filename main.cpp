@@ -7,6 +7,8 @@
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     QApplication::setApplicationName("JaRA");
+    QApplication::setOrganizationName("JYU");
+    QApplication::setOrganizationDomain("jyu.fi"); // Settings are stored as fi.jyu.JaRA on macOS
     QApplication::setApplicationVersion(JARA_VERSION);
     QString errorMessage;
     if(!Elements::init(errorMessage)) {
