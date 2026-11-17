@@ -271,7 +271,9 @@ int MainWindow::measurementTabIndex(const Measurement *measurement) const {
 void MainWindow::openMeasurement(Measurement *measurement) {
     int index = measurementTabIndex(measurement);
     if(index < 0) {
-        index = m_tabs->addTab(new MeasurementView(measurement), measurement->name);
+        auto *view = new MeasurementView(measurement);
+        connect(view, &MeasurementView::modified, this, &MainWindow::projectModified);
+        index = m_tabs->addTab(view, measurement->name);
     }
     m_tabs->setCurrentIndex(index);
     m_workArea->setCurrentWidget(m_tabs);

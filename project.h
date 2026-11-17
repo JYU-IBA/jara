@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <QList>
+#include <QPointF>
 #include <QString>
 
 struct MetadataEntry {
@@ -20,10 +21,18 @@ struct AttachedFile {
     QString description;
 };
 
+// Polygon selection of events in a ToF-E histogram, assigned to an element
+struct Cut {
+    int z = 0;
+    int a = 0; // Mass number, zero when no specific isotope is selected
+    QList<QPointF> polygon; // ToF and E in channels
+};
+
 struct Measurement {
     QString name;
     QString description;
     QString path; // Data file (*.asc), only referenced, never copied or moved
+    QList<Cut> cuts;
 };
 
 struct Sample {

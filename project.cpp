@@ -28,6 +28,32 @@ QString pathFromJson(const QJsonValue &value, const QDir &baseDir) {
     return path.isEmpty() ? QString() : QDir::cleanPath(baseDir.absoluteFilePath(path));
 }
 
+QJsonArray cutsToJson(const QList<Cut> &cuts) {
+    QJsonArray result;
+    for(const auto &cut : cuts) {
+        QJsonArray polygon;
+        for(const QPointF &point : cut.polygon) {
+            polygon.append(QJsonArray{point.x(), point.y()});
+        }
+        result.append(QJsonObject{{"z", cut.z}, {"a", cut.a}, {"polygon", polygon}});
+    }
+    return result;
+}
+
+QList<Cut> cutsFromJson(const QJsonArray &json) {
+    QList<Cut> cuts;
+    for(const auto &value : json) {
+        const QJsonObject object = value.toObject();
+        Cut cut{object["z"].toInt(), object["a"].toInt(), {}};
+        for(const auto &point : object["polygon"].toArray()) {
+            const QJsonArray coordinates = point.toArray();
+            cut.polygon.append({coordinates.at(0).toDouble(), coordinates.at(1).toDouble()});
+        }
+        cuts.append(cut);
+    }
+    return cuts;
+}
+
 QJsonObject sampleToJson(const Sample &sample, const QDir &baseDir) {
     QJsonArray metadata;
     for(const auto &entry : sample.metadata) {
@@ -42,7 +68,8 @@ QJsonObject sampleToJson(const Sample &sample, const QDir &baseDir) {
         measurements.append(QJsonObject{
                 {"name", measurement->name},
                 {"description", measurement->description},
-                {"path", pathToJson(measurement->path, baseDir)}});
+                {"path", pathToJson(measurement->path, baseDir)},
+                {"cuts", cutsToJson(measurement->cuts)}});
     }
     return QJsonObject{
             {"name", sample.name},
@@ -72,7 +99,7 @@ std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &base
         const QJsonObject measurement = value.toObject();
         sample->measurements.push_back(std::make_unique<Measurement>(
                 measurement["name"].toString(), measurement["description"].toString(),
-                pathFromJson(measurement["path"], baseDir)));
+                pathFromJson(measurement["path"], baseDir), cutsFromJson(measurement["cuts"].toArray())));
     }
     return sample;
 }

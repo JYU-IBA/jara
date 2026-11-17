@@ -1,11 +1,15 @@
 #include "histogramwidget.h"
+#include "elements.h"
+#include "project.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QRubberBand>
 
 namespace {
@@ -13,6 +17,8 @@ constexpr int MarginLeft = 70;
 constexpr int MarginRight = 20;
 constexpr int MarginTop = 30;
 constexpr int MarginBottom = 50;
+constexpr double CloseDistance = 8; // Pixels, clicking this close to the first vertex completes a polygon
+constexpr double MinimumViewSize = 2; // Channels
 
 // Viridis-like color map, built once
 const std::array<QRgb, 256> &colorMap() {
@@ -42,12 +48,18 @@ double niceStep(double range, int targetTicks) {
     const double nice = r < 1.5 ? 1 : r < 3 ? 2 : r < 7 ? 5 : 10;
     return nice * magnitude;
 }
+
+double distance(const QPointF &a, const QPointF &b) {
+    return std::hypot(a.x() - b.x(), a.y() - b.y());
+}
 }
 
 HistogramWidget::HistogramWidget(QWidget *parent) : QWidget(parent) {
     m_rubberBand = new QRubberBand(QRubberBand::Rectangle, this);
     setMouseTracking(true);
+    setFocusPolicy(Qt::StrongFocus);
     setMinimumSize(300, 200);
+    setCursor(Qt::CrossCursor);
 }
 
 void HistogramWidget::setEvents(const std::vector<ToFEEvent> *events) {
@@ -65,9 +77,53 @@ void HistogramWidget::setEvents(const std::vector<ToFEEvent> *events) {
     resetZoom();
 }
 
+void HistogramWidget::setCuts(const QList<Cut> *cuts) {
+    m_cuts = cuts;
+    update();
+}
+
+void HistogramWidget::setHighlightedCut(int index) {
+    m_highlightedCut = index;
+    update();
+}
+
+void HistogramWidget::setMode(HistogramWidget::Mode mode) {
+    m_mode = mode;
+    m_polygon.clear();
+    m_rubberBand->hide();
+    m_moving = false;
+    setCursor(mode == Mode::Move ? Qt::OpenHandCursor : Qt::CrossCursor);
+    update();
+}
+
 void HistogramWidget::resetZoom() {
-    m_viewX = m_fullX;
-    m_viewY = m_fullY;
+    setView(m_fullX, m_fullY);
+}
+
+void HistogramWidget::zoomIn() {
+    zoom(0.5);
+}
+
+void HistogramWidget::zoomOut() {
+    zoom(2.0);
+}
+
+void HistogramWidget::zoom(double factor) {
+    // Zoom around the center of the view, never beyond the full range
+    auto zoomed = [factor](const Range &view, const Range &full) -> Range {
+        const double size = std::max(MinimumViewSize, std::round(view.size() * factor));
+        if(size >= full.size()) {
+            return full;
+        }
+        const double min = std::floor(view.min + (view.size() - size) / 2);
+        return {min, min + size};
+    };
+    setView(zoomed(m_viewX, m_fullX), zoomed(m_viewY, m_fullY));
+}
+
+void HistogramWidget::setView(const Range &x, const Range &y) {
+    m_viewX = x;
+    m_viewY = y;
     rebin();
     update();
 }
@@ -76,14 +132,10 @@ QRect HistogramWidget::plotRect() const {
     return rect().adjusted(MarginLeft, MarginTop, -MarginRight, -MarginBottom);
 }
 
-double HistogramWidget::xToPixel(double x) const {
+QPointF HistogramWidget::dataToPixel(const QPointF &data) const {
     const QRect plot = plotRect();
-    return plot.left() + (x - m_viewX.min) / m_viewX.size() * plot.width();
-}
-
-double HistogramWidget::yToPixel(double y) const {
-    const QRect plot = plotRect();
-    return plot.top() + plot.height() - (y - m_viewY.min) / m_viewY.size() * plot.height();
+    return {plot.left() + (data.x() - m_viewX.min) / m_viewX.size() * plot.width(),
+            plot.top() + plot.height() - (data.y() - m_viewY.min) / m_viewY.size() * plot.height()};
 }
 
 QPointF HistogramWidget::pixelToData(const QPointF &pixel) const {
@@ -141,16 +193,72 @@ void HistogramWidget::paintEvent(QPaintEvent *) {
         return;
     }
     painter.fillRect(plot, Qt::white);
+    painter.save();
+    painter.setClipRect(plot);
     if(!m_image.isNull()) {
         // The bins cover slightly more than the view when the view is not a multiple of the bin width
-        const QRectF target(QPointF(xToPixel(m_viewX.min), yToPixel(m_viewY.min + m_binsY * m_binWidthY)),
-                            QPointF(xToPixel(m_viewX.min + m_binsX * m_binWidthX), yToPixel(m_viewY.min)));
-        painter.save();
-        painter.setClipRect(plot);
+        const QRectF target(dataToPixel({m_viewX.min, m_viewY.min + m_binsY * m_binWidthY}),
+                            dataToPixel({m_viewX.min + m_binsX * m_binWidthX, m_viewY.min}));
         painter.drawImage(target, m_image);
-        painter.restore();
     }
+    painter.setRenderHint(QPainter::Antialiasing);
+    drawCuts(painter);
+    drawPolygonInProgress(painter);
+    painter.restore();
     drawAxes(painter, plot);
+}
+
+void HistogramWidget::drawCuts(QPainter &painter) const {
+    if(!m_cuts) {
+        return;
+    }
+    for(int i = 0; i < m_cuts->size(); i++) {
+        const Cut &cut = m_cuts->at(i);
+        QPolygonF polygon;
+        for(const QPointF &point : cut.polygon) {
+            polygon.append(dataToPixel(point));
+        }
+        const bool highlighted = i == m_highlightedCut;
+        // A light outline under the line keeps it visible on both dark and light parts of the histogram
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(QPen(QColor(255, 255, 255, 200), highlighted ? 5 : 3.5));
+        painter.drawPolygon(polygon);
+        painter.setPen(QPen(QColor(220, 20, 60), highlighted ? 2.5 : 1.5));
+        painter.drawPolygon(polygon);
+
+        const QString label = Elements::label(cut.z, cut.a);
+        const QRectF bounds = polygon.boundingRect();
+        QRectF labelRect = painter.fontMetrics().boundingRect(label).adjusted(-3, -1, 3, 1);
+        labelRect.moveBottomLeft(bounds.topRight() + QPointF(2, -2));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(255, 255, 255, 220));
+        painter.drawRoundedRect(labelRect, 3, 3);
+        painter.setPen(QColor(220, 20, 60));
+        painter.drawText(labelRect, Qt::AlignCenter, label);
+    }
+}
+
+void HistogramWidget::drawPolygonInProgress(QPainter &painter) const {
+    if(m_polygon.isEmpty()) {
+        return;
+    }
+    QPolygonF polyline;
+    for(const QPointF &point : m_polygon) {
+        polyline.append(dataToPixel(point));
+    }
+    const bool closing = m_polygon.size() >= 3 && distance(polyline.first(), m_cursor) < CloseDistance;
+    polyline.append(closing ? polyline.first() : QPointF(m_cursor));
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QPen(QColor(255, 255, 255, 200), 3.5));
+    painter.drawPolyline(polyline);
+    painter.setPen(QPen(Qt::black, 1.5, Qt::DashLine));
+    painter.drawPolyline(polyline);
+    painter.setPen(Qt::black);
+    painter.setBrush(Qt::white);
+    for(int i = 0; i < m_polygon.size(); i++) {
+        const double size = i == 0 && closing ? 10 : 6; // Show that clicking the first vertex completes the polygon
+        painter.drawRect(QRectF(0, 0, size, size).translated(polyline.at(i) - QPointF(size / 2, size / 2)));
+    }
 }
 
 void HistogramWidget::drawAxes(QPainter &painter, const QRect &plot) const {
@@ -160,14 +268,14 @@ void HistogramWidget::drawAxes(QPainter &painter, const QRect &plot) const {
 
     const double stepX = niceStep(m_viewX.size(), std::max(2, plot.width() / 80));
     for(double x = std::ceil(m_viewX.min / stepX) * stepX; x <= m_viewX.max; x += stepX) {
-        const int px = static_cast<int>(std::round(xToPixel(x)));
+        const int px = static_cast<int>(std::round(dataToPixel({x, 0}).x()));
         painter.drawLine(px, plot.bottom(), px, plot.bottom() + 5);
         const QString label = QString::number(x);
         painter.drawText(px - metrics.horizontalAdvance(label) / 2, plot.bottom() + 6 + metrics.ascent(), label);
     }
     const double stepY = niceStep(m_viewY.size(), std::max(2, plot.height() / 50));
     for(double y = std::ceil(m_viewY.min / stepY) * stepY; y <= m_viewY.max; y += stepY) {
-        const int py = static_cast<int>(std::round(yToPixel(y)));
+        const int py = static_cast<int>(std::round(dataToPixel({0, y}).y()));
         painter.drawLine(plot.left() - 5, py, plot.left(), py);
         const QString label = QString::number(y);
         painter.drawText(plot.left() - 8 - metrics.horizontalAdvance(label), py + metrics.ascent() / 2, label);
@@ -194,23 +302,57 @@ void HistogramWidget::resizeEvent(QResizeEvent *) {
 }
 
 void HistogramWidget::mousePressEvent(QMouseEvent *event) {
-    if(event->button() == Qt::LeftButton && plotRect().contains(event->pos())) {
-        m_dragStart = event->pos();
-        m_rubberBand->setGeometry(QRect(m_dragStart, QSize()));
-        m_rubberBand->show();
+    if(event->button() != Qt::LeftButton || !plotRect().contains(event->pos())) {
+        return;
+    }
+    switch(m_mode) {
+        case Mode::Zoom:
+            m_dragStart = event->pos();
+            m_rubberBand->setGeometry(QRect(m_dragStart, QSize()));
+            m_rubberBand->show();
+            break;
+        case Mode::Move:
+            m_dragStart = event->pos();
+            m_moveStartX = m_viewX;
+            m_moveStartY = m_viewY;
+            m_moving = true;
+            setCursor(Qt::ClosedHandCursor);
+            break;
+        case Mode::Select:
+            if(m_polygon.size() >= 3 && distance(dataToPixel(m_polygon.first()), event->pos()) < CloseDistance) {
+                completePolygon();
+            } else {
+                m_polygon.append(pixelToData(event->position()));
+                update();
+            }
+            break;
     }
 }
 
 void HistogramWidget::mouseMoveEvent(QMouseEvent *event) {
-    const QRect plot = plotRect();
+    m_cursor = event->pos();
     if(m_rubberBand->isVisible()) {
-        m_rubberBand->setGeometry(QRect(m_dragStart, event->pos()).normalized() & plot);
+        m_rubberBand->setGeometry(QRect(m_dragStart, event->pos()).normalized() & plotRect());
     }
-    if(!plot.contains(event->pos()) || m_counts.empty()) {
+    if(m_moving) {
+        // Move by whole channels
+        const QRect plot = plotRect();
+        const double dx = std::round((m_dragStart.x() - event->pos().x()) * m_moveStartX.size() / plot.width());
+        const double dy = std::round((event->pos().y() - m_dragStart.y()) * m_moveStartY.size() / plot.height());
+        setView({m_moveStartX.min + dx, m_moveStartX.max + dx}, {m_moveStartY.min + dy, m_moveStartY.max + dy});
+    }
+    if(!m_polygon.isEmpty()) {
+        update();
+    }
+    updateCursorInfo(event->pos());
+}
+
+void HistogramWidget::updateCursorInfo(const QPoint &pos) {
+    if(!plotRect().contains(pos) || m_counts.empty()) {
         emit cursorInfoChanged({});
         return;
     }
-    const QPointF data = pixelToData(event->position());
+    const QPointF data = pixelToData(pos);
     const int bx = static_cast<int>(std::floor((data.x() - m_viewX.min) / m_binWidthX));
     const int by = static_cast<int>(std::floor((data.y() - m_viewY.min) / m_binWidthY));
     if(bx < 0 || by < 0 || bx >= m_binsX || by >= m_binsY) {
@@ -227,7 +369,15 @@ void HistogramWidget::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void HistogramWidget::mouseReleaseEvent(QMouseEvent *event) {
-    if(event->button() != Qt::LeftButton || !m_rubberBand->isVisible()) {
+    if(event->button() != Qt::LeftButton) {
+        return;
+    }
+    if(m_moving) {
+        m_moving = false;
+        setCursor(Qt::OpenHandCursor);
+        return;
+    }
+    if(!m_rubberBand->isVisible()) {
         return;
     }
     m_rubberBand->hide();
@@ -238,14 +388,51 @@ void HistogramWidget::mouseReleaseEvent(QMouseEvent *event) {
     // Zoom to whole channels
     const QPointF topLeft = pixelToData(selection.topLeft());
     const QPointF bottomRight = pixelToData(selection.bottomRight());
-    m_viewX = {std::floor(topLeft.x()), std::max(std::ceil(bottomRight.x()), std::floor(topLeft.x()) + 2)};
-    m_viewY = {std::floor(bottomRight.y()), std::max(std::ceil(topLeft.y()), std::floor(bottomRight.y()) + 2)};
-    rebin();
-    update();
+    const double minX = std::floor(topLeft.x());
+    const double minY = std::floor(bottomRight.y());
+    setView({minX, std::max(std::ceil(bottomRight.x()), minX + MinimumViewSize)},
+            {minY, std::max(std::ceil(topLeft.y()), minY + MinimumViewSize)});
 }
 
 void HistogramWidget::mouseDoubleClickEvent(QMouseEvent *event) {
-    if(event->button() == Qt::LeftButton) {
+    if(event->button() != Qt::LeftButton) {
+        return;
+    }
+    if(m_mode == Mode::Select) {
+        // The first click of the double-click already added the last vertex
+        if(m_polygon.size() >= 3) {
+            completePolygon();
+        }
+    } else if(m_mode == Mode::Zoom) {
         resetZoom();
     }
+}
+
+void HistogramWidget::keyPressEvent(QKeyEvent *event) {
+    if(m_mode == Mode::Select && !m_polygon.isEmpty()) {
+        if(event->key() == Qt::Key_Escape) {
+            m_polygon.clear();
+            update();
+            return;
+        }
+        if(event->key() == Qt::Key_Backspace || event->key() == Qt::Key_Delete) {
+            m_polygon.removeLast();
+            update();
+            return;
+        }
+        if(event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+            if(m_polygon.size() >= 3) {
+                completePolygon();
+            }
+            return;
+        }
+    }
+    QWidget::keyPressEvent(event);
+}
+
+void HistogramWidget::completePolygon() {
+    const QList<QPointF> polygon = m_polygon;
+    m_polygon.clear();
+    update();
+    emit polygonCompleted(polygon);
 }

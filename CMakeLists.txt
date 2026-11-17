@@ -26,6 +26,10 @@ add_executable(jara
         histogramwidget.h
         tofedata.cpp
         tofedata.h
+        elements.cpp
+        elements.h
+        elementdialog.cpp
+        elementdialog.h
 )
 
 target_compile_definitions(jara PRIVATE JARA_VERSION="${PROJECT_VERSION}")
