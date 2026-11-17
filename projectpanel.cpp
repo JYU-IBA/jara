@@ -15,7 +15,6 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPlainTextEdit>
-#include <QPushButton>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStyle>
@@ -87,15 +86,6 @@ QWidget *createPage(QLayout *layout) {
     return page;
 }
 
-QHBoxLayout *buttonRow(const QList<QPushButton *> &buttons) {
-    auto *layout = new QHBoxLayout;
-    for(auto *button : buttons) {
-        layout->addWidget(button);
-    }
-    layout->addStretch();
-    return layout;
-}
-
 QLabel *pathLabel() {
     auto *label = new QLabel;
     label->setWordWrap(true);
@@ -108,18 +98,9 @@ ProjectPanel::ProjectPanel(QWidget *parent) : QWidget(parent) {
     m_tree = new QTreeWidget;
     m_tree->setHeaderHidden(true);
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
-    auto *addSampleButton = new QPushButton("Add Sample");
-    auto *removeSampleButton = new QPushButton("Remove Sample");
-    removeSampleButton->setEnabled(false);
-
-    auto *treePanel = new QWidget;
-    auto *treeLayout = new QVBoxLayout(treePanel);
-    treeLayout->setContentsMargins(0, 0, 0, 0);
-    treeLayout->addWidget(m_tree);
-    treeLayout->addLayout(buttonRow({addSampleButton, removeSampleButton}));
 
     auto *splitter = new QSplitter(Qt::Vertical);
-    splitter->addWidget(treePanel);
+    splitter->addWidget(m_tree);
     splitter->addWidget(createPropertyPages());
     splitter->setStretchFactor(0, 1);
     auto *layout = new QVBoxLayout(this);
@@ -129,11 +110,6 @@ ProjectPanel::ProjectPanel(QWidget *parent) : QWidget(parent) {
     connect(m_tree, &QTreeWidget::currentItemChanged, this, &ProjectPanel::currentItemChanged);
     connect(m_tree, &QTreeWidget::itemDoubleClicked, this, &ProjectPanel::itemDoubleClicked);
     connect(m_tree, &QTreeWidget::customContextMenuRequested, this, &ProjectPanel::showContextMenu);
-    connect(addSampleButton, &QPushButton::clicked, this, &ProjectPanel::addSample);
-    connect(removeSampleButton, &QPushButton::clicked, this, &ProjectPanel::removeSample);
-    connect(this, &ProjectPanel::currentSampleChanged, removeSampleButton, [removeSampleButton](Sample *sample) {
-        removeSampleButton->setEnabled(sample != nullptr);
-    });
 }
 
 QWidget *ProjectPanel::createPropertyPages() {
@@ -150,41 +126,30 @@ QWidget *ProjectPanel::createPropertyPages() {
     m_metadataTable->horizontalHeader()->setStretchLastSection(true);
     m_metadataTable->verticalHeader()->hide();
     m_metadataTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    auto *addMetadataButton = new QPushButton("Add");
-    auto *removeMetadataButton = new QPushButton("Remove");
+    m_metadataTable->setContextMenuPolicy(Qt::CustomContextMenu);
     auto *metadataGroup = new QGroupBox("Metadata");
     auto *metadataLayout = new QVBoxLayout(metadataGroup);
     metadataLayout->addWidget(m_metadataTable);
-    metadataLayout->addLayout(buttonRow({addMetadataButton, removeMetadataButton}));
-    auto *addMeasurementsButton = new QPushButton("Add Measurements...");
-    auto *addFilesButton = new QPushButton("Add Files...");
     auto *sampleLayout = new QFormLayout;
     sampleLayout->addRow("Name:", m_sampleNameEdit);
     sampleLayout->addRow("Description:", m_sampleDescriptionEdit);
     sampleLayout->addRow(metadataGroup);
-    sampleLayout->addRow(buttonRow({addMeasurementsButton, addFilesButton}));
     m_pages->insertWidget(SamplePage, createPage(sampleLayout));
 
     m_measurementNameEdit = new QLineEdit;
     m_measurementDescriptionEdit = new QLineEdit;
     m_measurementPathLabel = pathLabel();
-    auto *openMeasurementButton = new QPushButton("Open");
-    auto *removeMeasurementButton = new QPushButton("Remove");
     auto *measurementLayout = new QFormLayout;
     measurementLayout->addRow("Name:", m_measurementNameEdit);
     measurementLayout->addRow("Description:", m_measurementDescriptionEdit);
     measurementLayout->addRow("Data file:", m_measurementPathLabel);
-    measurementLayout->addRow(buttonRow({openMeasurementButton, removeMeasurementButton}));
     m_pages->insertWidget(MeasurementPage, createPage(measurementLayout));
 
     m_filePathLabel = pathLabel();
     m_fileDescriptionEdit = new QLineEdit;
-    auto *openFileButton = new QPushButton("Open");
-    auto *removeFileButton = new QPushButton("Remove");
     auto *fileLayout = new QFormLayout;
     fileLayout->addRow("Path:", m_filePathLabel);
     fileLayout->addRow("Description:", m_fileDescriptionEdit);
-    fileLayout->addRow(buttonRow({openFileButton, removeFileButton}));
     m_pages->insertWidget(FilePage, createPage(fileLayout));
 
     connect(m_sampleNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
@@ -197,11 +162,15 @@ QWidget *ProjectPanel::createPropertyPages() {
         currentSample()->description = m_sampleDescriptionEdit->toPlainText();
         emit modified();
     });
-    connect(addMetadataButton, &QPushButton::clicked, this, &ProjectPanel::addMetadata);
-    connect(removeMetadataButton, &QPushButton::clicked, this, &ProjectPanel::removeMetadata);
+    connect(m_metadataTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        QMenu menu;
+        menu.addAction("Add Entry", this, &ProjectPanel::addMetadata);
+        if(m_metadataTable->selectionModel()->hasSelection()) {
+            menu.addAction("Remove Entry", this, &ProjectPanel::removeMetadata);
+        }
+        menu.exec(m_metadataTable->viewport()->mapToGlobal(pos));
+    });
     connect(m_metadataTable, &QTableWidget::itemChanged, this, &ProjectPanel::metadataItemChanged);
-    connect(addMeasurementsButton, &QPushButton::clicked, this, &ProjectPanel::addMeasurements);
-    connect(addFilesButton, &QPushButton::clicked, this, &ProjectPanel::addFiles);
     connect(m_measurementNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         Measurement *measurement = currentMeasurement();
         measurement->name = text;
@@ -213,16 +182,10 @@ QWidget *ProjectPanel::createPropertyPages() {
         currentMeasurement()->description = text;
         emit modified();
     });
-    connect(openMeasurementButton, &QPushButton::clicked, this, [this]() {
-        emit measurementOpenRequested(currentMeasurement());
-    });
-    connect(removeMeasurementButton, &QPushButton::clicked, this, &ProjectPanel::removeCurrentMeasurement);
     connect(m_fileDescriptionEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         currentFile().description = text;
         emit modified();
     });
-    connect(openFileButton, &QPushButton::clicked, this, &ProjectPanel::openCurrentFile);
-    connect(removeFileButton, &QPushButton::clicked, this, &ProjectPanel::removeCurrentFile);
     return m_pages;
 }
 

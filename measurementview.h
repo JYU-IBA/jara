@@ -13,7 +13,6 @@ struct Measurement;
 class HistogramWidget;
 class QLabel;
 class QListWidget;
-class QPushButton;
 
 // Tab in the main work area where a measurement is worked with. Loads the measurement's data file when created.
 class MeasurementView : public QWidget {
@@ -40,8 +39,6 @@ private:
     std::vector<ToFEEvent> m_events;
     HistogramWidget *m_histogram = nullptr;
     QListWidget *m_cutList = nullptr;
-    QPushButton *m_changeCutButton = nullptr;
-    QPushButton *m_removeCutButton = nullptr;
     QLabel *m_statusLabel = nullptr;
     QString m_hint;
 };

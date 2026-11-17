@@ -6,12 +6,11 @@
 
 #include <QActionGroup>
 #include <QApplication>
-#include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPolygonF>
-#include <QPushButton>
 #include <QSplitter>
 #include <QToolBar>
 #include <QVBoxLayout>
@@ -128,28 +127,27 @@ QWidget *MeasurementView::createToolBar() {
 
 QWidget *MeasurementView::createCutPanel() {
     m_cutList = new QListWidget;
-    m_changeCutButton = new QPushButton("Change Element...");
-    m_removeCutButton = new QPushButton("Remove");
-    auto *buttons = new QHBoxLayout;
-    buttons->addWidget(m_changeCutButton);
-    buttons->addWidget(m_removeCutButton);
-    buttons->addStretch();
+    m_cutList->setContextMenuPolicy(Qt::CustomContextMenu);
 
     auto *panel = new QWidget;
     auto *layout = new QVBoxLayout(panel);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(new QLabel("Selections"));
     layout->addWidget(m_cutList);
-    layout->addLayout(buttons);
 
-    connect(m_cutList, &QListWidget::currentRowChanged, this, [this](int row) {
-        m_histogram->setHighlightedCut(row);
-        m_changeCutButton->setEnabled(row >= 0);
-        m_removeCutButton->setEnabled(row >= 0);
-    });
+    connect(m_cutList, &QListWidget::currentRowChanged, m_histogram, &HistogramWidget::setHighlightedCut);
     connect(m_cutList, &QListWidget::itemDoubleClicked, this, &MeasurementView::changeCutElement);
-    connect(m_changeCutButton, &QPushButton::clicked, this, &MeasurementView::changeCutElement);
-    connect(m_removeCutButton, &QPushButton::clicked, this, &MeasurementView::removeCut);
+    connect(m_cutList, &QListWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        QListWidgetItem *item = m_cutList->itemAt(pos);
+        if(!item) {
+            return;
+        }
+        m_cutList->setCurrentItem(item);
+        QMenu menu;
+        menu.addAction("Change Element...", this, &MeasurementView::changeCutElement);
+        menu.addAction("Remove", this, &MeasurementView::removeCut);
+        menu.exec(m_cutList->viewport()->mapToGlobal(pos));
+    });
     return panel;
 }
 
@@ -160,8 +158,6 @@ void MeasurementView::updateCutList() {
         m_cutList->addItem(QString("%1 — %2 events").arg(Elements::displayLabel(cut.z, cut.a)).arg(countEvents(m_events, cut.polygon)));
     }
     m_cutList->setCurrentRow(std::min(row, static_cast<int>(m_cutList->count()) - 1));
-    m_changeCutButton->setEnabled(m_cutList->currentRow() >= 0);
-    m_removeCutButton->setEnabled(m_cutList->currentRow() >= 0);
     m_histogram->update();
 }
 
