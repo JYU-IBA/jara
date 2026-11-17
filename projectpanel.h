@@ -15,6 +15,7 @@ struct Measurement;
 struct MetadataEntry;
 struct Sample;
 class QComboBox;
+class QDropEvent;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -42,6 +43,7 @@ public slots:
     void removeSample();
     void addFiles();
     void addMeasurements();
+    void addMeasurementFiles(int sampleIndex, const QStringList &fileNames);
     void addSettings();
     void removeSettings();
     void addDetector();
@@ -49,7 +51,11 @@ public slots:
     void copySettings(); // The current experimental or detector settings
     void pasteSettings();
     void exportSettings();
-    void importSettings();
+    void importSettings(); // Asks for a settings or project file
+    void importFile(const QString &fileName, int targetSample = -1); // Settings or project file
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 signals:
     void modified();
@@ -91,12 +97,17 @@ private:
     void showSettings(ExperimentalSettings &settings);
     void showDetector(DetectorSettings &detector);
     void showAssigned(QListWidget *list, const QList<Measurement *> &measurements);
-    void showExitAngle(const Measurement &measurement);
+    void showGeometry(const Measurement &measurement); // Beam and angles from the assigned settings
     void addSettingsCollection(const SettingsCollection &collection);
     SettingsCollection currentSettingsCollection() const;
     static SettingsCollection settingsInClipboard();
     void appendMetadataRow(const MetadataEntry &entry);
     QTreeWidgetItem *measurementItem(const Measurement *measurement) const;
+    void sortSamples();
+    void rebuildSampleItems(const void *select); // Sorts and rebuilds the sample items, selects the given sample or measurement
+    void importProject(Project &source, const QString &fileName, int targetSample);
+    void handleMeasurementDrag(QDropEvent *event, int targetSample);
+    void moveMeasurement(Measurement *measurement, int targetSample);
 
     Project *m_project = nullptr;
     QTreeWidget *m_tree;
@@ -111,6 +122,10 @@ private:
     QLineEdit *m_measurementDescriptionEdit;
     QComboBox *m_measurementSettingsCombo;
     QComboBox *m_measurementDetectorCombo;
+    QLabel *m_beamIonLabel;
+    QLabel *m_beamEnergyLabel;
+    QLabel *m_incidentAngleLabel;
+    QLabel *m_scatteringAngleLabel;
     QLabel *m_exitAngleLabel;
     ExperimentalSettingsEditor *m_settingsEditor;
     QListWidget *m_assignedList;

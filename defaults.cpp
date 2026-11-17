@@ -4,9 +4,9 @@
 #include <QSettings>
 
 namespace {
-// Stored as JSON in the same format as in project files
-const QString ExperimentalKey = QStringLiteral("defaults/experimentalSettings");
-const QString DetectorKey = QStringLiteral("defaults/detectorSettings");
+// Stored as JSON in the same format as in project files, in SI units. The keys used before SI units are not read.
+const QString ExperimentalKey = QStringLiteral("defaults/experimental");
+const QString DetectorKey = QStringLiteral("defaults/detector");
 
 QJsonObject load(const QString &key) {
     return QJsonDocument::fromJson(QSettings().value(key).toByteArray()).object();

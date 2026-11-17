@@ -114,7 +114,7 @@ void MainWindow::createActions() {
         dialog.exec();
     });
 
-    m_importSettingsAction = new QAction("&Import Settings...", this);
+    m_importSettingsAction = new QAction("&Import...", this);
     connect(m_importSettingsAction, &QAction::triggered, m_projectPanel, &ProjectPanel::importSettings);
 
     m_quitAction = new QAction("&Quit", this);

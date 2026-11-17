@@ -12,24 +12,29 @@
 namespace {
 constexpr auto FromSurface = "Measured from the sample surface";
 
-QDoubleSpinBox *createSpinBox(double minimum, double maximum, int decimals, const QString &suffix) {
+// Values are stored in SI units, spin boxes show them in the given unit. The range is in stored units too.
+const char *UnitProperty = "unit";
+
+QDoubleSpinBox *createSpinBox(double minimum, double maximum, double unit, int decimals, const QString &suffix) {
     auto *spinBox = new QDoubleSpinBox;
+    spinBox->setProperty(UnitProperty, unit);
     spinBox->setDecimals(decimals); // Before the range, which is rounded to the decimals
-    spinBox->setRange(minimum, maximum);
+    spinBox->setRange(minimum / unit, maximum / unit);
     spinBox->setSuffix(suffix);
     return spinBox;
 }
 
 void setValueSilently(QDoubleSpinBox *spinBox, double value) {
     const QSignalBlocker blocker(spinBox);
-    spinBox->setValue(value);
+    spinBox->setValue(value / spinBox->property(UnitProperty).toDouble());
 }
 
 // Spin box signals are blocked while values are shown, so changes are user edits
 template<typename T, typename Editor>
 void connectSpinBox(Editor *editor, QDoubleSpinBox *spinBox, T *const &target, double T::*member) {
-    QObject::connect(spinBox, &QDoubleSpinBox::valueChanged, editor, [editor, &target, member](double value) {
-        target->*member = value;
+    const double unit = spinBox->property(UnitProperty).toDouble();
+    QObject::connect(spinBox, &QDoubleSpinBox::valueChanged, editor, [editor, &target, member, unit](double value) {
+        target->*member = value * unit;
         emit editor->changed();
     });
 }
@@ -37,7 +42,7 @@ void connectSpinBox(Editor *editor, QDoubleSpinBox *spinBox, T *const &target, d
 
 ExperimentalSettingsEditor::ExperimentalSettingsEditor(QWidget *parent) : QWidget(parent) {
     m_nameEdit = new QLineEdit;
-    m_beamEnergySpin = createSpinBox(0, 1000, 3, " MeV");
+    m_beamEnergySpin = createSpinBox(0, 1000, 1, 3, " MeV"); // Energies are stored in MeV
     m_beamIonEdit = new QLineEdit;
     m_beamIonEdit->setPlaceholderText("e.g. 35Cl");
     auto *beamIonButton = new QToolButton;
@@ -46,7 +51,7 @@ ExperimentalSettingsEditor::ExperimentalSettingsEditor(QWidget *parent) : QWidge
     auto *beamIonLayout = new QHBoxLayout;
     beamIonLayout->addWidget(m_beamIonEdit);
     beamIonLayout->addWidget(beamIonButton);
-    m_incidentAngleSpin = createSpinBox(MinIncidentAngle, MaxIncidentAngle, 2, "°");
+    m_incidentAngleSpin = createSpinBox(MinIncidentAngle, MaxIncidentAngle, Units::Degree, 2, "°");
     m_incidentAngleSpin->setToolTip(FromSurface);
 
     auto *layout = new QFormLayout(this);
@@ -117,11 +122,11 @@ void ExperimentalSettingsEditor::selectBeamIon() {
 
 DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent) {
     m_nameEdit = new QLineEdit;
-    m_scatteringAngleSpin = createSpinBox(MinScatteringAngle, MaxScatteringAngle, 2, "°");
+    m_scatteringAngleSpin = createSpinBox(MinScatteringAngle, MaxScatteringAngle, Units::Degree, 2, "°");
     m_scatteringAngleSpin->setToolTip(FromSurface);
-    m_tofLengthSpin = createSpinBox(0, 100, 4, " m");
-    m_tofSlopeSpin = createSpinBox(-1000, 1000, 6, " ns/ch");
-    m_tofOffsetSpin = createSpinBox(-1e6, 1e6, 3, " ns");
+    m_tofLengthSpin = createSpinBox(0, 100, Units::Millimetre, 1, " mm");
+    m_tofSlopeSpin = createSpinBox(-1e-6, 1e-6, Units::Nanosecond, 6, " ns/ch");
+    m_tofOffsetSpin = createSpinBox(-1e-3, 1e-3, Units::Nanosecond, 3, " ns");
 
     auto *layout = new QFormLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);

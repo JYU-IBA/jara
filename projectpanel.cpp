@@ -1,5 +1,7 @@
 #include "projectpanel.h"
 #include "defaults.h"
+#include "elements.h"
+#include "projectimportdialog.h"
 #include "project.h"
 #include "settingseditors.h"
 
@@ -9,13 +11,17 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDialogButtonBox>
+#include <QDrag>
+#include <QDropEvent>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QHash>
 #include <QHeaderView>
+#include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -28,6 +34,7 @@
 #include <QStackedWidget>
 #include <QStyle>
 #include <QTableWidget>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -39,6 +46,7 @@ enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNod
 enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, DetectorPage };
 constexpr int TypeRole = Qt::UserRole;
 constexpr int IndexRole = Qt::UserRole + 1; // Index in the sample's measurements or files
+constexpr int ObjectRole = Qt::UserRole + 2; // The sample or measurement, for finding it again after sorting
 constexpr int MeasurementRole = Qt::UserRole; // In the list of measurements assigned to experimental settings
 
 QString displayName(const QString &name) {
@@ -62,6 +70,9 @@ QTreeWidgetItem *topLevelOf(QTreeWidgetItem *item) {
 
 QTreeWidgetItem *createItem(const QString &text, NodeType type, int index, const QString &path, QStyle::StandardPixmap icon) {
     auto *item = new QTreeWidgetItem({text});
+    if(type != MeasurementNode) {
+        item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled); // Only measurements can be moved by dragging
+    }
     item->setData(0, TypeRole, type);
     item->setData(0, IndexRole, index);
     item->setIcon(0, QApplication::style()->standardIcon(icon));
@@ -73,8 +84,14 @@ QTreeWidgetItem *createItem(const QString &text, NodeType type, int index, const
     return item;
 }
 
+const void *objectOf(const QTreeWidgetItem *item) {
+    return reinterpret_cast<const void *>(item->data(0, ObjectRole).value<quintptr>());
+}
+
 QTreeWidgetItem *createMeasurementItem(const Measurement &measurement, int index) {
-    return createItem(measurement.name, MeasurementNode, index, measurement.path, QStyle::SP_FileDialogContentsView);
+    auto *item = createItem(measurement.name, MeasurementNode, index, measurement.path, QStyle::SP_FileDialogContentsView);
+    item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&measurement)));
+    return item;
 }
 
 QTreeWidgetItem *createFileItem(const AttachedFile &file, int index) {
@@ -90,6 +107,40 @@ void renumberChildren(QTreeWidgetItem *parent, NodeType type) {
         }
     }
 }
+
+// A dragged measurement is identified by the process and its address. The process is checked so that a drag from
+// another JaRA is never taken for one of this project's measurements.
+const QString MeasurementMimeType = QStringLiteral("application/x-jara-measurement");
+
+QByteArray measurementDragData(const Measurement *measurement) {
+    return QByteArray::number(QCoreApplication::applicationPid()) + ' ' + QByteArray::number(reinterpret_cast<quintptr>(measurement));
+}
+
+const void *draggedMeasurement(const QMimeData *mimeData) {
+    const QList<QByteArray> parts = mimeData->data(MeasurementMimeType).split(' ');
+    if(parts.size() != 2 || parts[0].toLongLong() != QCoreApplication::applicationPid()) {
+        return nullptr;
+    }
+    return reinterpret_cast<const void *>(parts[1].toULongLong());
+}
+
+// Measurements can be dragged to another sample. The default drag of QTreeWidget would remove the dragged row
+// itself, so the drag is started here and the drop is handled in ProjectPanel::eventFilter().
+class ProjectTree : public QTreeWidget {
+protected:
+    void startDrag(Qt::DropActions) override {
+        QTreeWidgetItem *item = currentItem();
+        if(!item || nodeType(item) != MeasurementNode) {
+            return;
+        }
+        auto *mimeData = new QMimeData;
+        mimeData->setData(MeasurementMimeType, measurementDragData(static_cast<const Measurement *>(objectOf(item))));
+        auto *drag = new QDrag(this);
+        drag->setMimeData(mimeData);
+        drag->setPixmap(item->icon(0).pixmap(16));
+        drag->exec(Qt::MoveAction);
+    }
+};
 
 QWidget *createPage(QLayout *layout) {
     auto *page = new QWidget;
@@ -108,10 +159,20 @@ constexpr auto FromSurface = "Measured from the sample surface";
 const QString JsonMimeType = QStringLiteral("application/json");
 const QString SettingsFileFilter = QStringLiteral("JSON files (*.json);;All files (*)");
 
+QStringList localFiles(const QMimeData *mimeData, const QString &suffix) {
+    QStringList files;
+    for(const QUrl &url : mimeData->urls()) {
+        if(url.isLocalFile() && url.toLocalFile().endsWith(suffix, Qt::CaseInsensitive)) {
+            files.append(url.toLocalFile());
+        }
+    }
+    return files;
+}
+
 // Lets the user pick which settings sets to import, removes the others from the collection
-bool chooseSettings(QWidget *parent, SettingsCollection &collection) {
+bool chooseSettings(QWidget *parent, SettingsCollection &collection, const QString &fileName) {
     QDialog dialog(parent);
-    dialog.setWindowTitle("Import Settings");
+    dialog.setWindowTitle(QString("Import Settings from %1").arg(QFileInfo(fileName).fileName()));
     auto *list = new QListWidget;
     auto addItems = [list](const QString &kind, const QStringList &names) {
         for(const QString &name : names) {
@@ -157,7 +218,7 @@ bool chooseSettings(QWidget *parent, SettingsCollection &collection) {
 }
 
 ProjectPanel::ProjectPanel(QWidget *parent) : QWidget(parent) {
-    m_tree = new QTreeWidget;
+    m_tree = new ProjectTree;
     m_tree->setHeaderHidden(true);
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
 
@@ -172,6 +233,9 @@ ProjectPanel::ProjectPanel(QWidget *parent) : QWidget(parent) {
     connect(m_tree, &QTreeWidget::currentItemChanged, this, &ProjectPanel::currentItemChanged);
     connect(m_tree, &QTreeWidget::itemDoubleClicked, this, &ProjectPanel::itemDoubleClicked);
     connect(m_tree, &QTreeWidget::customContextMenuRequested, this, &ProjectPanel::showContextMenu);
+    m_tree->setAcceptDrops(true);
+    m_tree->setDragEnabled(true); // Measurements can be dragged to another sample
+    m_tree->viewport()->installEventFilter(this); // Drops are handled in eventFilter()
 
     m_copySettingsAction = new QAction("Copy", this);
     m_copySettingsAction->setShortcut(QKeySequence::Copy);
@@ -214,6 +278,13 @@ QWidget *ProjectPanel::createPropertyPages() {
     m_measurementPathLabel = pathLabel();
     m_measurementSettingsCombo = new QComboBox;
     m_measurementDetectorCombo = new QComboBox;
+    // Read-only summary of the assigned settings
+    m_beamIonLabel = new QLabel;
+    m_beamEnergyLabel = new QLabel;
+    m_incidentAngleLabel = new QLabel;
+    m_incidentAngleLabel->setToolTip(FromSurface);
+    m_scatteringAngleLabel = new QLabel;
+    m_scatteringAngleLabel->setToolTip(FromSurface);
     m_exitAngleLabel = new QLabel;
     m_exitAngleLabel->setToolTip(QString("%1. Scattering angle minus incident angle (IBM geometry).").arg(FromSurface));
     auto *measurementLayout = new QFormLayout;
@@ -222,6 +293,10 @@ QWidget *ProjectPanel::createPropertyPages() {
     measurementLayout->addRow("Data file:", m_measurementPathLabel);
     measurementLayout->addRow("Experimental settings:", m_measurementSettingsCombo);
     measurementLayout->addRow("Detector settings:", m_measurementDetectorCombo);
+    measurementLayout->addRow("Incident ion:", m_beamIonLabel);
+    measurementLayout->addRow("Beam energy:", m_beamEnergyLabel);
+    measurementLayout->addRow("Incident angle:", m_incidentAngleLabel);
+    measurementLayout->addRow("Scattering angle:", m_scatteringAngleLabel);
     measurementLayout->addRow("Exit angle:", m_exitAngleLabel);
     m_pages->insertWidget(MeasurementPage, createPage(measurementLayout));
 
@@ -240,6 +315,13 @@ QWidget *ProjectPanel::createPropertyPages() {
         sampleOf(item)->name = text;
         item->setText(0, displayName(text));
         emit modified();
+    });
+    // Renamed samples and measurements are moved to their place when the name is finished, not while typing
+    connect(m_sampleNameEdit, &QLineEdit::editingFinished, this, [this]() {
+        if(m_sampleNameEdit->isModified()) {
+            m_sampleNameEdit->setModified(false);
+            sortSamples();
+        }
     });
     connect(m_sampleDescriptionEdit, &QPlainTextEdit::textChanged, this, [this]() {
         currentSample()->description = m_sampleDescriptionEdit->toPlainText();
@@ -261,6 +343,12 @@ QWidget *ProjectPanel::createPropertyPages() {
         emit measurementRenamed(measurement);
         emit modified();
     });
+    connect(m_measurementNameEdit, &QLineEdit::editingFinished, this, [this]() {
+        if(m_measurementNameEdit->isModified()) {
+            m_measurementNameEdit->setModified(false);
+            sortSamples();
+        }
+    });
     connect(m_measurementDescriptionEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         currentMeasurement()->description = text;
         emit modified();
@@ -269,14 +357,14 @@ QWidget *ProjectPanel::createPropertyPages() {
         const int index = m_measurementSettingsCombo->currentData().toInt();
         Measurement *measurement = currentMeasurement();
         measurement->settings = index >= 0 ? m_project->settings(index) : nullptr;
-        showExitAngle(*measurement);
+        showGeometry(*measurement);
         emit modified();
     });
     connect(m_measurementDetectorCombo, &QComboBox::activated, this, [this]() {
         const int index = m_measurementDetectorCombo->currentData().toInt();
         Measurement *measurement = currentMeasurement();
         measurement->detector = index >= 0 ? m_project->detector(index) : nullptr;
-        showExitAngle(*measurement);
+        showGeometry(*measurement);
         emit modified();
     });
     connect(m_fileDescriptionEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
@@ -349,6 +437,7 @@ void ProjectPanel::setProject(Project *project) {
 
 QTreeWidgetItem *ProjectPanel::createSettingsItem(const ExperimentalSettings &settings) {
     auto *item = new QTreeWidgetItem({displayName(settings.name)});
+    item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
     item->setData(0, TypeRole, SettingsNode);
     item->setIcon(0, style()->standardIcon(QStyle::SP_FileDialogInfoView));
     return item;
@@ -356,6 +445,7 @@ QTreeWidgetItem *ProjectPanel::createSettingsItem(const ExperimentalSettings &se
 
 QTreeWidgetItem *ProjectPanel::createDetectorItem(const DetectorSettings &detector) {
     auto *item = new QTreeWidgetItem({displayName(detector.name)});
+    item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
     item->setData(0, TypeRole, DetectorNode);
     item->setIcon(0, style()->standardIcon(QStyle::SP_DriveHDIcon));
     return item;
@@ -363,7 +453,9 @@ QTreeWidgetItem *ProjectPanel::createDetectorItem(const DetectorSettings &detect
 
 QTreeWidgetItem *ProjectPanel::createSampleItem(const Sample &sample) {
     auto *item = new QTreeWidgetItem({displayName(sample.name)});
+    item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
     item->setData(0, TypeRole, SampleNode);
+    item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&sample)));
     item->setIcon(0, style()->standardIcon(QStyle::SP_DirIcon));
     for(size_t i = 0; i < sample.measurements.size(); i++) {
         item->addChild(createMeasurementItem(*sample.measurements.at(i), static_cast<int>(i)));
@@ -489,7 +581,7 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
             }
             m_measurementDetectorCombo->setCurrentIndex(
                     m_measurementDetectorCombo->findData(m_project->detectorIndex(measurement->detector)));
-            showExitAngle(*measurement);
+            showGeometry(*measurement);
             m_pages->setCurrentIndex(MeasurementPage);
             break;
         }
@@ -511,15 +603,28 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
     }
 }
 
-void ProjectPanel::showExitAngle(const Measurement &measurement) {
+void ProjectPanel::showGeometry(const Measurement &measurement) {
+    // Same number formatting as in the settings editors, with the locale's decimal separator
+    auto angleText = [this](double angle) { return locale().toString(angle / Units::Degree, 'f', 2) + "°"; };
+    const QString noExperimental = QStringLiteral("No experimental settings");
+    const QString noDetector = QStringLiteral("No detector settings");
+    if(const ExperimentalSettings *settings = measurement.settings) {
+        m_beamIonLabel->setText(settings->beamZ > 0 ? Elements::displayLabel(settings->beamZ, settings->beamA) : QStringLiteral("Not set"));
+        m_beamEnergyLabel->setText(locale().toString(settings->beamEnergy, 'f', 3) + " MeV");
+        m_incidentAngleLabel->setText(angleText(settings->incidentAngle));
+    } else {
+        m_beamIonLabel->setText(noExperimental);
+        m_beamEnergyLabel->setText(noExperimental);
+        m_incidentAngleLabel->setText(noExperimental);
+    }
+    m_scatteringAngleLabel->setText(measurement.detector ? angleText(measurement.detector->scatteringAngle) : noDetector);
     if(!measurement.hasExitAngle()) {
         m_exitAngleLabel->setText("Needs experimental and detector settings");
         m_exitAngleLabel->setStyleSheet({});
         return;
     }
     const double angle = measurement.exitAngle();
-    const QString text = locale().toString(angle, 'f', 2) + "°"; // Same decimal separator as in the spin boxes
-    m_exitAngleLabel->setText(angle > 0 ? text : text + " (incident angle exceeds scattering angle)");
+    m_exitAngleLabel->setText(angle > 0 ? angleText(angle) : angleText(angle) + " (incident angle exceeds scattering angle)");
     m_exitAngleLabel->setStyleSheet(angle > 0 ? QString() : QStringLiteral("color: red"));
 }
 
@@ -548,6 +653,7 @@ void ProjectPanel::showSettings(ExperimentalSettings &settings) {
 }
 
 void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
+    m_tree->setCurrentItem(item); // The actions below work on the current item
     switch(nodeType(item)) {
         case MeasurementNode:
             emit measurementOpenRequested(currentMeasurement());
@@ -599,7 +705,7 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
     menu.addSeparator();
     m_pasteSettingsAction->setEnabled(!settingsInClipboard().isEmpty());
     menu.addAction(m_pasteSettingsAction);
-    menu.addAction("Import Settings...", this, &ProjectPanel::importSettings);
+    menu.addAction("Import...", this, &ProjectPanel::importSettings);
     menu.exec(m_tree->viewport()->mapToGlobal(pos));
     m_pasteSettingsAction->setEnabled(true); // The shortcut checks the clipboard itself
 }
@@ -726,29 +832,205 @@ void ProjectPanel::importSettings() {
     if(!m_project) {
         return;
     }
-    const QString fileName = QFileDialog::getOpenFileName(this, "Import Settings", {}, SettingsFileFilter);
-    if(fileName.isEmpty()) {
+    const QString fileName = QFileDialog::getOpenFileName(this, "Import", {}, SettingsFileFilter);
+    if(!fileName.isEmpty()) {
+        importFile(fileName);
+    }
+}
+
+void ProjectPanel::importFile(const QString &fileName, int targetSample) {
+    QFile file(fileName);
+    QByteArray data;
+    if(file.open(QIODevice::ReadOnly)) {
+        data = file.readAll();
+    }
+    // Projects are loaded in full, so that their paths are resolved relative to the project file
+    if(QJsonDocument::fromJson(data).object()["format"].toString() == "jara-project") {
+        QString errorMessage;
+        std::unique_ptr<Project> source = Project::load(fileName, errorMessage);
+        if(!source) {
+            QMessageBox::warning(this, "Import", QString("Could not import %1:\n%2").arg(fileName, errorMessage));
+            return;
+        }
+        importProject(*source, fileName, targetSample);
         return;
     }
-    QFile file(fileName);
     SettingsCollection collection;
-    QString errorMessage;
-    if(!file.open(QIODevice::ReadOnly)) {
-        errorMessage = file.errorString();
-    } else {
-        settingsCollectionFromJson(file.readAll(), collection, errorMessage);
+    QString errorMessage = file.error() != QFile::NoError ? file.errorString() : QString();
+    if(errorMessage.isEmpty()) {
+        settingsCollectionFromJson(data, collection, errorMessage);
     }
     if(!errorMessage.isEmpty() || collection.isEmpty()) {
-        QMessageBox::warning(this, "Import Settings",
+        QMessageBox::warning(this, "Import",
                              errorMessage.isEmpty() ? QString("%1 has no experimental or detector settings.").arg(fileName)
                                                     : QString("Could not import %1:\n%2").arg(fileName, errorMessage));
         return;
     }
-    // A project file can have several settings sets, choose which ones to import
-    if(collection.experimental.size() + collection.detectors.size() > 1 && !chooseSettings(this, collection)) {
+    // Choose which settings to import from a file with several sets
+    if(collection.experimental.size() + collection.detectors.size() > 1 && !chooseSettings(this, collection, fileName)) {
         return;
     }
     addSettingsCollection(collection);
+}
+
+void ProjectPanel::importProject(Project &source, const QString &fileName, int targetSample) {
+    ProjectImportDialog dialog(source, fileName, targetSample >= 0 ? m_project->sample(targetSample) : nullptr, this);
+    if(dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    // Imported measurements keep their settings when the settings are imported too
+    QHash<const ExperimentalSettings *, ExperimentalSettings *> settingsCopies;
+    QHash<const DetectorSettings *, DetectorSettings *> detectorCopies;
+    SettingsCollection collection;
+    for(size_t i = 0; i < source.settingsCount(); i++) {
+        if(dialog.isSelected(source.settings(i))) {
+            collection.experimental.append(*source.settings(i));
+        }
+    }
+    for(size_t i = 0; i < source.detectorCount(); i++) {
+        if(dialog.isSelected(source.detector(i))) {
+            collection.detectors.append(*source.detector(i));
+        }
+    }
+    const size_t settingsBefore = m_project->settingsCount();
+    const size_t detectorsBefore = m_project->detectorCount();
+    addSettingsCollection(collection);
+    for(size_t i = 0, added = 0; i < source.settingsCount(); i++) {
+        if(dialog.isSelected(source.settings(i))) {
+            settingsCopies.insert(source.settings(i), m_project->settings(settingsBefore + added++));
+        }
+    }
+    for(size_t i = 0, added = 0; i < source.detectorCount(); i++) {
+        if(dialog.isSelected(source.detector(i))) {
+            detectorCopies.insert(source.detector(i), m_project->detector(detectorsBefore + added++));
+        }
+    }
+    auto copyMeasurement = [&](const Measurement &measurement) {
+        auto copy = std::make_unique<Measurement>(measurement);
+        copy->settings = settingsCopies.value(measurement.settings);
+        copy->detector = detectorCopies.value(measurement.detector);
+        // As with new measurements, settings are assigned when there is no choice to make
+        if(!copy->settings && m_project->settingsCount() == 1) {
+            copy->settings = m_project->settings(0);
+        }
+        if(!copy->detector && m_project->detectorCount() == 1) {
+            copy->detector = m_project->detector(0);
+        }
+        return copy;
+    };
+
+    const void *select = nullptr;
+    for(size_t i = 0; i < source.sampleCount(); i++) {
+        const Sample *sample = source.sample(i);
+        if(!dialog.isSelected(sample)) {
+            continue;
+        }
+        Sample *target = nullptr;
+        if(targetSample >= 0) {
+            target = m_project->sample(targetSample);
+        } else {
+            auto copy = std::make_unique<Sample>();
+            copy->name = m_project->uniqueSampleName(sample->name);
+            copy->description = sample->description;
+            copy->metadata = sample->metadata;
+            copy->files = sample->files;
+            target = m_project->addSample(std::move(copy));
+            select = target;
+        }
+        for(const auto &measurement : sample->measurements) {
+            if(dialog.isSelected(measurement.get())) {
+                target->measurements.push_back(copyMeasurement(*measurement));
+                if(targetSample >= 0) {
+                    select = target->measurements.back().get();
+                }
+            }
+        }
+    }
+    if(select) {
+        rebuildSampleItems(select);
+        emit modified();
+    }
+}
+
+bool ProjectPanel::eventFilter(QObject *watched, QEvent *event) {
+    // JSON files dropped on the tree are imported, ASC files dropped on a sample or its children become its measurements
+    if(watched == m_tree->viewport()
+       && (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove || event->type() == QEvent::Drop)) {
+        auto *dropEvent = static_cast<QDropEvent *>(event);
+        const int sampleIndex = sampleIndexOf(m_tree->itemAt(dropEvent->position().toPoint()));
+        if(dropEvent->mimeData()->hasFormat(MeasurementMimeType)) {
+            handleMeasurementDrag(dropEvent, sampleIndex);
+            return true;
+        }
+        const QStringList jsonFiles = m_project ? localFiles(dropEvent->mimeData(), ".json") : QStringList();
+        const QStringList allAscFiles = m_project ? localFiles(dropEvent->mimeData(), ".asc") : QStringList();
+        const QStringList ascFiles = sampleIndex >= 0 ? allAscFiles : QStringList();
+        // A drag that is refused when it enters gets no further events, so it is accepted whenever it has files
+        // to drop somewhere. Where they can be dropped is decided as the drag moves.
+        const bool accept = event->type() == QEvent::DragEnter ? !jsonFiles.isEmpty() || !allAscFiles.isEmpty()
+                                                               : !jsonFiles.isEmpty() || !ascFiles.isEmpty();
+        if(!accept) {
+            dropEvent->ignore();
+            return true;
+        }
+        dropEvent->acceptProposedAction();
+        if(event->type() == QEvent::Drop) {
+            // Importing may show dialogs, which should not be run while the drop is being handled
+            QTimer::singleShot(0, this, [this, jsonFiles, ascFiles, sampleIndex]() {
+                // Measurements from a project dropped on a sample are added to it, otherwise samples are added
+                for(const QString &file : jsonFiles) {
+                    importFile(file, sampleIndex);
+                }
+                if(!ascFiles.isEmpty()) {
+                    addMeasurementFiles(sampleIndex, ascFiles);
+                }
+            });
+        }
+        return true;
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
+void ProjectPanel::handleMeasurementDrag(QDropEvent *event, int targetSample) {
+    // Only measurements of this project, dropped on another sample or the items under it
+    const void *dragged = draggedMeasurement(event->mimeData());
+    QTreeWidgetItem *item = nullptr;
+    for(QTreeWidgetItemIterator it(m_tree); *it && dragged && !item; ++it) {
+        if(nodeType(*it) == MeasurementNode && objectOf(*it) == dragged) {
+            item = *it;
+        }
+    }
+    // The drag is accepted when it enters, where it can be dropped is decided as it moves
+    const bool valid = item && (event->type() == QEvent::DragEnter || (targetSample >= 0 && targetSample != sampleIndexOf(item)));
+    if(!valid) {
+        event->ignore();
+        return;
+    }
+    event->setDropAction(Qt::MoveAction);
+    event->accept();
+    if(event->type() == QEvent::Drop) {
+        auto *measurement = const_cast<Measurement *>(static_cast<const Measurement *>(dragged));
+        // The tree is rebuilt after the drag has finished
+        QTimer::singleShot(0, this, [this, measurement, targetSample]() {
+            moveMeasurement(measurement, targetSample);
+        });
+    }
+}
+
+void ProjectPanel::moveMeasurement(Measurement *measurement, int targetSample) {
+    for(size_t i = 0; i < m_project->sampleCount(); i++) {
+        auto &measurements = m_project->sample(i)->measurements;
+        const auto found = std::find_if(measurements.begin(), measurements.end(),
+                                        [measurement](const auto &m) { return m.get() == measurement; });
+        if(found != measurements.end()) {
+            // The measurement object itself is moved, so open views still refer to it
+            m_project->sample(targetSample)->measurements.push_back(std::move(*found));
+            measurements.erase(found);
+            rebuildSampleItems(measurement);
+            emit modified();
+            return;
+        }
+    }
 }
 
 void ProjectPanel::removeDetector() {
@@ -778,14 +1060,61 @@ void ProjectPanel::addSample() {
     if(!m_project) {
         return;
     }
-    const Sample *sample = m_project->addSample(QString("Sample %1").arg(m_project->sampleCount() + 1));
-    auto *item = createSampleItem(*sample);
-    m_tree->addTopLevelItem(item);
-    item->setExpanded(true);
-    m_tree->setCurrentItem(item);
+    const Sample *sample = m_project->addSample(m_project->uniqueSampleName(QString("Sample %1").arg(m_project->sampleCount() + 1)));
+    rebuildSampleItems(sample);
     m_sampleNameEdit->setFocus();
     m_sampleNameEdit->selectAll();
     emit modified();
+}
+
+void ProjectPanel::sortSamples() {
+    if(!m_project) {
+        return;
+    }
+    QTreeWidgetItem *current = m_tree->currentItem();
+    const void *object = current ? objectOf(current) : nullptr;
+    if(current && !object) {
+        object = objectOf(topLevelOf(current)); // A file or settings, select its sample or keep the selection
+    }
+    rebuildSampleItems(object);
+}
+
+void ProjectPanel::rebuildSampleItems(const void *select) {
+    // Samples and their measurements are sorted in the project, the sample items are rebuilt in that order
+    m_project->sortByName();
+    QSet<const void *> collapsed;
+    QTreeWidgetItem *current = m_tree->currentItem();
+    const bool keepCurrent = current && nodeType(topLevelOf(current)) != SampleNode && !select;
+    {
+        const QSignalBlocker blocker(m_tree);
+        while(m_tree->topLevelItemCount() > firstSampleRow()) {
+            QTreeWidgetItem *item = m_tree->topLevelItem(firstSampleRow());
+            if(!item->isExpanded()) {
+                collapsed.insert(objectOf(item));
+            }
+            delete item;
+        }
+        QTreeWidgetItem *selected = keepCurrent ? current : nullptr;
+        for(size_t i = 0; i < m_project->sampleCount(); i++) {
+            const Sample *sample = m_project->sample(i);
+            QTreeWidgetItem *item = createSampleItem(*sample);
+            m_tree->addTopLevelItem(item);
+            item->setExpanded(!collapsed.contains(sample));
+            for(QTreeWidgetItemIterator it(item); *it && !selected; ++it) {
+                if(objectOf(*it) == select) {
+                    selected = *it;
+                }
+            }
+        }
+        if(selected && selected->parent()) {
+            selected->parent()->setExpanded(true);
+        }
+        m_tree->setCurrentItem(selected);
+    }
+    // The properties are only refreshed when the selection changed, so that edits in progress are not disturbed
+    if(!current || m_tree->currentItem() != current) {
+        currentItemChanged(m_tree->currentItem());
+    }
 }
 
 void ProjectPanel::removeSample() {
@@ -812,26 +1141,34 @@ void ProjectPanel::removeSample() {
 }
 
 void ProjectPanel::addMeasurements() {
-    Sample *sample = currentSample();
-    if(!sample) {
+    const int sampleIndex = sampleIndexOf(m_tree->currentItem());
+    if(sampleIndex < 0) {
         return;
     }
-    QTreeWidgetItem *item = topLevelOf(m_tree->currentItem());
     const QStringList fileNames = QFileDialog::getOpenFileNames(this, "Add Measurements", {},
                                                                 "ToF-E event files (*.asc);;All files (*)");
-    if(fileNames.isEmpty()) {
-        return;
+    if(!fileNames.isEmpty()) {
+        addMeasurementFiles(sampleIndex, fileNames);
     }
-    QTreeWidgetItem *lastItem = nullptr;
+}
+
+void ProjectPanel::addMeasurementFiles(int sampleIndex, const QStringList &fileNames) {
+    Sample *sample = m_project->sample(sampleIndex);
+    const Measurement *last = nullptr;
     for(const QString &fileName : fileNames) {
         const QFileInfo fileInfo(fileName);
-        sample->measurements.push_back(std::make_unique<Measurement>(fileInfo.fileName(), QString(), fileInfo.absoluteFilePath()));
-        const int index = static_cast<int>(sample->measurements.size() - 1);
-        lastItem = createMeasurementItem(*sample->measurements.back(), index);
-        item->insertChild(index, lastItem); // Measurements are before files
+        auto measurement = std::make_unique<Measurement>(fileInfo.fileName(), QString(), fileInfo.absoluteFilePath());
+        // When there is no choice to make, assign the settings right away
+        if(m_project->settingsCount() == 1) {
+            measurement->settings = m_project->settings(0);
+        }
+        if(m_project->detectorCount() == 1) {
+            measurement->detector = m_project->detector(0);
+        }
+        last = measurement.get();
+        sample->measurements.push_back(std::move(measurement));
     }
-    item->setExpanded(true);
-    m_tree->setCurrentItem(lastItem);
+    rebuildSampleItems(last);
     emit modified();
 }
 

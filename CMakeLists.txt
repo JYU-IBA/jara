@@ -36,6 +36,9 @@ add_executable(jara
         settingseditors.h
         preferencesdialog.cpp
         preferencesdialog.h
+        units.h
+        projectimportdialog.cpp
+        projectimportdialog.h
 )
 
 target_compile_definitions(jara PRIVATE JARA_VERSION="${PROJECT_VERSION}")

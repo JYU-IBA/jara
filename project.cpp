@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include <QCollator>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -14,7 +15,32 @@
 namespace {
 const QString FormatName = QStringLiteral("jara-project");
 const QString SettingsFormatName = QStringLiteral("jara-settings");
-constexpr int FormatVersion = 1;
+// Version 1 stored angles in degrees and the ToF calibration in ns, version 2 uses SI units (energies in MeV)
+constexpr int FormatVersion = 2;
+
+void scale(QJsonObject &json, const QString &key, double factor) {
+    if(json.contains(key)) {
+        json[key] = json[key].toDouble() * factor;
+    }
+}
+
+QJsonObject settingsJson(const QJsonValue &value, int version) {
+    QJsonObject json = value.toObject();
+    if(version == 1) {
+        scale(json, "incidentAngle", Units::Degree);
+    }
+    return json;
+}
+
+QJsonObject detectorJson(const QJsonValue &value, int version) {
+    QJsonObject json = value.toObject();
+    if(version == 1) {
+        scale(json, "scatteringAngle", Units::Degree);
+        scale(json, "tofSlope", Units::Nanosecond);
+        scale(json, "tofOffset", Units::Nanosecond);
+    }
+    return json;
+}
 
 QString pathToJson(const QString &path, const QDir &baseDir) {
     if(path.isEmpty()) {
@@ -218,12 +244,18 @@ bool settingsCollectionFromJson(const QByteArray &data, SettingsCollection &coll
         errorMessage = QStringLiteral("Not a JaRA settings or project file.");
         return false;
     }
+    const int version = root["version"].toInt();
+    if(version < 1 || version > FormatVersion) {
+        errorMessage = QString("Unsupported file version %1.").arg(version);
+        return false;
+    }
     collection = {};
+    collection.fromProject = format == FormatName;
     for(const auto &value : root["experimentalSettings"].toArray()) {
-        collection.experimental.append(settingsFromJson(value.toObject()));
+        collection.experimental.append(settingsFromJson(settingsJson(value, version)));
     }
     for(const auto &value : root["detectorSettings"].toArray()) {
-        collection.detectors.append(detectorFromJson(value.toObject()));
+        collection.detectors.append(detectorFromJson(detectorJson(value, version)));
     }
     return true;
 }
@@ -255,15 +287,16 @@ std::unique_ptr<Project> Project::load(const QString &fileName, QString &errorMe
     const QFileInfo fileInfo(fileName);
     const QDir baseDir = fileInfo.absoluteDir();
     for(const auto &value : root["experimentalSettings"].toArray()) {
-        project->m_settings.push_back(std::make_unique<ExperimentalSettings>(settingsFromJson(value.toObject())));
+        project->m_settings.push_back(std::make_unique<ExperimentalSettings>(settingsFromJson(settingsJson(value, version))));
     }
     for(const auto &value : root["detectorSettings"].toArray()) {
-        project->m_detectors.push_back(std::make_unique<DetectorSettings>(detectorFromJson(value.toObject())));
+        project->m_detectors.push_back(std::make_unique<DetectorSettings>(detectorFromJson(detectorJson(value, version))));
     }
     for(const auto &value : root["samples"].toArray()) {
         project->m_samples.push_back(sampleFromJson(value.toObject(), baseDir, *project));
     }
     project->m_fileName = fileInfo.absoluteFilePath();
+    project->sortByName();
     return project;
 }
 
@@ -383,6 +416,31 @@ Sample *Project::addSample(const QString &name) {
     m_samples.push_back(std::move(sample));
     m_modified = true;
     return m_samples.back().get();
+}
+
+Sample *Project::addSample(std::unique_ptr<Sample> sample) {
+    m_samples.push_back(std::move(sample));
+    m_modified = true;
+    return m_samples.back().get();
+}
+
+QString Project::uniqueSampleName(const QString &name) const {
+    QStringList names;
+    for(const auto &sample : m_samples) {
+        names.append(sample->name);
+    }
+    return uniqueName(name, names);
+}
+
+void Project::sortByName() {
+    QCollator collator;
+    collator.setNumericMode(true);
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    auto byName = [&collator](const auto &a, const auto &b) { return collator.compare(a->name, b->name) < 0; };
+    std::stable_sort(m_samples.begin(), m_samples.end(), byName);
+    for(const auto &sample : m_samples) {
+        std::stable_sort(sample->measurements.begin(), sample->measurements.end(), byName);
+    }
 }
 
 void Project::removeSample(size_t index) {

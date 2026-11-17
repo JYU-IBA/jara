@@ -10,6 +10,8 @@
 #include <QPointF>
 #include <QString>
 
+#include "units.h"
+
 struct MetadataEntry {
     QString key;
     QString value;
@@ -30,12 +32,12 @@ struct Cut {
     QList<QPointF> polygon; // ToF and E in channels
 };
 
-// Angles are in degrees and measured from the sample surface. IBM geometry is assumed, so the exit angle is the
-// scattering angle minus the incident angle.
+// Values are in SI units (energies in MeV), see units.h. Angles are measured from the sample surface. IBM geometry
+// is assumed, so the exit angle is the scattering angle minus the incident angle.
 constexpr double MinIncidentAngle = 0;
-constexpr double MaxIncidentAngle = 90;
-constexpr double MinScatteringAngle = 1;
-constexpr double MaxScatteringAngle = 180;
+constexpr double MaxIncidentAngle = 90 * Units::Degree;
+constexpr double MinScatteringAngle = 1 * Units::Degree;
+constexpr double MaxScatteringAngle = 180 * Units::Degree;
 
 // Parameters of an experiment, shared by the measurements assigned to them. More parameters will be added.
 struct ExperimentalSettings {
@@ -43,16 +45,16 @@ struct ExperimentalSettings {
     double beamEnergy = 0; // MeV
     int beamZ = 0; // Incident ion, always a specific isotope
     int beamA = 0;
-    double incidentAngle = MinIncidentAngle;
+    double incidentAngle = MinIncidentAngle; // rad
 };
 
 // Parameters of the detector, shared by the measurements assigned to them
 struct DetectorSettings {
     QString name;
-    double scatteringAngle = MinScatteringAngle; // Scattering/recoil angle
+    double scatteringAngle = MinScatteringAngle; // rad, scattering/recoil angle
     double tofLength = 0; // m
-    double tofSlope = 0; // ns/ch, ToF calibration t = slope * channel + offset
-    double tofOffset = 0; // ns
+    double tofSlope = 0; // s/ch, ToF calibration t = slope * channel + offset
+    double tofOffset = 0; // s
 };
 
 struct Measurement {
@@ -92,6 +94,7 @@ DetectorSettings detectorFromJson(const QJsonObject &json);
 struct SettingsCollection {
     QList<ExperimentalSettings> experimental;
     QList<DetectorSettings> detectors;
+    bool fromProject = false; // Read from a project file, which has much more than these settings
     bool isEmpty() const { return experimental.isEmpty() && detectors.isEmpty(); }
 };
 QByteArray settingsCollectionToJson(const SettingsCollection &collection);
@@ -134,7 +137,13 @@ public:
     size_t sampleCount() const { return m_samples.size(); }
     Sample *sample(size_t index) { return m_samples.at(index).get(); }
     Sample *addSample(const QString &name);
+    Sample *addSample(std::unique_ptr<Sample> sample);
     void removeSample(size_t index);
+    QString uniqueSampleName(const QString &name) const;
+
+    // Samples, and the measurements of each sample, are kept in natural order by name ("run2" before "run10").
+    // Called after names change or items are added.
+    void sortByName();
 
 private:
     QString m_fileName;
