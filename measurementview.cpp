@@ -178,6 +178,11 @@ QWidget *MeasurementView::createCutPanel() {
         QMenu menu;
         menu.addAction("Change Element...", this, &MeasurementView::changeCutElement)->setEnabled(count == 1);
         menu.addAction("Change Color...", this, &MeasurementView::changeCutColor)->setEnabled(count > 0);
+        const auto &cuts = m_measurement->cuts;
+        const bool custom = std::any_of(cuts.begin(), cuts.end(), [](const Cut &cut) {
+            return cut.color != Defaults::elementColor(cut.z);
+        });
+        menu.addAction("Reset All Colors", this, &MeasurementView::resetCutColors)->setEnabled(custom);
         // Checked when all selected selections have the type
         auto addTypeAction = [this, &menu, count](const QString &text, CutType type) {
             const QList<int> rows = selectedCutRows();
@@ -271,6 +276,18 @@ void MeasurementView::changeCutColor() {
     }
     for(int row : rows) {
         m_measurement->cuts[row].color = color;
+    }
+    updateCutList();
+    for(int row : rows) {
+        m_cutList->item(row)->setSelected(true);
+    }
+    emit modified();
+}
+
+void MeasurementView::resetCutColors() {
+    const QList<int> rows = selectedCutRows();
+    for(Cut &cut : m_measurement->cuts) {
+        cut.color = Defaults::elementColor(cut.z);
     }
     updateCutList();
     for(int row : rows) {
