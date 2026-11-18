@@ -12,7 +12,8 @@
 
 
 // Energy spectra of selections, with energies from the time of flight: t = slope * channel + offset, v = length / t
-// and E = m v^2 / 2. For recoils, the mass is that of the selected isotope, or the average mass of the naturally
+// and E = m v^2 / 2. The energy lost in the foil of the first timing detector is added back, the spectra show energies
+// before it. For recoils, the mass is that of the selected isotope, or the average mass of the naturally
 // occurring isotopes when no isotope is selected. For scattered ions, it is the mass of the incident ion. ToF channels are integers, so each event is spread uniformly within its
 // channel before the conversion. Otherwise the discrete energies of the channels would show up as spikes in bins
 // narrower than a few channels. The spreading uses a fixed seed for each selection, so the same inputs always give
@@ -35,6 +36,8 @@ struct EnergySpectrumInputs {
     double tofLength = 0; // m
     double tofSlope = 0; // s/ch
     double tofOffset = 0; // s
+    Material foilMaterial;
+    double foilThickness = 0; // kg/m²
     double binWidth = 0; // J
     QList<CutInput> cuts; // Included cuts in the order of the measurement's cuts
     bool operator==(const EnergySpectrumInputs &) const = default;
@@ -59,8 +62,15 @@ struct EnergySpectrumResult {
 
 EnergySpectrumInputs energySpectrumInputs(const Measurement &measurement, const EnergySpectrum &spectrum);
 
+// Mass in kg of the particles of a selection: the selected isotope or the average mass of the element for recoils, the
+// incident ion for scattered ions. Zero when not known, or for scattered ions when there is no incident ion (beamZ = 0).
+double particleMass(CutType type, int z, int a, int beamZ, int beamA);
+
 // Energy in J of a particle with the given mass (kg), NaN when the time of flight is not positive
 double tofToEnergy(double tofChannel, double mass, double tofLength, double tofSlope, double tofOffset);
+
+// Time of flight in s of a particle with the given energy (J) and mass (kg), the inverse of the above without calibration
+double energyToTof(double energy, double mass, double tofLength);
 
 EnergySpectrumResult calculateEnergySpectrum(const std::vector<ToFEEvent> &events, const EnergySpectrumInputs &inputs);
 

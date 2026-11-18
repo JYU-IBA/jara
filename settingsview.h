@@ -3,6 +3,7 @@
 
 #include <QWidget>
 
+class DetectorSettingsEditor;
 class Project;
 class QListWidget;
 struct DetectorSettings;
@@ -21,12 +22,14 @@ public:
     DetectorSettings *detector() const { return m_detector; } // nullptr for experimental settings
     QString name() const;
     void updateAssigned(); // Call after measurements or their assignments change
+    void refresh(); // Shows the values of detector settings again after they were changed elsewhere
 
 signals:
     void modified();
     void nameChanged();
     void editingFinished(); // Of detector settings, a field was left after it was changed
     void measurementActivated(Measurement *measurement);
+    void calibrationRequested(); // Of detector settings
 
 private:
     void createLayout(QWidget *editor);
@@ -35,6 +38,7 @@ private:
     ExperimentalSettings *m_settings = nullptr;
     DetectorSettings *m_detector = nullptr;
     QListWidget *m_assignedList = nullptr;
+    DetectorSettingsEditor *m_detectorEditor = nullptr;
 };
 
 #endif // JARA_SETTINGSVIEW_H

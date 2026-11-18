@@ -1,12 +1,15 @@
 #include "settingseditors.h"
 #include "elementdialog.h"
 #include "elements.h"
+#include "foildialog.h"
 #include "project.h"
 
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QToolButton>
 
 namespace {
@@ -127,14 +130,24 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     m_tofLengthSpin = createSpinBox(0, 100, Units::Millimetre, 1, " mm");
     m_tofSlopeSpin = createSpinBox(0, 1e-6, Units::Nanosecond, 6, " ns/ch");
     m_tofOffsetSpin = createSpinBox(-1e-3, 1e-3, Units::Nanosecond, 3, " ns");
+    m_foilLabel = new QLabel;
+    auto *foilButton = new QPushButton("Edit...");
+    auto *foilLayout = new QHBoxLayout;
+    foilLayout->addWidget(m_foilLabel, 1);
+    foilLayout->addWidget(foilButton);
+    m_calibrateButton = new QPushButton("ToF Calibration...");
+    m_calibrateButton->setToolTip("Find the slope and offset from the leading edges of the ToF spectra of selections");
+    m_calibrateButton->hide();
 
     auto *layout = new QFormLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addRow("Name:", m_nameEdit);
     layout->addRow("Scattering/recoil angle:", m_scatteringAngleSpin);
     layout->addRow("ToF length:", m_tofLengthSpin);
+    layout->addRow("Timing detector foil:", foilLayout);
     layout->addRow("ToF calibration slope:", m_tofSlopeSpin);
     layout->addRow("ToF calibration offset:", m_tofOffsetSpin);
+    layout->addRow(QString(), m_calibrateButton);
 
     connect(m_nameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         m_detector->name = text;
@@ -145,6 +158,8 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     connectSpinBox(this, m_tofLengthSpin, m_detector, &DetectorSettings::tofLength);
     connectSpinBox(this, m_tofSlopeSpin, m_detector, &DetectorSettings::tofSlope);
     connectSpinBox(this, m_tofOffsetSpin, m_detector, &DetectorSettings::tofOffset);
+    connect(m_calibrateButton, &QPushButton::clicked, this, &DetectorSettingsEditor::calibrationRequested);
+    connect(foilButton, &QPushButton::clicked, this, &DetectorSettingsEditor::editFoil);
 
     connect(this, &DetectorSettingsEditor::changed, this, [this]() { m_edited = true; });
     auto finished = [this]() {
@@ -170,4 +185,27 @@ void DetectorSettingsEditor::setDetector(DetectorSettings *detector) {
     setValueSilently(m_tofLengthSpin, detector->tofLength);
     setValueSilently(m_tofSlopeSpin, detector->tofSlope);
     setValueSilently(m_tofOffsetSpin, detector->tofOffset);
+    m_foilLabel->setText(foilText(detector->foilMaterial, detector->foilThickness));
+}
+
+void DetectorSettingsEditor::editFoil() {
+    FoilDialog dialog(m_detector->foilMaterial, m_detector->foilThickness, this);
+    if(dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    m_detector->foilMaterial = dialog.material();
+    m_detector->foilThickness = dialog.thickness();
+    m_foilLabel->setText(foilText(m_detector->foilMaterial, m_detector->foilThickness));
+    emit changed();
+    // The edit is finished when the dialog is closed
+    m_edited = false;
+    emit editingFinished();
+}
+
+void DetectorSettingsEditor::refresh() {
+    setDetector(m_detector);
+}
+
+void DetectorSettingsEditor::setCalibrationAvailable(bool available) {
+    m_calibrateButton->setVisible(available);
 }

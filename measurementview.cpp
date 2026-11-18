@@ -334,6 +334,7 @@ void MeasurementView::pasteCuts() {
     const auto first = static_cast<int>(m_measurement->cuts.size());
     for(Cut cut : cuts) {
         cut.id = m_measurement->newCutId(); // The ids of the copied cuts belong to their measurement
+        cut.tofEdge.reset(); // Found in the data of the measurement the cut was copied from
         m_measurement->cuts.append(cut);
     }
     updateCutList();

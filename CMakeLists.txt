@@ -51,6 +51,18 @@ add_executable(jara
         units.h
         projectimportdialog.cpp
         projectimportdialog.h
+        tofcalibration.cpp
+        tofcalibration.h
+        tofcalibrationwindow.cpp
+        tofcalibrationwindow.h
+        calibrationplotwidget.cpp
+        calibrationplotwidget.h
+        stopping.cpp
+        stopping.h
+        materialeditor.cpp
+        materialeditor.h
+        foildialog.cpp
+        foildialog.h
 )
 
 target_compile_definitions(jara PRIVATE JARA_VERSION="${PROJECT_VERSION}")

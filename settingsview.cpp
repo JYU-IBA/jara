@@ -23,9 +23,12 @@ SettingsView::SettingsView(Project *project, DetectorSettings *detector, QWidget
     : QWidget(parent), m_project(project), m_detector(detector) {
     auto *editor = new DetectorSettingsEditor;
     editor->setDetector(detector);
+    editor->setCalibrationAvailable(true);
+    m_detectorEditor = editor;
     connect(editor, &DetectorSettingsEditor::changed, this, &SettingsView::modified);
     connect(editor, &DetectorSettingsEditor::nameChanged, this, &SettingsView::nameChanged);
     connect(editor, &DetectorSettingsEditor::editingFinished, this, &SettingsView::editingFinished);
+    connect(editor, &DetectorSettingsEditor::calibrationRequested, this, &SettingsView::calibrationRequested);
     createLayout(editor);
 }
 
@@ -50,6 +53,12 @@ void SettingsView::createLayout(QWidget *editor) {
         emit measurementActivated(reinterpret_cast<Measurement *>(item->data(MeasurementRole).value<quintptr>()));
     });
     updateAssigned();
+}
+
+void SettingsView::refresh() {
+    if(m_detectorEditor) {
+        m_detectorEditor->refresh();
+    }
 }
 
 QString SettingsView::name() const {

@@ -14,6 +14,7 @@ class QMenu;
 class QMenuBar;
 class QStackedWidget;
 class SettingsView;
+class ToFCalibrationWindow;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -36,6 +37,7 @@ private slots:
     void openSpectrum(Measurement *measurement, EnergySpectrum *spectrum);
     void openSettings(ExperimentalSettings *settings);
     void openDetector(DetectorSettings *detector);
+    void openToFCalibration(DetectorSettings *detector);
     void measurementRenamed(Measurement *measurement);
     void closeSampleTabs(Sample *sample);
     void closeMeasurementTab(Measurement *measurement);
@@ -53,6 +55,8 @@ private:
     void closeTab(QWidget *page); // Wherever it is
     void showTab(QWidget *page, const QString &title, const QString &toolTip); // Opened in the main window
     void connectSettingsView(SettingsView *view);
+    void recalculateStaleSpectra(const DetectorSettings *detector); // Of measurements using the detector
+    void closeToFCalibration(const DetectorSettings *detector); // nullptr closes all
     void updateSpectrumTitle(EnergySpectrumView *view); // nullptr is ignored
     QList<QWidget *> tabPages() const; // In all windows
     // Tab widget and index of the page, nullptr when it is not in a tab

@@ -5,6 +5,8 @@
 #include <QPoint>
 #include <QString>
 
+struct jibal;
+
 // Element and isotope data from JIBAL
 namespace Elements {
 struct Isotope {
@@ -15,6 +17,7 @@ struct Isotope {
 
 bool init(QString &errorMessage); // Call once at startup
 void cleanup();
+jibal *library(); // Also for stopping, see stopping.h
 int maxZ();
 bool isKnown(int z);
 QString symbol(int z);

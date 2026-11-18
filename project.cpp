@@ -3,6 +3,7 @@
 #include "elements.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <QCollator>
 #include <QDir>
@@ -21,7 +22,7 @@ const QString SettingsFormatName = QStringLiteral("jara-settings");
 const QString RecoilTypeName = QStringLiteral("recoil");
 const QString ScatteredTypeName = QStringLiteral("scattered");
 // Only files of this version are read, older versions are not converted
-constexpr int FormatVersion = 3;
+constexpr int FormatVersion = 4;
 
 QString pathToJson(const QString &path, const QDir &baseDir) {
     if(path.isEmpty()) {
@@ -217,9 +218,14 @@ QJsonArray cutsToJson(const QList<Cut> &cuts) {
         for(const QPointF &point : cut.polygon) {
             polygon.append(QJsonArray{point.x(), point.y()});
         }
-        result.append(QJsonObject{{"id", cut.id}, {"z", cut.z}, {"a", cut.a},
-                                  {"type", cut.type == CutType::Scattered ? ScatteredTypeName : RecoilTypeName},
-                                  {"color", cut.color.name()}, {"polygon", polygon}});
+        QJsonObject object{{"id", cut.id}, {"z", cut.z}, {"a", cut.a},
+                           {"type", cut.type == CutType::Scattered ? ScatteredTypeName : RecoilTypeName},
+                           {"color", cut.color.name()}, {"polygon", polygon}};
+        if(cut.tofEdge) {
+            object["tofEdge"] = QJsonObject{{"channel", cut.tofEdge->channel}, {"sigma", cut.tofEdge->sigma},
+                                            {"manual", cut.tofEdge->manual}};
+        }
+        result.append(object);
     }
     return result;
 }
@@ -237,6 +243,10 @@ QList<Cut> cutsFromJson(const QJsonArray &json) {
             const QJsonArray coordinates = point.toArray();
             cut.polygon.append({coordinates.at(0).toDouble(), coordinates.at(1).toDouble()});
         }
+        if(object.contains("tofEdge")) {
+            const QJsonObject edge = object["tofEdge"].toObject();
+            cut.tofEdge = ToFEdge{edge["channel"].toDouble(), edge["sigma"].toDouble(), edge["manual"].toBool()};
+        }
         cuts.append(cut);
     }
     return cuts;
@@ -250,13 +260,55 @@ QJsonObject settingsToJson(const ExperimentalSettings &settings) {
             {"incidentAngle", settings.incidentAngle}};
 }
 
+bool isValidMaterial(const Material &material) {
+    if(material.elements.isEmpty()) {
+        return false;
+    }
+    double sum = 0;
+    for(const MaterialElement &element : material.elements) {
+        if(!Elements::isKnown(element.z) || element.fraction < 0) {
+            return false;
+        }
+        sum += element.fraction;
+    }
+    return std::abs(sum - 1) <= MaterialFractionTolerance;
+}
+
+double averageAtomMass(const Material &material) {
+    double mass = 0;
+    for(const MaterialElement &element : material.elements) {
+        mass += element.fraction * Elements::mass(element.z, 0);
+    }
+    return mass;
+}
+
+QString materialText(const Material &material) {
+    if(material.elements.size() == 1) {
+        return Elements::symbol(material.elements.first().z);
+    }
+    QStringList parts;
+    for(const MaterialElement &element : material.elements) {
+        parts.append(QString("%1 %2 %").arg(Elements::symbol(element.z)).arg(element.fraction * 100, 0, 'g', 4));
+    }
+    return parts.join(QStringLiteral(", "));
+}
+
+Material carbon() {
+    return Material{{{6, 1.0}}};
+}
+
 QJsonObject detectorToJson(const DetectorSettings &detector) {
+    QJsonArray material;
+    for(const MaterialElement &element : detector.foilMaterial.elements) {
+        material.append(QJsonObject{{"z", element.z}, {"fraction", element.fraction}});
+    }
     return QJsonObject{
             {"name", detector.name},
             {"scatteringAngle", detector.scatteringAngle},
             {"tofLength", detector.tofLength},
             {"tofSlope", detector.tofSlope},
-            {"tofOffset", detector.tofOffset}};
+            {"tofOffset", detector.tofOffset},
+            {"foil", QJsonObject{{"thickness", detector.foilThickness}, {"material", material}}}};
 }
 
 DetectorSettings detectorFromJson(const QJsonObject &json) {
@@ -266,6 +318,16 @@ DetectorSettings detectorFromJson(const QJsonObject &json) {
     detector.tofLength = json["tofLength"].toDouble();
     detector.tofSlope = std::max(0.0, json["tofSlope"].toDouble());
     detector.tofOffset = json["tofOffset"].toDouble();
+    if(json.contains("foil")) {
+        const QJsonObject foil = json["foil"].toObject();
+        detector.foilThickness = std::max(0.0, foil["thickness"].toDouble());
+        Material material;
+        for(const auto &value : foil["material"].toArray()) {
+            const QJsonObject element = value.toObject();
+            material.elements.append({element["z"].toInt(), element["fraction"].toDouble()});
+        }
+        detector.foilMaterial = isValidMaterial(material) ? material : carbon(); // Carbon by default
+    }
     return detector;
 }
 

@@ -1,5 +1,6 @@
 #include "energyspectrum.h"
 #include "elements.h"
+#include "stopping.h"
 
 #include <algorithm>
 #include <cmath>
@@ -22,6 +23,8 @@ EnergySpectrumInputs energySpectrumInputs(const Measurement &measurement, const 
         inputs.tofLength = detector->tofLength;
         inputs.tofSlope = detector->tofSlope;
         inputs.tofOffset = detector->tofOffset;
+        inputs.foilMaterial = detector->foilMaterial;
+        inputs.foilThickness = detector->foilThickness;
     }
     inputs.binWidth = spectrum.binWidth;
     for(const Cut &cut : measurement.cuts) {
@@ -32,6 +35,13 @@ EnergySpectrumInputs energySpectrumInputs(const Measurement &measurement, const 
     return inputs;
 }
 
+double particleMass(CutType type, int z, int a, int beamZ, int beamA) {
+    if(type == CutType::Scattered) {
+        return beamZ > 0 ? Elements::mass(beamZ, beamA) : 0;
+    }
+    return Elements::mass(z, a);
+}
+
 double tofToEnergy(double tofChannel, double mass, double tofLength, double tofSlope, double tofOffset) {
     const double t = tofSlope * tofChannel + tofOffset;
     if(t <= 0) {
@@ -39,6 +49,10 @@ double tofToEnergy(double tofChannel, double mass, double tofLength, double tofS
     }
     const double v = tofLength / t;
     return 0.5 * mass * v * v;
+}
+
+double energyToTof(double energy, double mass, double tofLength) {
+    return tofLength / std::sqrt(2 * energy / mass);
 }
 
 EnergySpectrumResult calculateEnergySpectrum(const std::vector<ToFEEvent> &events, const EnergySpectrumInputs &inputs) {
@@ -67,10 +81,17 @@ EnergySpectrumResult calculateEnergySpectrum(const std::vector<ToFEEvent> &event
                                           "settings of the measurement is needed.").arg(cutLabel(cut.z, cut.a, cut.type, false));
             return result;
         }
-        const double mass = scattered ? Elements::mass(inputs.beamZ, inputs.beamA) : Elements::mass(cut.z, cut.a);
+        const double mass = particleMass(cut.type, cut.z, cut.a, inputs.beamZ, inputs.beamA);
         if(mass <= 0) {
             result.errorMessage = QString("The mass of %1 is not known.")
                                           .arg(scattered ? Elements::label(inputs.beamZ, inputs.beamA) : Elements::label(cut.z, cut.a));
+            return result;
+        }
+        const int particleZ = scattered ? inputs.beamZ : cut.z;
+        FoilEnergyLoss foil(particleZ, mass, inputs.foilMaterial, inputs.foilThickness);
+        if(!foil.isValid()) {
+            result.errorMessage = QString("Energy loss of %1 in the timing detector foil: %2")
+                                          .arg(cutLabel(cut.z, cut.a, cut.type, false), foil.errorMessage());
             return result;
         }
         EnergyHistogram histogram;
@@ -78,7 +99,8 @@ EnergySpectrumResult calculateEnergySpectrum(const std::vector<ToFEEvent> &event
         histogram.z = cut.z;
         histogram.a = cut.a;
         histogram.type = cut.type;
-        std::vector<double> &cutEnergies = energies.emplace_back();
+        std::vector<double> &cutEnergies = energies.emplace_back(); // After the foil until corrected below
+        double maxCutEnergy = 0;
         std::mt19937 random(static_cast<std::mt19937::result_type>(cut.id));
         std::uniform_real_distribution<double> dither(-0.5, 0.5);
         forEachEventIn(events, cut.polygon, [&](const ToFEEvent &event) {
@@ -90,8 +112,13 @@ EnergySpectrumResult calculateEnergySpectrum(const std::vector<ToFEEvent> &event
                 return;
             }
             cutEnergies.push_back(energy);
-            maxEnergy = std::max(maxEnergy, energy);
+            maxCutEnergy = std::max(maxCutEnergy, energy);
         });
+        foil.tabulate(maxCutEnergy);
+        for(double &energy : cutEnergies) {
+            energy = foil.energyBefore(energy);
+            maxEnergy = std::max(maxEnergy, energy);
+        }
         result.histograms.push_back(std::move(histogram));
     }
 

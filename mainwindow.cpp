@@ -7,6 +7,7 @@
 #include "projectpanel.h"
 #include "settingsview.h"
 #include "tabwidget.h"
+#include "tofcalibrationwindow.h"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -95,6 +96,7 @@ QWidget *MainWindow::createProjectView() {
     });
     connect(m_projectPanel, &ProjectPanel::detectorAboutToBeRemoved, this, [this](DetectorSettings *detector) {
         closeTab(findView<SettingsView>([detector](SettingsView *view) { return view->detector() == detector; }));
+        closeToFCalibration(detector);
     });
     return splitter;
 }
@@ -260,6 +262,7 @@ void MainWindow::setProject(std::unique_ptr<Project> project) {
     for(QWidget *page : tabPages()) {
         closeTab(page);
     }
+    closeToFCalibration(nullptr);
     m_projectPanel->setProject(project.get());
     m_project = std::move(project);
     m_stack->setCurrentIndex(m_project ? 1 : 0);
@@ -383,6 +386,9 @@ void MainWindow::projectModified() {
             spectrumView->checkStale();
         }
     }
+    for(ToFCalibrationWindow *window : findChildren<ToFCalibrationWindow *>()) {
+        window->refresh();
+    }
 }
 
 QList<QWidget *> MainWindow::tabPages() const {
@@ -482,15 +488,53 @@ void MainWindow::connectSettingsView(SettingsView *view) {
     connect(view, &SettingsView::measurementActivated, this, [this](Measurement *measurement) {
         m_projectPanel->selectMeasurement(measurement);
         openMeasurement(measurement);
-    });    // Spectra of measurements using the detector follow its ToF calibration once an edit is finished
-    connect(view, &SettingsView::editingFinished, this, [this, view]() {
-        for(QWidget *page : tabPages()) {
-            auto *spectrumView = qobject_cast<EnergySpectrumView *>(page);
-            if(spectrumView && spectrumView->measurement()->detector == view->detector() && spectrumView->isStale()) {
-                spectrumView->recalculate();
-            }
-        }
     });
+    // Spectra of measurements using the detector follow its ToF calibration once an edit is finished
+    connect(view, &SettingsView::editingFinished, this, [this, view]() { recalculateStaleSpectra(view->detector()); });
+    connect(view, &SettingsView::calibrationRequested, this, [this, view]() { openToFCalibration(view->detector()); });
+}
+
+void MainWindow::recalculateStaleSpectra(const DetectorSettings *detector) {
+    for(QWidget *page : tabPages()) {
+        auto *spectrumView = qobject_cast<EnergySpectrumView *>(page);
+        if(spectrumView && spectrumView->measurement()->detector == detector && spectrumView->isStale()) {
+            spectrumView->recalculate();
+        }
+    }
+}
+
+void MainWindow::openToFCalibration(DetectorSettings *detector) {
+    ToFCalibrationWindow *window = nullptr;
+    for(ToFCalibrationWindow *existing : findChildren<ToFCalibrationWindow *>()) {
+        if(existing->detector() == detector) {
+            window = existing;
+        }
+    }
+    if(!window) {
+        window = new ToFCalibrationWindow(m_project.get(), detector, this);
+        window->setAttribute(Qt::WA_DeleteOnClose);
+        connect(window, &ToFCalibrationWindow::modified, this, &MainWindow::projectModified);
+        connect(window, &ToFCalibrationWindow::calibrationApplied, this, [this, detector]() {
+            if(auto *view = findView<SettingsView>([detector](SettingsView *view) { return view->detector() == detector; })) {
+                view->refresh();
+            }
+            m_projectPanel->settingsEdited();
+            projectModified();
+            recalculateStaleSpectra(detector);
+        });
+    }
+    window->show();
+    window->raise();
+    window->activateWindow();
+}
+
+void MainWindow::closeToFCalibration(const DetectorSettings *detector) {
+    // Deleted right away, the windows refer to the project and the detector
+    for(ToFCalibrationWindow *window : findChildren<ToFCalibrationWindow *>()) {
+        if(!detector || window->detector() == detector) {
+            delete window;
+        }
+    }
 }
 
 void MainWindow::measurementRenamed(Measurement *measurement) {

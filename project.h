@@ -2,6 +2,7 @@
 #define JARA_PROJECT_H
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <QJsonArray>
@@ -31,6 +32,13 @@ struct AttachedFile {
 // the target atom. The energy of scattered ions is calculated with the mass of the incident ion.
 enum class CutType { Recoil, Scattered };
 
+// Channel of the leading (short ToF) edge of a selection's ToF spectrum, accepted in the ToF calibration tool
+struct ToFEdge {
+    double channel = 0; // Centre of the edge, the mean of the fitted Gaussian
+    double sigma = 0; // Width of the edge in channels, zero when the channel was set by hand
+    bool manual = false; // Set by hand instead of fitted
+};
+
 // Polygon selection of events in a ToF-E histogram, assigned to an element
 struct Cut {
     int id = 0; // Unique within the measurement, energy spectra refer to cuts by it
@@ -39,6 +47,7 @@ struct Cut {
     QList<QPointF> polygon; // ToF and E in channels
     QColor color; // Drawn with this color
     CutType type = CutType::Recoil;
+    std::optional<ToFEdge> tofEdge; // Calibration point of the detector, see tofcalibration.h
 };
 
 // The element or isotope, with an asterisk for scattered ions. With superscript, the mass number is in Unicode
@@ -62,6 +71,28 @@ struct ExperimentalSettings {
     double incidentAngle = MinIncidentAngle; // rad
 };
 
+// Element of a material, with its natural isotopic composition
+struct MaterialElement {
+    int z = 0;
+    double fraction = 0; // Atomic fraction, from 0 to 1
+    bool operator==(const MaterialElement &) const = default;
+};
+
+// Fractions of the elements sum up to one in a valid material
+struct Material {
+    QList<MaterialElement> elements;
+    bool operator==(const Material &) const = default;
+};
+
+constexpr double MaterialFractionTolerance = 1e-9; // Allowed difference of the sum of the fractions from one
+bool isValidMaterial(const Material &material); // Has elements, all known and not negative, and they sum up to one
+double averageAtomMass(const Material &material); // kg, weighted by the atomic fractions
+QString materialText(const Material &material); // "C" or "C 95 %, H 5 %"
+Material carbon();
+
+// Default foil of the first timing detector, a typical DLC foil
+constexpr double DefaultFoilThickness = 3 * Units::MicrogramPerSquareCentimetre; // kg/m²
+
 // Parameters of the detector, shared by the measurements assigned to them
 struct DetectorSettings {
     QString name;
@@ -69,6 +100,9 @@ struct DetectorSettings {
     double tofLength = 0; // m
     double tofSlope = 0; // s/ch, not negative. ToF calibration t = slope * channel + offset
     double tofOffset = 0; // s
+    // Foil of the first timing detector. Particles lose energy in it before their time of flight is measured.
+    Material foilMaterial = carbon();
+    double foilThickness = DefaultFoilThickness; // kg/m²
 };
 
 // Default bin width of new energy spectra
@@ -126,7 +160,7 @@ QJsonObject detectorToJson(const DetectorSettings &detector);
 DetectorSettings detectorFromJson(const QJsonObject &json);
 
 // Settings copied through the clipboard or exported to a file:
-// {"format": "jara-settings", "version": 3, "experimentalSettings": [...], "detectorSettings": [...]}.
+// {"format": "jara-settings", "version": 4, "experimentalSettings": [...], "detectorSettings": [...]}.
 // Project files have the same lists, so settings can be imported from them too.
 struct SettingsCollection {
     QList<ExperimentalSettings> experimental;

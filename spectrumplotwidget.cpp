@@ -1,8 +1,8 @@
 #include "spectrumplotwidget.h"
-#include "defaults.h"
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include <QContextMenuEvent>
 #include <QMenu>
@@ -19,6 +19,8 @@ constexpr int MarginTop = 30;
 constexpr int MarginBottom = 50;
 constexpr double LogFloor = 0.5; // Counts, bottom of the full range on a log scale, zero is drawn below it
 constexpr double ZeroOnLogScale = 0.1;
+constexpr int MarkerGrabDistance = 4; // Pixels
+}
 
 double niceStep(double range, int targetTicks) {
     const double raw = range / targetTicks;
@@ -27,15 +29,36 @@ double niceStep(double range, int targetTicks) {
     const double nice = r < 1.5 ? 1 : r < 3 ? 2 : r < 7 ? 5 : 10;
     return nice * magnitude;
 }
-}
 
 SpectrumPlotWidget::SpectrumPlotWidget(QWidget *parent)
-    : QWidget(parent), m_logScale(Defaults::histogramPreferences().logScale) {
+    : QWidget(parent) {
     m_rubberBand = new QRubberBand(QRubberBand::Rectangle, this);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
     setMinimumSize(300, 200);
     setCursor(Qt::CrossCursor);
+}
+
+void SpectrumPlotWidget::setXAxis(const XAxis &axis) {
+    m_xAxis = axis;
+    updateFullRange();
+    update();
+}
+
+void SpectrumPlotWidget::setOverlay(const QList<QPointF> &points, const QColor &color) {
+    m_overlay = points;
+    m_overlayColor = color;
+    update();
+}
+
+void SpectrumPlotWidget::setMarkers(const QList<Marker> &markers) {
+    m_markers = markers;
+    m_draggedMarker = -1;
+    update();
+}
+
+void SpectrumPlotWidget::setXView(double min, double max) {
+    setView({min, max}, m_viewY);
 }
 
 void SpectrumPlotWidget::setCurves(double binWidth, const QList<Curve> &curves, ViewChange viewChange) {
@@ -83,11 +106,12 @@ void SpectrumPlotWidget::setMode(SpectrumPlotWidget::Mode mode) {
     m_mode = mode;
     m_rubberBand->hide();
     m_moving = false;
-    setCursor(mode == Mode::Move ? Qt::OpenHandCursor : Qt::CrossCursor);
+    m_draggedMarker = -1;
+    setCursor(mode == Mode::Move ? Qt::OpenHandCursor : mode == Mode::Pick ? Qt::PointingHandCursor : Qt::CrossCursor);
 }
 
 void SpectrumPlotWidget::updateFullRange() {
-    m_fullX = {0, std::max(1, static_cast<int>(m_bins)) * m_binWidth};
+    m_fullX = {m_xAxis.origin, m_xAxis.origin + std::max(1, static_cast<int>(m_bins)) * m_binWidth};
     const double top = static_cast<double>(std::max<size_t>(m_maxCount, 1));
     m_fullY = m_logScale ? Range{std::log10(LogFloor), std::log10(top) + 0.1} : Range{0, top * 1.05};
 }
@@ -212,6 +236,8 @@ void SpectrumPlotWidget::paintEvent(QPaintEvent *) {
     for(const Curve &curve : m_curves) {
         drawCurve(painter, curve);
     }
+    drawOverlay(painter);
+    drawMarkers(painter, plot);
     painter.restore();
     drawAxes(painter, plot);
     drawLegend(painter, plot);
@@ -221,17 +247,18 @@ void SpectrumPlotWidget::drawCurve(QPainter &painter, const Curve &curve) const 
     if(curve.counts.empty()) {
         return;
     }
-    const auto first = static_cast<size_t>(std::clamp(std::floor(m_viewX.min / m_binWidth), 0.0, static_cast<double>(curve.counts.size() - 1)));
-    const auto last = static_cast<size_t>(std::clamp(std::ceil(m_viewX.max / m_binWidth), 0.0, static_cast<double>(curve.counts.size() - 1)));
+    const double origin = m_xAxis.origin;
+    const auto first = static_cast<size_t>(std::clamp(std::floor((m_viewX.min - origin) / m_binWidth), 0.0, static_cast<double>(curve.counts.size() - 1)));
+    const auto last = static_cast<size_t>(std::clamp(std::ceil((m_viewX.max - origin) / m_binWidth), 0.0, static_cast<double>(curve.counts.size() - 1)));
     const double bottom = m_logScale ? std::log10(ZeroOnLogScale) : 0;
     QPolygonF steps;
-    steps.append(dataToPixel(static_cast<double>(first) * m_binWidth, bottom));
+    steps.append(dataToPixel(origin + static_cast<double>(first) * m_binWidth, bottom));
     const double binsPerPixel = static_cast<double>(last - first + 1) / plotRect().width();
     if(binsPerPixel <= 2) {
         for(size_t i = first; i <= last; i++) {
             const double y = toPlotY(static_cast<double>(curve.counts[i]));
-            steps.append(dataToPixel(static_cast<double>(i) * m_binWidth, y));
-            steps.append(dataToPixel(static_cast<double>(i + 1) * m_binWidth, y));
+            steps.append(dataToPixel(origin + static_cast<double>(i) * m_binWidth, y));
+            steps.append(dataToPixel(origin + static_cast<double>(i + 1) * m_binWidth, y));
         }
     } else {
         // Many bins per pixel: the range of counts within each pixel column is drawn as a vertical line
@@ -240,12 +267,12 @@ void SpectrumPlotWidget::drawCurve(QPainter &painter, const Curve &curve) const 
             const size_t end = std::min(last + 1, i + perColumn);
             const auto [min, max] = std::minmax_element(curve.counts.begin() + static_cast<std::ptrdiff_t>(i),
                                                         curve.counts.begin() + static_cast<std::ptrdiff_t>(end));
-            const double x = (static_cast<double>(i + end) / 2) * m_binWidth;
+            const double x = origin + (static_cast<double>(i + end) / 2) * m_binWidth;
             steps.append(dataToPixel(x, toPlotY(static_cast<double>(*min))));
             steps.append(dataToPixel(x, toPlotY(static_cast<double>(*max))));
         }
     }
-    steps.append(dataToPixel(static_cast<double>(last + 1) * m_binWidth, bottom));
+    steps.append(dataToPixel(origin + static_cast<double>(last + 1) * m_binWidth, bottom));
     QColor color = curve.color;
     if(m_stale) {
         color.setAlpha(90);
@@ -256,6 +283,49 @@ void SpectrumPlotWidget::drawCurve(QPainter &painter, const Curve &curve) const 
     }
     painter.setPen(pen);
     painter.drawPolyline(steps);
+}
+
+void SpectrumPlotWidget::drawOverlay(QPainter &painter) const {
+    if(m_overlay.size() < 2) {
+        return;
+    }
+    QPolygonF line;
+    for(const QPointF &point : m_overlay) {
+        line.append(dataToPixel(point.x(), toPlotY(point.y())));
+    }
+    painter.setPen(QPen(m_overlayColor, 2));
+    painter.drawPolyline(line);
+}
+
+void SpectrumPlotWidget::drawMarkers(QPainter &painter, const QRect &plot) const {
+    for(const Marker &marker : m_markers) {
+        const double x = std::round(dataToPixel(marker.x, 0).x());
+        painter.setPen(QPen(marker.color, marker.draggable ? 2 : 1.5, marker.style));
+        painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()));
+    }
+}
+
+int SpectrumPlotWidget::markerAt(const QPoint &pos) const {
+    if(m_mode == Mode::Move || !plotRect().contains(pos)) {
+        return -1;
+    }
+    for(int i = 0; i < m_markers.size(); i++) {
+        if(m_markers[i].draggable && std::abs(dataToPixel(m_markers[i].x, 0).x() - pos.x()) <= MarkerGrabDistance) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void SpectrumPlotWidget::updateIdleCursor(const QPoint &pos) {
+    if(m_mode == Mode::Move) {
+        return;
+    }
+    if(markerAt(pos) >= 0) {
+        setCursor(Qt::SizeHorCursor);
+    } else {
+        setCursor(m_mode == Mode::Pick ? Qt::PointingHandCursor : Qt::CrossCursor);
+    }
 }
 
 void SpectrumPlotWidget::drawAxes(QPainter &painter, const QRect &plot) const {
@@ -293,7 +363,7 @@ void SpectrumPlotWidget::drawAxes(QPainter &painter, const QRect &plot) const {
         }
     }
 
-    const QString xTitle = QStringLiteral("E (MeV)");
+    const QString &xTitle = m_xAxis.title;
     painter.drawText(plot.center().x() - metrics.horizontalAdvance(xTitle) / 2, height() - 8, xTitle);
     const QString yTitle = QStringLiteral("Counts");
     painter.save();
@@ -304,8 +374,9 @@ void SpectrumPlotWidget::drawAxes(QPainter &painter, const QRect &plot) const {
 
     if(!m_curves.isEmpty()) {
         painter.drawText(plot.left(), MarginTop - 10,
-                         QString("Bin %1 keV, max %2 counts/bin, %3 scale")
-                                 .arg(m_binWidth * 1000, 0, 'g', 6).arg(m_maxCount).arg(m_logScale ? "log" : "linear"));
+                         QString("Bin %1 %2, max %3 counts/bin, %4 scale")
+                                 .arg(m_binWidth * m_xAxis.binWidthScale, 0, 'g', 6).arg(m_xAxis.binWidthUnit)
+                                 .arg(m_maxCount).arg(m_logScale ? "log" : "linear"));
     }
 }
 
@@ -357,6 +428,14 @@ void SpectrumPlotWidget::mousePressEvent(QMouseEvent *event) {
         return;
     }
     m_dragStart = event->pos();
+    if(const int marker = markerAt(event->pos()); marker >= 0) {
+        m_draggedMarker = marker;
+        return;
+    }
+    if(m_mode == Mode::Pick) {
+        emit picked(pixelToData(event->pos()).x());
+        return;
+    }
     if(m_mode == Mode::Zoom) {
         m_rubberBand->setGeometry(QRect(m_dragStart, QSize()));
         m_rubberBand->show();
@@ -369,6 +448,12 @@ void SpectrumPlotWidget::mousePressEvent(QMouseEvent *event) {
 }
 
 void SpectrumPlotWidget::mouseMoveEvent(QMouseEvent *event) {
+    if(m_draggedMarker >= 0) {
+        m_markers[m_draggedMarker].x = std::clamp(pixelToData(event->pos()).x(), m_viewX.min, m_viewX.max);
+        update();
+    } else if(!(event->buttons() & Qt::LeftButton)) {
+        updateIdleCursor(event->pos());
+    }
     if(m_rubberBand->isVisible()) {
         m_rubberBand->setGeometry(QRect(m_dragStart, event->pos()).normalized() & plotRect());
     }
@@ -383,6 +468,11 @@ void SpectrumPlotWidget::mouseMoveEvent(QMouseEvent *event) {
 
 void SpectrumPlotWidget::mouseReleaseEvent(QMouseEvent *event) {
     if(event->button() != Qt::LeftButton) {
+        return;
+    }
+    if(m_draggedMarker >= 0) {
+        const int marker = std::exchange(m_draggedMarker, -1);
+        emit markerMoved(marker, m_markers[marker].x);
         return;
     }
     if(m_moving) {
@@ -415,7 +505,7 @@ void SpectrumPlotWidget::updateCursorInfo(const QPoint &pos) {
         return;
     }
     const double x = pixelToData(pos).x();
-    const double bin = std::floor(x / m_binWidth);
+    const double bin = std::floor((x - m_xAxis.origin) / m_binWidth);
     if(bin < 0 || bin >= static_cast<double>(m_bins)) {
         emit cursorInfoChanged({});
         return;
@@ -426,7 +516,10 @@ void SpectrumPlotWidget::updateCursorInfo(const QPoint &pos) {
         counts.append(QString("%1: %2").arg(curve.name)
                               .arg(index < curve.counts.size() ? curve.counts[index] : 0));
     }
-    emit cursorInfoChanged(QString("E %1–%2 MeV   %3")
-                                   .arg(bin * m_binWidth, 0, 'f', 4).arg((bin + 1) * m_binWidth, 0, 'f', 4)
-                                   .arg(counts.join(QStringLiteral(", "))));
+    const double start = m_xAxis.origin + bin * m_binWidth;
+    const int decimals = m_xAxis.decimals;
+    emit cursorInfoChanged(QString("%1 %2–%3 %4   %5")
+                                   .arg(m_xAxis.title.section(' ', 0, 0))
+                                   .arg(start, 0, 'f', decimals).arg(start + m_binWidth, 0, 'f', decimals)
+                                   .arg(m_xAxis.unit, counts.join(QStringLiteral(", "))));
 }

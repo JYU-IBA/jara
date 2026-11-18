@@ -40,6 +40,10 @@ void Elements::cleanup() {
     }
 }
 
+jibal *Elements::library() {
+    return jibalInstance;
+}
+
 int Elements::maxZ() {
     return jibalInstance ? jibal_elements_Zmax(jibalInstance->elements) : 0;
 }
