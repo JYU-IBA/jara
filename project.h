@@ -10,6 +10,7 @@
 #include <QList>
 #include <QPointF>
 #include <QString>
+#include <QStringList>
 
 #include "units.h"
 
@@ -26,15 +27,26 @@ struct AttachedFile {
     QString description;
 };
 
+// Recoiled target atoms (ERD) or incident ions scattered from them (RBS). For both, the element of a cut is that of
+// the target atom. The energy of scattered ions is calculated with the mass of the incident ion.
+enum class CutType { Recoil, Scattered };
+
 // Polygon selection of events in a ToF-E histogram, assigned to an element
 struct Cut {
+    int id = 0; // Unique within the measurement, energy spectra refer to cuts by it
     int z = 0;
     int a = 0; // Mass number, zero when no specific isotope is selected
     QList<QPointF> polygon; // ToF and E in channels
     QColor color; // Drawn with this color
+    CutType type = CutType::Recoil;
 };
 
-// Values are in SI units (energies in MeV), see units.h. Angles are measured from the sample surface. IBM geometry
+// The element or isotope, with an asterisk for scattered ions. With superscript, the mass number is in Unicode
+// superscript digits.
+QString cutLabel(int z, int a, CutType type, bool superscript = true);
+inline QString cutLabel(const Cut &cut) { return cutLabel(cut.z, cut.a, cut.type); }
+
+// Values are in SI units, see units.h. Angles are measured from the sample surface. IBM geometry
 // is assumed, so the exit angle is the scattering angle minus the incident angle.
 constexpr double MinIncidentAngle = 0;
 constexpr double MaxIncidentAngle = 90 * Units::Degree;
@@ -44,7 +56,7 @@ constexpr double MaxScatteringAngle = 180 * Units::Degree;
 // Parameters of an experiment, shared by the measurements assigned to them. More parameters will be added.
 struct ExperimentalSettings {
     QString name;
-    double beamEnergy = 0; // MeV
+    double beamEnergy = 0; // J
     int beamZ = 0; // Incident ion, always a specific isotope
     int beamA = 0;
     double incidentAngle = MinIncidentAngle; // rad
@@ -55,8 +67,18 @@ struct DetectorSettings {
     QString name;
     double scatteringAngle = MinScatteringAngle; // rad, scattering/recoil angle
     double tofLength = 0; // m
-    double tofSlope = 0; // s/ch, ToF calibration t = slope * channel + offset
+    double tofSlope = 0; // s/ch, not negative. ToF calibration t = slope * channel + offset
     double tofOffset = 0; // s
+};
+
+// Default bin width of new energy spectra
+constexpr double DefaultSpectrumBinWidth = 10 * Units::Kiloelectronvolt; // J
+
+// 1D energy spectrum of some of a measurement's selections, energies from the ToF calibration of the detector
+struct EnergySpectrum {
+    QString name;
+    double binWidth = DefaultSpectrumBinWidth; // J
+    QList<int> cutIds; // Included selections
 };
 
 struct Measurement {
@@ -66,11 +88,23 @@ struct Measurement {
     QList<Cut> cuts;
     ExperimentalSettings *settings = nullptr; // Not owned, belong to the project. nullptr when not assigned.
     DetectorSettings *detector = nullptr; // Same as above
+    std::vector<std::unique_ptr<EnergySpectrum>> spectra; // Pointers stay valid, spectrum views refer to them
 
     // Exit angle from the surface, available when both experimental and detector settings are assigned
     bool hasExitAngle() const { return settings && detector; }
     double exitAngle() const { return detector->scatteringAngle - settings->incidentAngle; }
+    int newCutId() const; // Not used by any cut of this measurement
+    void assignCutIds(); // Gives cuts without an id, or with an id already used by an earlier cut, a new one
+    const Cut *cut(int id) const; // nullptr when there is no such cut
+    void removeCut(int index); // Also from the spectra
+    QString uniqueSpectrumName(const QString &name) const;
 };
+
+// Copy of a measurement with copies of its spectra
+std::unique_ptr<Measurement> copyMeasurement(const Measurement &measurement);
+
+// "Name" when it is not taken, otherwise "Name (2)", "Name (3)" and so on
+QString uniqueName(const QString &name, const QStringList &taken);
 
 struct Sample {
     QString name;
@@ -92,7 +126,7 @@ QJsonObject detectorToJson(const DetectorSettings &detector);
 DetectorSettings detectorFromJson(const QJsonObject &json);
 
 // Settings copied through the clipboard or exported to a file:
-// {"format": "jara-settings", "version": 1, "experimentalSettings": [...], "detectorSettings": [...]}.
+// {"format": "jara-settings", "version": 3, "experimentalSettings": [...], "detectorSettings": [...]}.
 // Project files have the same lists, so settings can be imported from them too.
 struct SettingsCollection {
     QList<ExperimentalSettings> experimental;

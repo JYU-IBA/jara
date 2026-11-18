@@ -3,6 +3,8 @@
 
 #include <QDialog>
 
+#include "project.h"
+
 class ColorButton;
 class QButtonGroup;
 class QColor;
@@ -25,6 +27,8 @@ public:
     // picks one.
     void setColorSelectable(const QColor &color, bool followElement);
     QColor color() const;
+    void setTypeSelectable(CutType type); // Shows a row for choosing between recoils and scattered ions
+    CutType type() const;
 
 private slots:
     void elementClicked(int z);
@@ -40,6 +44,7 @@ private:
     QLineEdit *m_edit;
     QComboBox *m_isotopeCombo;
     ColorButton *m_colorButton;
+    QComboBox *m_typeCombo;
     QFormLayout *m_form;
     QDialogButtonBox *m_buttonBox;
     QButtonGroup *m_elementGroup;

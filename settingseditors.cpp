@@ -42,7 +42,7 @@ void connectSpinBox(Editor *editor, QDoubleSpinBox *spinBox, T *const &target, d
 
 ExperimentalSettingsEditor::ExperimentalSettingsEditor(QWidget *parent) : QWidget(parent) {
     m_nameEdit = new QLineEdit;
-    m_beamEnergySpin = createSpinBox(0, 1000, 1, 3, " MeV"); // Energies are stored in MeV
+    m_beamEnergySpin = createSpinBox(0, 1000 * Units::Megaelectronvolt, Units::Megaelectronvolt, 3, " MeV");
     m_beamIonEdit = new QLineEdit;
     m_beamIonEdit->setPlaceholderText("e.g. 35Cl");
     auto *beamIonButton = new QToolButton;
@@ -125,7 +125,7 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     m_scatteringAngleSpin = createSpinBox(MinScatteringAngle, MaxScatteringAngle, Units::Degree, 2, "°");
     m_scatteringAngleSpin->setToolTip(FromSurface);
     m_tofLengthSpin = createSpinBox(0, 100, Units::Millimetre, 1, " mm");
-    m_tofSlopeSpin = createSpinBox(-1e-6, 1e-6, Units::Nanosecond, 6, " ns/ch");
+    m_tofSlopeSpin = createSpinBox(0, 1e-6, Units::Nanosecond, 6, " ns/ch");
     m_tofOffsetSpin = createSpinBox(-1e-3, 1e-3, Units::Nanosecond, 3, " ns");
 
     auto *layout = new QFormLayout(this);
@@ -145,6 +145,18 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     connectSpinBox(this, m_tofLengthSpin, m_detector, &DetectorSettings::tofLength);
     connectSpinBox(this, m_tofSlopeSpin, m_detector, &DetectorSettings::tofSlope);
     connectSpinBox(this, m_tofOffsetSpin, m_detector, &DetectorSettings::tofOffset);
+
+    connect(this, &DetectorSettingsEditor::changed, this, [this]() { m_edited = true; });
+    auto finished = [this]() {
+        if(m_edited) {
+            m_edited = false;
+            emit editingFinished();
+        }
+    };
+    connect(m_nameEdit, &QLineEdit::editingFinished, this, finished);
+    for(QDoubleSpinBox *spinBox : {m_scatteringAngleSpin, m_tofLengthSpin, m_tofSlopeSpin, m_tofOffsetSpin}) {
+        connect(spinBox, &QDoubleSpinBox::editingFinished, this, finished);
+    }
 }
 
 void DetectorSettingsEditor::setDetector(DetectorSettings *detector) {

@@ -8,8 +8,8 @@
 #include <QSettings>
 
 namespace {
-// Stored as JSON in the same format as in project files, in SI units. The keys used before SI units are not read.
-const QString ExperimentalKey = QStringLiteral("defaults/experimental");
+// Stored as JSON in the same format as in project files, in SI units. Keys used by earlier versions are not read.
+const QString ExperimentalKey = QStringLiteral("defaults/experimentalSettings");
 const QString DetectorKey = QStringLiteral("defaults/detector");
 const QString HistogramKey = QStringLiteral("defaults/histogram");
 const QString ElementColorsKey = QStringLiteral("defaults/elementColors"); // {"14": "#rrggbb", ...}

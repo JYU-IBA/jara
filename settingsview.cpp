@@ -25,6 +25,7 @@ SettingsView::SettingsView(Project *project, DetectorSettings *detector, QWidget
     editor->setDetector(detector);
     connect(editor, &DetectorSettingsEditor::changed, this, &SettingsView::modified);
     connect(editor, &DetectorSettingsEditor::nameChanged, this, &SettingsView::nameChanged);
+    connect(editor, &DetectorSettingsEditor::editingFinished, this, &SettingsView::editingFinished);
     createLayout(editor);
 }
 

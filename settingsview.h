@@ -25,6 +25,7 @@ public:
 signals:
     void modified();
     void nameChanged();
+    void editingFinished(); // Of detector settings, a field was left after it was changed
     void measurementActivated(Measurement *measurement);
 
 private:

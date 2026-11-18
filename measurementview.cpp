@@ -17,7 +17,6 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QMimeData>
-#include <QPolygonF>
 #include <QSplitter>
 #include <QToolBar>
 #include <QVBoxLayout>
@@ -51,19 +50,6 @@ QList<Cut> cutsFromClipboard() {
     QList<Cut> cuts = cutsFromJson(root["cuts"].toArray());
     cuts.removeIf([](const Cut &cut) { return !Elements::isKnown(cut.z) || cut.polygon.size() < 3; });
     return cuts;
-}
-
-size_t countEvents(const std::vector<ToFEEvent> &events, const QList<QPointF> &points) {
-    const QPolygonF polygon(points);
-    const QRectF bounds = polygon.boundingRect();
-    size_t count = 0;
-    for(const auto &event : events) {
-        const QPointF point(event.tof, event.energy);
-        if(bounds.contains(point) && polygon.containsPoint(point, Qt::OddEvenFill)) {
-            count++;
-        }
-    }
-    return count;
 }
 }
 
@@ -192,6 +178,20 @@ QWidget *MeasurementView::createCutPanel() {
         QMenu menu;
         menu.addAction("Change Element...", this, &MeasurementView::changeCutElement)->setEnabled(count == 1);
         menu.addAction("Change Color...", this, &MeasurementView::changeCutColor)->setEnabled(count > 0);
+        // Checked when all selected selections have the type
+        auto addTypeAction = [this, &menu, count](const QString &text, CutType type) {
+            const QList<int> rows = selectedCutRows();
+            QAction *action = menu.addAction(text, this, [this, type]() { setCutType(type); });
+            action->setCheckable(true);
+            action->setChecked(count > 0 && std::all_of(rows.begin(), rows.end(), [this, type](int row) {
+                                   return m_measurement->cuts.at(row).type == type;
+                               }));
+            action->setEnabled(count > 0);
+        };
+        menu.addSeparator();
+        addTypeAction("Recoil (ERD)", CutType::Recoil);
+        addTypeAction("Scattered (RBS)", CutType::Scattered);
+        menu.addSeparator();
         menu.addAction(count > 1 ? QString("Remove %1 Selections").arg(count) : QString("Remove"), this, &MeasurementView::removeCuts)
                 ->setEnabled(count > 0);
         menu.addSeparator();
@@ -219,8 +219,8 @@ void MeasurementView::updateCutList() {
     m_cutList->clear();
     for(const Cut &cut : m_measurement->cuts) {
         m_cutList->addItem(new QListWidgetItem(colorSwatch(cut.color), QString("%1 — %2 events")
-                                                       .arg(Elements::displayLabel(cut.z, cut.a))
-                                                       .arg(countEvents(m_events, cut.polygon))));
+                                                       .arg(cutLabel(cut))
+                                                       .arg(countEventsIn(m_events, cut.polygon))));
     }
     m_cutList->setCurrentRow(std::min(row, static_cast<int>(m_cutList->count()) - 1));
     m_histogram->update();
@@ -229,10 +229,11 @@ void MeasurementView::updateCutList() {
 void MeasurementView::polygonCompleted(const QList<QPointF> &polygon) {
     ElementDialog dialog(0, 0, this);
     dialog.setColorSelectable(QColor(), true);
+    dialog.setTypeSelectable(CutType::Recoil);
     if(dialog.exec() != QDialog::Accepted) {
         return; // The selection is discarded
     }
-    m_measurement->cuts.append(Cut{dialog.z(), dialog.a(), polygon, dialog.color()});
+    m_measurement->cuts.append(Cut{m_measurement->newCutId(), dialog.z(), dialog.a(), polygon, dialog.color(), dialog.type()});
     updateCutList();
     m_cutList->setCurrentRow(static_cast<int>(m_measurement->cuts.size()) - 1);
     emit modified();
@@ -247,12 +248,14 @@ void MeasurementView::changeCutElement() {
     ElementDialog dialog(cut.z, cut.a, this);
     // A selection with the default color of its element gets the default color of the new element
     dialog.setColorSelectable(cut.color, cut.color == Defaults::elementColor(cut.z));
+    dialog.setTypeSelectable(cut.type);
     if(dialog.exec() != QDialog::Accepted) {
         return;
     }
     cut.z = dialog.z();
     cut.a = dialog.a();
     cut.color = dialog.color();
+    cut.type = dialog.type();
     updateCutList();
     emit modified();
 }
@@ -276,6 +279,18 @@ void MeasurementView::changeCutColor() {
     emit modified();
 }
 
+void MeasurementView::setCutType(CutType type) {
+    const QList<int> rows = selectedCutRows();
+    for(int row : rows) {
+        m_measurement->cuts[row].type = type;
+    }
+    updateCutList();
+    for(int row : rows) {
+        m_cutList->item(row)->setSelected(true);
+    }
+    emit modified();
+}
+
 void MeasurementView::removeCuts() {
     const QList<int> rows = selectedCutRows();
     if(rows.isEmpty()) {
@@ -283,12 +298,12 @@ void MeasurementView::removeCuts() {
     }
     const Cut &first = m_measurement->cuts.at(rows.first());
     const QString question = rows.size() > 1 ? QString("Remove %1 selections?").arg(rows.size())
-                                             : QString("Remove the %1 selection?").arg(Elements::displayLabel(first.z, first.a));
+                                             : QString("Remove the %1 selection?").arg(cutLabel(first));
     if(QMessageBox::question(this, "Remove Selections", question) != QMessageBox::Yes) {
         return;
     }
     for(auto row = rows.crbegin(); row != rows.crend(); ++row) {
-        m_measurement->cuts.removeAt(*row);
+        m_measurement->removeCut(*row);
     }
     updateCutList();
     emit modified();
@@ -317,7 +332,10 @@ void MeasurementView::pasteCuts() {
         return;
     }
     const auto first = static_cast<int>(m_measurement->cuts.size());
-    m_measurement->cuts.append(cuts);
+    for(Cut cut : cuts) {
+        cut.id = m_measurement->newCutId(); // The ids of the copied cuts belong to their measurement
+        m_measurement->cuts.append(cut);
+    }
     updateCutList();
     // Select the pasted selections
     m_cutList->setCurrentRow(first);

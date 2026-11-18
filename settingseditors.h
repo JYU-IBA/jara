@@ -46,9 +46,11 @@ public:
 signals:
     void changed();
     void nameChanged(const QString &name);
+    void editingFinished(); // A field was left or Enter was pressed after changed() was emitted
 
 private:
     DetectorSettings *m_detector = nullptr;
+    bool m_edited = false; // Since editingFinished() was emitted
     QLineEdit *m_nameEdit;
     QDoubleSpinBox *m_scatteringAngleSpin;
     QDoubleSpinBox *m_tofLengthSpin;

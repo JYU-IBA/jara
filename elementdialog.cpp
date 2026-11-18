@@ -41,11 +41,18 @@ ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
     m_edit->setPlaceholderText("e.g. Si, 14 or 28Si");
     m_isotopeCombo = new QComboBox;
     m_colorButton = new ColorButton;
+    m_typeCombo = new QComboBox;
+    m_typeCombo->addItem("Recoil (ERD)", static_cast<int>(CutType::Recoil));
+    m_typeCombo->addItem("Scattered (RBS)", static_cast<int>(CutType::Scattered));
+    m_typeCombo->setToolTip("Scattered ions are labeled with the target atom and an asterisk, their energy is calculated "
+                            "with the mass of the incident ion.");
     m_form = new QFormLayout;
     m_form->addRow("Element:", m_edit);
     m_form->addRow("Isotope:", m_isotopeCombo);
     m_form->addRow("Color:", m_colorButton);
     m_form->setRowVisible(m_colorButton, false);
+    m_form->addRow("Type:", m_typeCombo);
+    m_form->setRowVisible(m_typeCombo, false);
 
     m_buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 
@@ -78,6 +85,15 @@ void ElementDialog::setColorSelectable(const QColor &color, bool followElement) 
 
 QColor ElementDialog::color() const {
     return m_colorButton->color();
+}
+
+void ElementDialog::setTypeSelectable(CutType type) {
+    m_form->setRowVisible(m_typeCombo, true);
+    m_typeCombo->setCurrentIndex(m_typeCombo->findData(static_cast<int>(type)));
+}
+
+CutType ElementDialog::type() const {
+    return static_cast<CutType>(m_typeCombo->currentData().toInt());
 }
 
 void ElementDialog::setElement(int z, int a) {

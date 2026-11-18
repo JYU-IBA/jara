@@ -1,5 +1,6 @@
 #include "project.h"
 #include "defaults.h"
+#include "elements.h"
 
 #include <algorithm>
 
@@ -12,36 +13,15 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QSet>
 
 namespace {
 const QString FormatName = QStringLiteral("jara-project");
 const QString SettingsFormatName = QStringLiteral("jara-settings");
-// Version 1 stored angles in degrees and the ToF calibration in ns, version 2 uses SI units (energies in MeV)
-constexpr int FormatVersion = 2;
-
-void scale(QJsonObject &json, const QString &key, double factor) {
-    if(json.contains(key)) {
-        json[key] = json[key].toDouble() * factor;
-    }
-}
-
-QJsonObject settingsJson(const QJsonValue &value, int version) {
-    QJsonObject json = value.toObject();
-    if(version == 1) {
-        scale(json, "incidentAngle", Units::Degree);
-    }
-    return json;
-}
-
-QJsonObject detectorJson(const QJsonValue &value, int version) {
-    QJsonObject json = value.toObject();
-    if(version == 1) {
-        scale(json, "scatteringAngle", Units::Degree);
-        scale(json, "tofSlope", Units::Nanosecond);
-        scale(json, "tofOffset", Units::Nanosecond);
-    }
-    return json;
-}
+const QString RecoilTypeName = QStringLiteral("recoil");
+const QString ScatteredTypeName = QStringLiteral("scattered");
+// Only files of this version are read, older versions are not converted
+constexpr int FormatVersion = 3;
 
 QString pathToJson(const QString &path, const QDir &baseDir) {
     if(path.isEmpty()) {
@@ -57,22 +37,6 @@ QString pathToJson(const QString &path, const QDir &baseDir) {
 QString pathFromJson(const QJsonValue &value, const QDir &baseDir) {
     const QString path = value.toString();
     return path.isEmpty() ? QString() : QDir::cleanPath(baseDir.absoluteFilePath(path));
-}
-
-// "Name" when it is not taken, otherwise "Name (2)", "Name (3)" and so on
-QString uniqueName(const QString &name, const QStringList &taken) {
-    if(!taken.contains(name)) {
-        return name;
-    }
-    static const QRegularExpression numbered(QStringLiteral(R"(^(.*) \((\d+)\)$)"));
-    const QRegularExpressionMatch match = numbered.match(name);
-    const QString base = match.hasMatch() ? match.captured(1) : name;
-    for(int n = 2;; n++) {
-        const QString candidate = QString("%1 (%2)").arg(base).arg(n);
-        if(!taken.contains(candidate)) {
-            return candidate;
-        }
-    }
 }
 
 template<typename T>
@@ -101,6 +65,15 @@ QJsonObject sampleToJson(const Sample &sample, const QDir &baseDir, const Projec
                 {"description", measurement->description},
                 {"path", pathToJson(measurement->path, baseDir)},
                 {"cuts", cutsToJson(measurement->cuts)}};
+        QJsonArray spectra;
+        for(const auto &spectrum : measurement->spectra) {
+            QJsonArray cutIds;
+            for(int id : spectrum->cutIds) {
+                cutIds.append(id);
+            }
+            spectra.append(QJsonObject{{"name", spectrum->name}, {"binWidth", spectrum->binWidth}, {"cuts", cutIds}});
+        }
+        object["spectra"] = spectra;
         // Settings are referred to by their index in the project
         if(const int index = project.settingsIndex(measurement->settings); index >= 0) {
             object["settings"] = index;
@@ -139,6 +112,18 @@ std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &base
         sample->measurements.push_back(std::make_unique<Measurement>(
                 measurement["name"].toString(), measurement["description"].toString(),
                 pathFromJson(measurement["path"], baseDir), cutsFromJson(measurement["cuts"].toArray())));
+        sample->measurements.back()->assignCutIds(); // In case of missing or duplicate ids
+        for(const auto &spectrumValue : measurement["spectra"].toArray()) {
+            const QJsonObject object = spectrumValue.toObject();
+            auto spectrum = std::make_unique<EnergySpectrum>();
+            spectrum->name = object["name"].toString();
+            const double binWidth = object["binWidth"].toDouble();
+            spectrum->binWidth = binWidth > 0 ? binWidth : DefaultSpectrumBinWidth;
+            for(const auto &id : object["cuts"].toArray()) {
+                spectrum->cutIds.append(id.toInt());
+            }
+            sample->measurements.back()->spectra.push_back(std::move(spectrum));
+        }
         const int settingsIndex = measurement["settings"].toInt(-1);
         if(settingsIndex >= 0 && settingsIndex < static_cast<int>(project.settingsCount())) {
             sample->measurements.back()->settings = project.settings(settingsIndex);
@@ -152,6 +137,79 @@ std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &base
 }
 }
 
+QString uniqueName(const QString &name, const QStringList &taken) {
+    if(!taken.contains(name)) {
+        return name;
+    }
+    static const QRegularExpression numbered(QStringLiteral(R"(^(.*) \((\d+)\)$)"));
+    const QRegularExpressionMatch match = numbered.match(name);
+    const QString base = match.hasMatch() ? match.captured(1) : name;
+    for(int n = 2;; n++) {
+        const QString candidate = QString("%1 (%2)").arg(base).arg(n);
+        if(!taken.contains(candidate)) {
+            return candidate;
+        }
+    }
+}
+
+QString cutLabel(int z, int a, CutType type, bool superscript) {
+    const QString label = superscript ? Elements::displayLabel(z, a) : Elements::label(z, a);
+    return type == CutType::Scattered ? label + QStringLiteral("*") : label;
+}
+
+int Measurement::newCutId() const {
+    int id = 0;
+    for(const Cut &cut : cuts) {
+        id = std::max(id, cut.id);
+    }
+    return id + 1;
+}
+
+void Measurement::assignCutIds() {
+    QSet<int> used;
+    int next = newCutId();
+    for(Cut &cut : cuts) {
+        if(cut.id <= 0 || used.contains(cut.id)) {
+            cut.id = next++;
+        }
+        used.insert(cut.id);
+    }
+}
+
+const Cut *Measurement::cut(int id) const {
+    for(const Cut &cut : cuts) {
+        if(cut.id == id) {
+            return &cut;
+        }
+    }
+    return nullptr;
+}
+
+void Measurement::removeCut(int index) {
+    const int id = cuts.at(index).id;
+    cuts.removeAt(index);
+    for(const auto &spectrum : spectra) {
+        spectrum->cutIds.removeAll(id);
+    }
+}
+
+QString Measurement::uniqueSpectrumName(const QString &name) const {
+    QStringList names;
+    for(const auto &spectrum : spectra) {
+        names.append(spectrum->name);
+    }
+    return uniqueName(name, names);
+}
+
+std::unique_ptr<Measurement> copyMeasurement(const Measurement &measurement) {
+    auto copy = std::make_unique<Measurement>(measurement.name, measurement.description, measurement.path, measurement.cuts,
+                                              measurement.settings, measurement.detector);
+    for(const auto &spectrum : measurement.spectra) {
+        copy->spectra.push_back(std::make_unique<EnergySpectrum>(*spectrum));
+    }
+    return copy;
+}
+
 QJsonArray cutsToJson(const QList<Cut> &cuts) {
     QJsonArray result;
     for(const auto &cut : cuts) {
@@ -159,7 +217,9 @@ QJsonArray cutsToJson(const QList<Cut> &cuts) {
         for(const QPointF &point : cut.polygon) {
             polygon.append(QJsonArray{point.x(), point.y()});
         }
-        result.append(QJsonObject{{"z", cut.z}, {"a", cut.a}, {"color", cut.color.name()}, {"polygon", polygon}});
+        result.append(QJsonObject{{"id", cut.id}, {"z", cut.z}, {"a", cut.a},
+                                  {"type", cut.type == CutType::Scattered ? ScatteredTypeName : RecoilTypeName},
+                                  {"color", cut.color.name()}, {"polygon", polygon}});
     }
     return result;
 }
@@ -168,7 +228,8 @@ QList<Cut> cutsFromJson(const QJsonArray &json) {
     QList<Cut> cuts;
     for(const auto &value : json) {
         const QJsonObject object = value.toObject();
-        Cut cut{object["z"].toInt(), object["a"].toInt(), {}, QColor::fromString(object["color"].toString())};
+        Cut cut{object["id"].toInt(), object["z"].toInt(), object["a"].toInt(), {}, QColor::fromString(object["color"].toString())};
+        cut.type = object["type"].toString() == ScatteredTypeName ? CutType::Scattered : CutType::Recoil; // Recoil by default
         if(!cut.color.isValid()) {
             cut.color = Defaults::elementColor(cut.z);
         }
@@ -203,7 +264,7 @@ DetectorSettings detectorFromJson(const QJsonObject &json) {
     detector.name = json["name"].toString();
     detector.scatteringAngle = std::clamp(json["scatteringAngle"].toDouble(MinScatteringAngle), MinScatteringAngle, MaxScatteringAngle);
     detector.tofLength = json["tofLength"].toDouble();
-    detector.tofSlope = json["tofSlope"].toDouble();
+    detector.tofSlope = std::max(0.0, json["tofSlope"].toDouble());
     detector.tofOffset = json["tofOffset"].toDouble();
     return detector;
 }
@@ -249,17 +310,17 @@ bool settingsCollectionFromJson(const QByteArray &data, SettingsCollection &coll
         return false;
     }
     const int version = root["version"].toInt();
-    if(version < 1 || version > FormatVersion) {
+    if(version != FormatVersion) {
         errorMessage = QString("Unsupported file version %1.").arg(version);
         return false;
     }
     collection = {};
     collection.fromProject = format == FormatName;
     for(const auto &value : root["experimentalSettings"].toArray()) {
-        collection.experimental.append(settingsFromJson(settingsJson(value, version)));
+        collection.experimental.append(settingsFromJson(value.toObject()));
     }
     for(const auto &value : root["detectorSettings"].toArray()) {
-        collection.detectors.append(detectorFromJson(detectorJson(value, version)));
+        collection.detectors.append(detectorFromJson(value.toObject()));
     }
     return true;
 }
@@ -282,7 +343,7 @@ std::unique_ptr<Project> Project::load(const QString &fileName, QString &errorMe
         return nullptr;
     }
     const int version = root["version"].toInt();
-    if(version < 1 || version > FormatVersion) {
+    if(version != FormatVersion) {
         errorMessage = QString("Unsupported project file version %1.").arg(version);
         return nullptr;
     }
@@ -291,10 +352,10 @@ std::unique_ptr<Project> Project::load(const QString &fileName, QString &errorMe
     const QFileInfo fileInfo(fileName);
     const QDir baseDir = fileInfo.absoluteDir();
     for(const auto &value : root["experimentalSettings"].toArray()) {
-        project->m_settings.push_back(std::make_unique<ExperimentalSettings>(settingsFromJson(settingsJson(value, version))));
+        project->m_settings.push_back(std::make_unique<ExperimentalSettings>(settingsFromJson(value.toObject())));
     }
     for(const auto &value : root["detectorSettings"].toArray()) {
-        project->m_detectors.push_back(std::make_unique<DetectorSettings>(detectorFromJson(detectorJson(value, version))));
+        project->m_detectors.push_back(std::make_unique<DetectorSettings>(detectorFromJson(value.toObject())));
     }
     for(const auto &value : root["samples"].toArray()) {
         project->m_samples.push_back(sampleFromJson(value.toObject(), baseDir, *project));

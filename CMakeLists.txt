@@ -22,6 +22,12 @@ add_executable(jara
         projectpanel.h
         measurementview.cpp
         measurementview.h
+        energyspectrum.cpp
+        energyspectrum.h
+        energyspectrumview.cpp
+        energyspectrumview.h
+        spectrumplotwidget.cpp
+        spectrumplotwidget.h
         settingsview.cpp
         settingsview.h
         tabwidget.cpp

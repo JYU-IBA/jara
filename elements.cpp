@@ -73,7 +73,7 @@ QList<Elements::Isotope> Elements::isotopes(int z) {
     QList<Isotope> result;
     if(const jibal_element *e = element(z)) {
         for(size_t i = 0; i < e->n_isotopes; i++) {
-            result.append({e->isotopes[i]->A, e->isotopes[i]->abundance});
+            result.append({e->isotopes[i]->A, e->isotopes[i]->abundance, e->isotopes[i]->mass});
         }
     }
     return result;
@@ -82,6 +82,19 @@ QList<Elements::Isotope> Elements::isotopes(int z) {
 bool Elements::hasIsotope(int z, int a) {
     const QList<Isotope> list = isotopes(z);
     return std::any_of(list.begin(), list.end(), [a](const Isotope &isotope) { return isotope.a == a; });
+}
+
+double Elements::mass(int z, int a) {
+    double sum = 0;
+    double abundances = 0;
+    for(const Isotope &isotope : isotopes(z)) {
+        if(a > 0 && isotope.a == a) {
+            return isotope.mass;
+        }
+        sum += isotope.abundance * isotope.mass;
+        abundances += isotope.abundance;
+    }
+    return a <= 0 && abundances > 0 ? sum / abundances : 0;
 }
 
 bool Elements::parse(const QString &text, int &z, int &a) {

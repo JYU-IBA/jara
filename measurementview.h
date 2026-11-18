@@ -7,9 +7,9 @@
 #include <QPointF>
 #include <QWidget>
 
+#include "project.h"
 #include "tofedata.h"
 
-struct Measurement;
 class HistogramWidget;
 class QAction;
 class QLabel;
@@ -30,6 +30,7 @@ private slots:
     void polygonCompleted(const QList<QPointF> &polygon);
     void changeCutElement();
     void changeCutColor();
+    void setCutType(CutType type); // Of the selected cuts
     void removeCuts();
     void copyCuts();
     void pasteCuts();

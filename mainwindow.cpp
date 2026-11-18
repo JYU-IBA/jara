@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "defaults.h"
+#include "energyspectrumview.h"
 #include "histogramwidget.h"
 #include "measurementview.h"
 #include "preferencesdialog.h"
@@ -62,7 +63,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 QWidget *MainWindow::createProjectView() {
     m_projectPanel = new ProjectPanel;
 
-    m_tabs = new DetachableTabWidget("Double-click a measurement or settings in the project tree to open them here.\n"
+    m_tabs = new DetachableTabWidget("Double-click a measurement, energy spectrum or settings in the project tree to open them here.\n"
                                      "Drag a tab out to show it in a window of its own, and back to a tab bar.");
     connectTabs(m_tabs);
 
@@ -80,6 +81,13 @@ QWidget *MainWindow::createProjectView() {
     connect(m_projectPanel, &ProjectPanel::measurementAboutToBeRemoved, this, &MainWindow::closeMeasurementTab);
     connect(m_projectPanel, &ProjectPanel::measurementOpenRequested, this, &MainWindow::openMeasurement);
     connect(m_projectPanel, &ProjectPanel::measurementRenamed, this, &MainWindow::measurementRenamed);
+    connect(m_projectPanel, &ProjectPanel::spectrumOpenRequested, this, &MainWindow::openSpectrum);
+    connect(m_projectPanel, &ProjectPanel::spectrumAboutToBeRemoved, this, [this](EnergySpectrum *spectrum) {
+        closeTab(findView<EnergySpectrumView>([spectrum](EnergySpectrumView *view) { return view->spectrum() == spectrum; }));
+    });
+    connect(m_projectPanel, &ProjectPanel::spectrumRenamed, this, [this](EnergySpectrum *spectrum) {
+        updateSpectrumTitle(findView<EnergySpectrumView>([spectrum](EnergySpectrumView *view) { return view->spectrum() == spectrum; }));
+    });
     connect(m_projectPanel, &ProjectPanel::settingsOpenRequested, this, &MainWindow::openSettings);
     connect(m_projectPanel, &ProjectPanel::detectorOpenRequested, this, &MainWindow::openDetector);
     connect(m_projectPanel, &ProjectPanel::settingsAboutToBeRemoved, this, [this](ExperimentalSettings *settings) {
@@ -366,10 +374,13 @@ void MainWindow::closeProject() {
 void MainWindow::projectModified() {
     m_project->setModified(true);
     updateWindowState();
-    // Measurements may have been assigned to other settings, renamed, added or removed
+    // Measurements may have been assigned to other settings, renamed, added or removed. Selections or the ToF
+    // calibration of spectra may have changed.
     for(QWidget *page : tabPages()) {
         if(auto *view = qobject_cast<SettingsView *>(page)) {
             view->updateAssigned();
+        } else if(auto *spectrumView = qobject_cast<EnergySpectrumView *>(page)) {
+            spectrumView->checkStale();
         }
     }
 }
@@ -423,6 +434,22 @@ void MainWindow::openMeasurement(Measurement *measurement) {
     showTab(view, measurement->name, measurement->path);
 }
 
+void MainWindow::openSpectrum(Measurement *measurement, EnergySpectrum *spectrum) {
+    auto *view = findView<EnergySpectrumView>([spectrum](EnergySpectrumView *view) { return view->spectrum() == spectrum; });
+    if(!view) {
+        view = new EnergySpectrumView(measurement, spectrum);
+        connect(view, &EnergySpectrumView::modified, this, &MainWindow::projectModified);
+        connect(view, &EnergySpectrumView::titleChanged, this, [this, view]() { updateSpectrumTitle(view); });
+    }
+    showTab(view, view->title(), measurement->path);
+}
+
+void MainWindow::updateSpectrumTitle(EnergySpectrumView *view) {
+    if(const auto [tabs, index] = findTab(view); tabs) {
+        tabs->setTabTitle(index, view->title());
+    }
+}
+
 void MainWindow::openSettings(ExperimentalSettings *settings) {
     auto *view = findView<SettingsView>([settings](SettingsView *view) { return view->settings() == settings; });
     if(!view) {
@@ -455,6 +482,14 @@ void MainWindow::connectSettingsView(SettingsView *view) {
     connect(view, &SettingsView::measurementActivated, this, [this](Measurement *measurement) {
         m_projectPanel->selectMeasurement(measurement);
         openMeasurement(measurement);
+    });    // Spectra of measurements using the detector follow its ToF calibration once an edit is finished
+    connect(view, &SettingsView::editingFinished, this, [this, view]() {
+        for(QWidget *page : tabPages()) {
+            auto *spectrumView = qobject_cast<EnergySpectrumView *>(page);
+            if(spectrumView && spectrumView->measurement()->detector == view->detector() && spectrumView->isStale()) {
+                spectrumView->recalculate();
+            }
+        }
     });
 }
 
@@ -462,6 +497,9 @@ void MainWindow::measurementRenamed(Measurement *measurement) {
     auto *view = findView<MeasurementView>([measurement](MeasurementView *view) { return view->measurement() == measurement; });
     if(const auto [tabs, index] = findTab(view); tabs) {
         tabs->setTabTitle(index, measurement->name);
+    }
+    for(const auto &spectrum : measurement->spectra) {
+        updateSpectrumTitle(findView<EnergySpectrumView>([&spectrum](EnergySpectrumView *view) { return view->spectrum() == spectrum.get(); }));
     }
 }
 
@@ -473,6 +511,9 @@ void MainWindow::closeSampleTabs(Sample *sample) {
 
 void MainWindow::closeMeasurementTab(Measurement *measurement) {
     closeTab(findView<MeasurementView>([measurement](MeasurementView *view) { return view->measurement() == measurement; }));
+    for(const auto &spectrum : measurement->spectra) {
+        closeTab(findView<EnergySpectrumView>([&spectrum](EnergySpectrumView *view) { return view->spectrum() == spectrum.get(); }));
+    }
 }
 
 void MainWindow::closeTab(DetachableTabWidget *tabs, int index) {

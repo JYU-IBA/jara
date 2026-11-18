@@ -8,6 +8,7 @@
 #include "project.h"
 
 class DetachableTabWidget;
+class EnergySpectrumView;
 class ProjectPanel;
 class QMenu;
 class QMenuBar;
@@ -32,6 +33,7 @@ private slots:
     void closeProject();
     void projectModified();
     void openMeasurement(Measurement *measurement);
+    void openSpectrum(Measurement *measurement, EnergySpectrum *spectrum);
     void openSettings(ExperimentalSettings *settings);
     void openDetector(DetectorSettings *detector);
     void measurementRenamed(Measurement *measurement);
@@ -51,6 +53,7 @@ private:
     void closeTab(QWidget *page); // Wherever it is
     void showTab(QWidget *page, const QString &title, const QString &toolTip); // Opened in the main window
     void connectSettingsView(SettingsView *view);
+    void updateSpectrumTitle(EnergySpectrumView *view); // nullptr is ignored
     QList<QWidget *> tabPages() const; // In all windows
     // Tab widget and index of the page, nullptr when it is not in a tab
     std::pair<DetachableTabWidget *, int> findTab(const QWidget *page) const;

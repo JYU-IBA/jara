@@ -40,12 +40,12 @@
 
 namespace {
 // Experimental settings are the first top-level nodes, then detector settings and samples. Under a sample node,
-// measurements come first, followed by attached files.
-enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode };
-enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage };
+// measurements come first, followed by attached files. Energy spectra are under their measurement.
+enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode, SpectrumNode };
+enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, SpectrumPage };
 constexpr int TypeRole = Qt::UserRole;
-constexpr int IndexRole = Qt::UserRole + 1; // Index in the sample's measurements or files
-constexpr int ObjectRole = Qt::UserRole + 2; // The sample or measurement, for finding it again after sorting
+constexpr int IndexRole = Qt::UserRole + 1; // Index in the sample's measurements or files, or the measurement's spectra
+constexpr int ObjectRole = Qt::UserRole + 2; // The sample, measurement or spectrum, for finding it again after sorting
 
 QString displayName(const QString &name) {
     return name.isEmpty() ? QStringLiteral("(unnamed)") : name;
@@ -86,9 +86,22 @@ const void *objectOf(const QTreeWidgetItem *item) {
     return reinterpret_cast<const void *>(item->data(0, ObjectRole).value<quintptr>());
 }
 
+QTreeWidgetItem *createSpectrumItem(const EnergySpectrum &spectrum, int index) {
+    auto *item = new QTreeWidgetItem({displayName(spectrum.name)});
+    item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
+    item->setData(0, TypeRole, SpectrumNode);
+    item->setData(0, IndexRole, index);
+    item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&spectrum)));
+    item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+    return item;
+}
+
 QTreeWidgetItem *createMeasurementItem(const Measurement &measurement, int index) {
     auto *item = createItem(measurement.name, MeasurementNode, index, measurement.path, QStyle::SP_FileDialogContentsView);
     item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&measurement)));
+    for(size_t i = 0; i < measurement.spectra.size(); i++) {
+        item->addChild(createSpectrumItem(*measurement.spectra.at(i), static_cast<int>(i)));
+    }
     return item;
 }
 
@@ -312,6 +325,14 @@ QWidget *ProjectPanel::createPropertyPages() {
     settingsLayout->addStretch();
     m_pages->insertWidget(SettingsPage, createPage(settingsLayout));
 
+    m_spectrumNameEdit = new QLineEdit;
+    auto *spectrumHint = new QLabel("Double-click to open the energy spectrum in a tab.");
+    spectrumHint->setWordWrap(true);
+    auto *spectrumLayout = new QFormLayout;
+    spectrumLayout->addRow("Name:", m_spectrumNameEdit);
+    spectrumLayout->addRow(spectrumHint);
+    m_pages->insertWidget(SpectrumPage, createPage(spectrumLayout));
+
     connect(m_sampleNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         QTreeWidgetItem *item = topLevelOf(m_tree->currentItem());
         sampleOf(item)->name = text;
@@ -371,6 +392,13 @@ QWidget *ProjectPanel::createPropertyPages() {
     });
     connect(m_fileDescriptionEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         currentFile().description = text;
+        emit modified();
+    });
+    connect(m_spectrumNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
+        EnergySpectrum *spectrum = currentSpectrum();
+        spectrum->name = text;
+        m_tree->currentItem()->setText(0, displayName(text));
+        emit spectrumRenamed(spectrum);
         emit modified();
     });
     return m_pages;
@@ -480,7 +508,19 @@ AttachedFile &ProjectPanel::currentFile() const {
 }
 
 Measurement *ProjectPanel::currentMeasurement() const {
-    return currentSample()->measurements.at(nodeIndex(m_tree->currentItem())).get();
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(nodeType(item) == SpectrumNode) {
+        item = item->parent();
+    }
+    return currentSample()->measurements.at(nodeIndex(item)).get();
+}
+
+EnergySpectrum *ProjectPanel::currentSpectrum() const {
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(!m_project || !item || nodeType(item) != SpectrumNode) {
+        return nullptr;
+    }
+    return currentMeasurement()->spectra.at(nodeIndex(item)).get();
 }
 
 QTreeWidgetItem *ProjectPanel::measurementItem(const Measurement *measurement) const {
@@ -559,6 +599,10 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
         case DetectorNode:
             m_pages->setCurrentIndex(SettingsPage);
             break;
+        case SpectrumNode:
+            m_spectrumNameEdit->setText(currentSpectrum()->name);
+            m_pages->setCurrentIndex(SpectrumPage);
+            break;
     }
 }
 
@@ -569,7 +613,7 @@ void ProjectPanel::showGeometry(const Measurement &measurement) {
     const QString noDetector = QStringLiteral("No detector settings");
     if(const ExperimentalSettings *settings = measurement.settings) {
         m_beamIonLabel->setText(settings->beamZ > 0 ? Elements::displayLabel(settings->beamZ, settings->beamA) : QStringLiteral("Not set"));
-        m_beamEnergyLabel->setText(locale().toString(settings->beamEnergy, 'f', 3) + " MeV");
+        m_beamEnergyLabel->setText(locale().toString(settings->beamEnergy / Units::Megaelectronvolt, 'f', 3) + " MeV");
         m_incidentAngleLabel->setText(angleText(settings->incidentAngle));
     } else {
         m_beamIonLabel->setText(noExperimental);
@@ -627,6 +671,9 @@ void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
         case DetectorNode:
             emit detectorOpenRequested(currentDetector());
             break;
+        case SpectrumNode:
+            emit spectrumOpenRequested(currentMeasurement(), currentSpectrum());
+            break;
         default:
             break;
     }
@@ -654,7 +701,14 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
         } else {
             if(nodeType(item) == MeasurementNode) {
                 menu.addAction("Open Measurement", this, [this]() { emit measurementOpenRequested(currentMeasurement()); });
+                menu.addAction("Add Energy Spectrum", this, &ProjectPanel::addSpectrum);
                 menu.addAction("Remove Measurement", this, &ProjectPanel::removeCurrentMeasurement);
+                menu.addSeparator();
+            } else if(nodeType(item) == SpectrumNode) {
+                menu.addAction("Open Energy Spectrum", this, [this]() {
+                    emit spectrumOpenRequested(currentMeasurement(), currentSpectrum());
+                });
+                menu.addAction("Remove Energy Spectrum", this, &ProjectPanel::removeCurrentSpectrum);
                 menu.addSeparator();
             } else if(nodeType(item) == FileNode) {
                 menu.addAction("Open File", this, &ProjectPanel::openCurrentFile);
@@ -874,8 +928,8 @@ void ProjectPanel::importProject(Project &source, const QString &fileName, int t
             detectorCopies.insert(source.detector(i), m_project->detector(detectorsBefore + added++));
         }
     }
-    auto copyMeasurement = [&](const Measurement &measurement) {
-        auto copy = std::make_unique<Measurement>(measurement);
+    auto importMeasurement = [&](const Measurement &measurement) {
+        auto copy = copyMeasurement(measurement);
         copy->settings = settingsCopies.value(measurement.settings);
         copy->detector = detectorCopies.value(measurement.detector);
         // As with new measurements, settings are assigned when there is no choice to make
@@ -908,7 +962,7 @@ void ProjectPanel::importProject(Project &source, const QString &fileName, int t
         }
         for(const auto &measurement : sample->measurements) {
             if(dialog.isSelected(measurement.get())) {
-                target->measurements.push_back(copyMeasurement(*measurement));
+                target->measurements.push_back(importMeasurement(*measurement));
                 if(targetSample >= 0) {
                     select = target->measurements.back().get();
                 }
@@ -1059,8 +1113,10 @@ void ProjectPanel::rebuildSampleItems(const void *select) {
         const QSignalBlocker blocker(m_tree);
         while(m_tree->topLevelItemCount() > firstSampleRow()) {
             QTreeWidgetItem *item = m_tree->topLevelItem(firstSampleRow());
-            if(!item->isExpanded()) {
-                collapsed.insert(objectOf(item));
+            for(QTreeWidgetItemIterator it(item); *it && topLevelOf(*it) == item; ++it) {
+                if((*it)->childCount() > 0 && !(*it)->isExpanded()) {
+                    collapsed.insert(objectOf(*it));
+                }
             }
             delete item;
         }
@@ -1069,15 +1125,15 @@ void ProjectPanel::rebuildSampleItems(const void *select) {
             const Sample *sample = m_project->sample(i);
             QTreeWidgetItem *item = createSampleItem(*sample);
             m_tree->addTopLevelItem(item);
-            item->setExpanded(!collapsed.contains(sample));
-            for(QTreeWidgetItemIterator it(item); *it && !selected; ++it) {
-                if(objectOf(*it) == select) {
+            for(QTreeWidgetItemIterator it(item); *it && topLevelOf(*it) == item; ++it) {
+                (*it)->setExpanded((*it)->childCount() > 0 && !collapsed.contains(objectOf(*it)));
+                if(!selected && objectOf(*it) == select) {
                     selected = *it;
                 }
             }
         }
-        if(selected && selected->parent()) {
-            selected->parent()->setExpanded(true);
+        for(QTreeWidgetItem *parent = selected ? selected->parent() : nullptr; parent; parent = parent->parent()) {
+            parent->setExpanded(true);
         }
         m_tree->setCurrentItem(selected);
     }
@@ -1174,6 +1230,49 @@ void ProjectPanel::removeCurrentMeasurement() {
         measurements.erase(measurements.begin() + index);
         delete item;
         renumberChildren(parent, MeasurementNode);
+        m_tree->setCurrentItem(parent);
+    }
+    currentItemChanged(parent);
+    emit modified();
+}
+
+void ProjectPanel::addSpectrum() {
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(!m_project || !item || (nodeType(item) != MeasurementNode && nodeType(item) != SpectrumNode)) {
+        return;
+    }
+    if(nodeType(item) == SpectrumNode) {
+        item = item->parent();
+    }
+    Measurement *measurement = currentMeasurement();
+    auto spectrum = std::make_unique<EnergySpectrum>();
+    spectrum->name = measurement->uniqueSpectrumName("Energy spectrum");
+    for(const Cut &cut : measurement->cuts) {
+        spectrum->cutIds.append(cut.id);
+    }
+    measurement->spectra.push_back(std::move(spectrum));
+    QTreeWidgetItem *spectrumItem = createSpectrumItem(*measurement->spectra.back(), static_cast<int>(measurement->spectra.size() - 1));
+    item->addChild(spectrumItem);
+    item->setExpanded(true);
+    m_tree->setCurrentItem(spectrumItem);
+    emit modified();
+    emit spectrumOpenRequested(measurement, currentSpectrum());
+}
+
+void ProjectPanel::removeCurrentSpectrum() {
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(!item || nodeType(item) != SpectrumNode) {
+        return;
+    }
+    QTreeWidgetItem *parent = item->parent();
+    auto &spectra = currentMeasurement()->spectra;
+    const int index = nodeIndex(item);
+    emit spectrumAboutToBeRemoved(spectra.at(index).get());
+    {
+        const QSignalBlocker blocker(m_tree);
+        spectra.erase(spectra.begin() + index);
+        delete item;
+        renumberChildren(parent, SpectrumNode);
         m_tree->setCurrentItem(parent);
     }
     currentItemChanged(parent);

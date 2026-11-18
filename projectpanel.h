@@ -8,6 +8,7 @@ class QAction;
 struct SettingsCollection;
 struct AttachedFile;
 struct DetectorSettings;
+struct EnergySpectrum;
 struct ExperimentalSettings;
 struct Measurement;
 struct MetadataEntry;
@@ -27,7 +28,7 @@ class QTreeWidgetItem;
 // Project tree and a properties editor for the selected node. Experimental and detector settings are edited in tabs
 // of the work area, opened with settingsOpenRequested() and detectorOpenRequested(). Experimental settings are the first top-level
 // The tree has experimental settings as the first top-level items, followed by detector settings and then the samples
-// with their measurements and files.
+// with their measurements and files. Energy spectra are under their measurements.
 class ProjectPanel : public QWidget {
     Q_OBJECT
 
@@ -46,6 +47,7 @@ public slots:
     void addFiles();
     void addMeasurements();
     void addMeasurementFiles(int sampleIndex, const QStringList &fileNames);
+    void addSpectrum(); // To the current measurement
     void addSettings();
     void removeSettings();
     void addDetector();
@@ -72,6 +74,9 @@ signals:
     void settingsAboutToBeRemoved(ExperimentalSettings *settings);
     void detectorAboutToBeRemoved(DetectorSettings *detector);
     void measurementRenamed(Measurement *measurement);
+    void spectrumOpenRequested(Measurement *measurement, EnergySpectrum *spectrum);
+    void spectrumAboutToBeRemoved(EnergySpectrum *spectrum);
+    void spectrumRenamed(EnergySpectrum *spectrum);
 
 private slots:
     void currentItemChanged(QTreeWidgetItem *item);
@@ -83,6 +88,7 @@ private slots:
     void openCurrentFile();
     void removeCurrentFile();
     void removeCurrentMeasurement();
+    void removeCurrentSpectrum();
 
 private:
     QWidget *createPropertyPages();
@@ -95,7 +101,8 @@ private:
     DetectorSettings *detectorOf(QTreeWidgetItem *item) const;
     int firstSampleRow() const; // Row of the first sample among the top-level items
     AttachedFile &currentFile() const;
-    Measurement *currentMeasurement() const;
+    Measurement *currentMeasurement() const; // Also of the current spectrum
+    EnergySpectrum *currentSpectrum() const;
     void showProperties(QTreeWidgetItem *item);
     void showGeometry(const Measurement &measurement); // Beam and angles from the assigned settings
     void addSettingsCollection(const SettingsCollection &collection);
@@ -127,6 +134,7 @@ private:
     QLabel *m_incidentAngleLabel;
     QLabel *m_scatteringAngleLabel;
     QLabel *m_exitAngleLabel;
+    QLineEdit *m_spectrumNameEdit;
     QAction *m_copySettingsAction;
     QAction *m_pasteSettingsAction;
 };
