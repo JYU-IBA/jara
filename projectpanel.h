@@ -121,6 +121,8 @@ private:
     void rebuildSampleItems(const void *select); // Sorts and rebuilds the sample items, selects the given sample or measurement
     void importProject(Project &source, const QString &fileName, int targetSample);
     void handleMeasurementDrag(QDropEvent *event, int targetSample);
+    void handleDepthProfileDrag(QDropEvent *event, QTreeWidgetItem *target);
+    void copyDepthProfile(const DepthProfile *profile, Measurement *target);
     void moveMeasurement(Measurement *measurement, int targetSample);
 
     Project *m_project = nullptr;

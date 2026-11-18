@@ -72,7 +72,7 @@ QTreeWidgetItem *topLevelOf(QTreeWidgetItem *item) {
 QTreeWidgetItem *createItem(const QString &text, NodeType type, int index, const QString &path, QStyle::StandardPixmap icon) {
     auto *item = new QTreeWidgetItem({text});
     if(type != MeasurementNode) {
-        item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled); // Only measurements can be moved by dragging
+        item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled); // Only measurements and depth profiles can be dragged
     }
     item->setData(0, TypeRole, type);
     item->setData(0, IndexRole, index);
@@ -100,8 +100,7 @@ QTreeWidgetItem *createSpectrumItem(const EnergySpectrum &spectrum, int index) {
 }
 
 QTreeWidgetItem *createDepthProfileItem(const DepthProfile &profile, int index) {
-    auto *item = new QTreeWidgetItem({displayName(profile.name)});
-    item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
+    auto *item = new QTreeWidgetItem({displayName(profile.name)}); // Can be dragged, a copy is dropped
     item->setData(0, TypeRole, DepthProfileNode);
     item->setData(0, IndexRole, index);
     item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&profile)));
@@ -135,39 +134,61 @@ void renumberChildren(QTreeWidgetItem *parent, NodeType type) {
     }
 }
 
-// A dragged measurement is identified by the process and its address. The process is checked so that a drag from
-// another JaRA is never taken for one of this project's measurements.
+// A dragged measurement or depth profile is identified by the process and its address. The process is checked so
+// that a drag from another JaRA is never taken for one of this project's objects.
 const QString MeasurementMimeType = QStringLiteral("application/x-jara-measurement");
+const QString DepthProfileMimeType = QStringLiteral("application/x-jara-depth-profile");
 
-QByteArray measurementDragData(const Measurement *measurement) {
-    return QByteArray::number(QCoreApplication::applicationPid()) + ' ' + QByteArray::number(reinterpret_cast<quintptr>(measurement));
+QByteArray dragData(const void *object) {
+    return QByteArray::number(QCoreApplication::applicationPid()) + ' ' + QByteArray::number(reinterpret_cast<quintptr>(object));
 }
 
-const void *draggedMeasurement(const QMimeData *mimeData) {
-    const QList<QByteArray> parts = mimeData->data(MeasurementMimeType).split(' ');
+const void *draggedObject(const QMimeData *mimeData, const QString &mimeType) {
+    const QList<QByteArray> parts = mimeData->data(mimeType).split(' ');
     if(parts.size() != 2 || parts[0].toLongLong() != QCoreApplication::applicationPid()) {
         return nullptr;
     }
     return reinterpret_cast<const void *>(parts[1].toULongLong());
 }
 
-// Measurements can be dragged to another sample. The default drag of QTreeWidget would remove the dragged row
-// itself, so the drag is started here and the drop is handled in ProjectPanel::eventFilter().
+// Measurements can be dragged to another sample, depth profiles to another measurement. The default drag of
+// QTreeWidget would remove the dragged row itself, so the drag is started here and the drop is handled in
+// ProjectPanel::eventFilter().
 class ProjectTree : public QTreeWidget {
 protected:
     void startDrag(Qt::DropActions) override {
         QTreeWidgetItem *item = currentItem();
-        if(!item || nodeType(item) != MeasurementNode) {
+        if(!item || (nodeType(item) != MeasurementNode && nodeType(item) != DepthProfileNode)) {
             return;
         }
+        const bool profile = nodeType(item) == DepthProfileNode;
         auto *mimeData = new QMimeData;
-        mimeData->setData(MeasurementMimeType, measurementDragData(static_cast<const Measurement *>(objectOf(item))));
+        mimeData->setData(profile ? DepthProfileMimeType : MeasurementMimeType, dragData(objectOf(item)));
         auto *drag = new QDrag(this);
         drag->setMimeData(mimeData);
         drag->setPixmap(item->icon(0).pixmap(16));
-        drag->exec(Qt::MoveAction);
+        drag->exec(profile ? Qt::CopyAction : Qt::MoveAction);
     }
 };
+
+// Selections of a measurement that correspond to those of another, with the same element or isotope and type. Each
+// selection corresponds to at most one.
+QList<int> correspondingCutIds(const QList<int> &ids, const Measurement &source, const Measurement &target) {
+    QList<int> result;
+    for(const int id : ids) {
+        const Cut *cut = source.cut(id);
+        if(!cut) {
+            continue;
+        }
+        for(const Cut &candidate : target.cuts) {
+            if(candidate.z == cut->z && candidate.a == cut->a && candidate.type == cut->type && !result.contains(candidate.id)) {
+                result.append(candidate.id);
+                break;
+            }
+        }
+    }
+    return result;
+}
 
 QWidget *createPage(QLayout *layout) {
     auto *page = new QWidget;
@@ -1038,6 +1059,10 @@ bool ProjectPanel::eventFilter(QObject *watched, QEvent *event) {
             handleMeasurementDrag(dropEvent, sampleIndex);
             return true;
         }
+        if(dropEvent->mimeData()->hasFormat(DepthProfileMimeType)) {
+            handleDepthProfileDrag(dropEvent, m_tree->itemAt(dropEvent->position().toPoint()));
+            return true;
+        }
         const QStringList jsonFiles = m_project ? localFiles(dropEvent->mimeData(), ".json") : QStringList();
         const QStringList allAscFiles = m_project ? localFiles(dropEvent->mimeData(), ".asc") : QStringList();
         const QStringList ascFiles = sampleIndex >= 0 ? allAscFiles : QStringList();
@@ -1069,7 +1094,7 @@ bool ProjectPanel::eventFilter(QObject *watched, QEvent *event) {
 
 void ProjectPanel::handleMeasurementDrag(QDropEvent *event, int targetSample) {
     // Only measurements of this project, dropped on another sample or the items under it
-    const void *dragged = draggedMeasurement(event->mimeData());
+    const void *dragged = draggedObject(event->mimeData(), MeasurementMimeType);
     QTreeWidgetItem *item = nullptr;
     for(QTreeWidgetItemIterator it(m_tree); *it && dragged && !item; ++it) {
         if(nodeType(*it) == MeasurementNode && objectOf(*it) == dragged) {
@@ -1091,6 +1116,68 @@ void ProjectPanel::handleMeasurementDrag(QDropEvent *event, int targetSample) {
             moveMeasurement(measurement, targetSample);
         });
     }
+}
+
+void ProjectPanel::handleDepthProfileDrag(QDropEvent *event, QTreeWidgetItem *target) {
+    // Only depth profiles of this project, dropped on another measurement or the items under it
+    const void *dragged = draggedObject(event->mimeData(), DepthProfileMimeType);
+    QTreeWidgetItem *item = nullptr;
+    for(QTreeWidgetItemIterator it(m_tree); *it && dragged && !item; ++it) {
+        if(nodeType(*it) == DepthProfileNode && objectOf(*it) == dragged) {
+            item = *it;
+        }
+    }
+    if(target && (nodeType(target) == SpectrumNode || nodeType(target) == DepthProfileNode)) {
+        target = target->parent();
+    }
+    const bool onMeasurement = target && nodeType(target) == MeasurementNode && target != (item ? item->parent() : nullptr);
+    // The drag is accepted when it enters, where it can be dropped is decided as it moves
+    if(!item || (event->type() != QEvent::DragEnter && !onMeasurement)) {
+        event->ignore();
+        return;
+    }
+    event->setDropAction(Qt::CopyAction);
+    event->accept();
+    if(event->type() == QEvent::Drop) {
+        const auto *profile = static_cast<const DepthProfile *>(dragged);
+        auto *measurement = const_cast<Measurement *>(static_cast<const Measurement *>(objectOf(target)));
+        // The tree is changed after the drag has finished
+        QTimer::singleShot(0, this, [this, profile, measurement]() { copyDepthProfile(profile, measurement); });
+    }
+}
+
+void ProjectPanel::copyDepthProfile(const DepthProfile *profile, Measurement *target) {
+    // The source measurement, the profile may have been removed meanwhile
+    const Measurement *source = nullptr;
+    m_project->forEachMeasurement([&](const Measurement *measurement) {
+        for(const auto &candidate : measurement->depthProfiles) {
+            if(candidate.get() == profile) {
+                source = measurement;
+            }
+        }
+    });
+    QTreeWidgetItem *targetItem = measurementItem(target);
+    if(!source || !targetItem) {
+        return;
+    }
+    // The settings are copied, the selections are those of the target with the same element or isotope and type
+    auto copy = std::make_unique<DepthProfile>(*profile);
+    copy->name = target->uniqueDepthProfileName(profile->name);
+    copy->cutIds = correspondingCutIds(profile->cutIds, *source, *target);
+    if(copy->cutIds.isEmpty()) {
+        for(const Cut &cut : target->cuts) {
+            copy->cutIds.append(cut.id); // None correspond, all are included as in a new profile
+        }
+    }
+    copy->cutIdsExcludedFromAverage = correspondingCutIds(profile->cutIdsExcludedFromAverage, *source, *target);
+    copy->cutIdsHiddenFromPlot = correspondingCutIds(profile->cutIdsHiddenFromPlot, *source, *target);
+    target->depthProfiles.push_back(std::move(copy));
+    QTreeWidgetItem *profileItem = createDepthProfileItem(*target->depthProfiles.back(),
+                                                          static_cast<int>(target->depthProfiles.size() - 1));
+    targetItem->addChild(profileItem);
+    targetItem->setExpanded(true);
+    m_tree->setCurrentItem(profileItem);
+    emit modified();
 }
 
 void ProjectPanel::moveMeasurement(Measurement *measurement, int targetSample) {
