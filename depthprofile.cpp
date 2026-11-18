@@ -592,7 +592,9 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     const auto bins = static_cast<size_t>(std::max(1.0, binCount));
     result.firstBinStart = firstBin * width;
 
+    // Sums of the weights of the events and of their squares, the latter are the variances of the former
     std::vector<std::vector<double>> weights;
+    std::vector<std::vector<double>> variances;
     for(const auto &selection : calculation.selections()) {
         DepthProfileCurve curve;
         curve.cutId = selection.cutId;
@@ -601,12 +603,14 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
         curve.type = selection.type;
         curve.counts.assign(bins, 0);
         std::vector<double> &binWeights = weights.emplace_back(bins, 0);
+        std::vector<double> &binVariances = variances.emplace_back(bins, 0);
         for(size_t i = 0; i < selection.depths.size(); i++) {
             const double position = std::floor((selection.depths[i] - result.firstBinStart) / width);
             if(std::isnan(position) || position < 0 || position >= static_cast<double>(bins)) {
                 continue;
             }
             binWeights[static_cast<size_t>(position)] += selection.weights[i];
+            binVariances[static_cast<size_t>(position)] += selection.weights[i] * selection.weights[i];
             curve.counts[static_cast<size_t>(position)]++;
             curve.events++;
         }
@@ -707,6 +711,18 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     result.normalizationMin = result.binStart(normalizationBins.front());
     result.normalizationMax = result.binStart(normalizationBins.back()) + width;
 
+    // Statistical uncertainties come from the variances of the summed weights, propagated through the normalization.
+    // The scale is the average total in the normalization interval, so bins in it are correlated with the scale: a
+    // single selection normalized over the interval it is averaged over has no uncertainty.
+    const auto normalizationCount = static_cast<double>(normalizationBins.size());
+    std::vector<bool> inNormalization(bins, false);
+    double normalizationVariance = 0; // Of the sum of the weights of all selections in the normalization bins
+    for(const size_t i : normalizationBins) {
+        inNormalization[i] = true;
+        for(const auto &binVariances : variances) {
+            normalizationVariance += binVariances[i];
+        }
+    }
     result.totals.assign(bins, 0);
     for(size_t c = 0; c < result.curves.size(); c++) {
         DepthProfileCurve &curve = result.curves[c];
@@ -714,32 +730,77 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
         curve.uncertainties.resize(bins);
         for(size_t i = 0; i < bins; i++) {
             const double concentration = weights[c][i] / scale;
+            // c = W / S: the bin's own weight enters both, the other normalization bins only the scale
+            const double share = inNormalization[i] ? concentration / normalizationCount : 0;
+            const double variance = variances[c][i] * ((1 - share) * (1 - share) - share * share)
+                                    + concentration * concentration * normalizationVariance / (normalizationCount * normalizationCount);
             curve.concentrations[i] = concentration;
-            curve.uncertainties[i] = curve.counts[i] > 0 ? concentration / std::sqrt(static_cast<double>(curve.counts[i])) : 0;
+            curve.uncertainties[i] = std::sqrt(std::max(0.0, variance)) / scale;
             result.totals[i] += concentration;
         }
     }
 
-    // Averages, and renormalized among the selections that are not left out
+    // Averages over the averaging interval: the mean of the selection's weights divided by the scale
     const std::vector<size_t> averageBins = binsIn(profile.averageMin, profile.averageMax);
-    double includedSum = 0;
-    for(const DepthProfileCurve &curve : result.curves) {
+    const auto averageCount = static_cast<double>(averageBins.size());
+    std::vector<bool> inAverage(bins, false);
+    for(const size_t i : averageBins) {
+        inAverage[i] = true;
+    }
+    std::vector<double> averageVariances(result.curves.size(), 0); // Of the mean weights over the averaging interval
+    for(size_t c = 0; c < result.curves.size(); c++) {
         DepthProfileResult::Average average;
         for(const size_t i : averageBins) {
-            average.concentration += curve.concentrations[i];
-            average.counts += curve.counts[i];
+            average.concentration += result.curves[c].concentrations[i];
+            average.counts += result.curves[c].counts[i];
+            averageVariances[c] += variances[c][i];
         }
         if(!averageBins.empty()) {
-            average.concentration /= static_cast<double>(averageBins.size());
-        }
-        if(!profile.cutIdsExcludedFromAverage.contains(curve.cutId)) {
-            includedSum += average.concentration;
+            average.concentration /= averageCount;
+            averageVariances[c] /= averageCount * averageCount;
+            // Every weight in either interval affects the average: d average / d W(j, k), with the variances of W
+            double variance = 0;
+            for(size_t j = 0; j < result.curves.size(); j++) {
+                for(size_t i = 0; i < bins; i++) {
+                    if(!inAverage[i] && !inNormalization[i]) {
+                        continue;
+                    }
+                    const double derivative = ((j == c && inAverage[i]) ? 1 / averageCount : 0)
+                                              - (inNormalization[i] ? average.concentration / normalizationCount : 0);
+                    variance += derivative * derivative * variances[j][i];
+                }
+            }
+            average.uncertainty = std::sqrt(variance) / scale;
         }
         result.averages.push_back(average);
     }
+
+    // Renormalized to 100 % among the selections that are not left out, r = A / T where A is the mean weight of the
+    // selection and T the sum of them over the included selections. The scale cancels out.
+    double includedSum = 0;
     for(size_t c = 0; c < result.curves.size(); c++) {
+        if(!profile.cutIdsExcludedFromAverage.contains(result.curves[c].cutId)) {
+            includedSum += result.averages[c].concentration * scale;
+        }
+    }
+    for(size_t c = 0; c < result.curves.size(); c++) {
+        DepthProfileResult::Average &average = result.averages[c];
+        if(includedSum <= 0) {
+            average.renormalized = NaN;
+            average.renormalizedUncertainty = NaN;
+            continue;
+        }
+        const double renormalized = average.concentration * scale / includedSum;
+        double variance = 0;
+        for(size_t j = 0; j < result.curves.size(); j++) {
+            const bool included = !profile.cutIdsExcludedFromAverage.contains(result.curves[j].cutId);
+            const double derivative = (j == c ? 1.0 : 0.0) - (included ? renormalized : 0.0); // Times 1 / T
+            variance += derivative * derivative * averageVariances[j];
+        }
+        // Left out selections have no renormalized value
         const bool excluded = profile.cutIdsExcludedFromAverage.contains(result.curves[c].cutId);
-        result.averages[c].renormalized = excluded || includedSum <= 0 ? NaN : result.averages[c].concentration / includedSum;
+        average.renormalized = excluded ? NaN : renormalized;
+        average.renormalizedUncertainty = excluded ? NaN : std::sqrt(variance) / includedSum;
     }
     return result;
 }

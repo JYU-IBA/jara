@@ -153,7 +153,7 @@ struct DepthProfileCurve {
     int a = 0;
     CutType type = CutType::Recoil;
     std::vector<double> concentrations; // Atomic fractions
-    std::vector<double> uncertainties; // Statistical, atomic fractions
+    std::vector<double> uncertainties; // Statistical, atomic fractions, including the normalization
     std::vector<size_t> counts; // Events
     size_t events = 0; // In the profile
 };
@@ -167,7 +167,9 @@ struct DepthProfileResult {
     double normalizationMax = 0;
     struct Average {
         double concentration = 0; // Atomic fraction, as in the profile
+        double uncertainty = 0; // Statistical, including the normalization
         double renormalized = 0; // Among the selections not left out, NaN when left out
+        double renormalizedUncertainty = 0; // Statistical, NaN when left out
         size_t counts = 0;
     };
     std::vector<Average> averages; // Of each curve over the averaging interval

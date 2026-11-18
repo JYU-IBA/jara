@@ -46,7 +46,14 @@ constexpr double MaxDepthSpin = 1e6; // 1e15 at/cm²
 const QColor NormalizationColor(0x1f, 0x77, 0xb4);
 const QColor AverageColor(0xff, 0x7f, 0x0e);
 
-enum AverageColumn { AverageSelectionColumn, AverageColumn, UncertaintyColumn, RenormalizedColumn, EventsColumn };
+enum AverageColumn {
+    AverageSelectionColumn,
+    AverageColumn,
+    UncertaintyColumn,
+    RenormalizedColumn,
+    RenormalizedUncertaintyColumn,
+    EventsColumn
+};
 
 QDoubleSpinBox *depthSpinBox(double minimum) {
     auto *spinBox = new QDoubleSpinBox;
@@ -367,7 +374,7 @@ QWidget *DepthProfileView::createSidePanel() {
     averageRow->addWidget(m_averageMaxSpin, 1);
     m_averageTable = new QTreeWidget;
     m_averageTable->setRootIsDecorated(false);
-    m_averageTable->setHeaderLabels({"Selection", "at.%", "±", "Renorm. at.%", "Events"});
+    m_averageTable->setHeaderLabels({"Selection", "at.%", "±", "Renorm. at.%", "±", "Events"});
     m_averageTable->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_averageTable->setToolTip("Unchecked selections, e.g. the substrate, are left out of the renormalized averages");
     connect(m_averageTable, &QTreeWidget::itemChanged, this, &DepthProfileView::averageItemChanged);
@@ -708,11 +715,11 @@ void DepthProfileView::updateAverages() {
         const bool included = !m_profile->cutIdsExcludedFromAverage.contains(curve.cutId);
         item->setCheckState(AverageSelectionColumn, included ? Qt::Checked : Qt::Unchecked);
         item->setText(AverageColumn, percent(average.concentration));
-        const double uncertainty = average.counts > 0 ? average.concentration / std::sqrt(static_cast<double>(average.counts)) : 0;
-        item->setText(UncertaintyColumn, percent(uncertainty));
+        item->setText(UncertaintyColumn, percent(average.uncertainty));
         item->setText(RenormalizedColumn, percent(average.renormalized));
+        item->setText(RenormalizedUncertaintyColumn, percent(average.renormalizedUncertainty));
         item->setText(EventsColumn, QString::number(average.counts));
-        for(const int column : {AverageColumn, UncertaintyColumn, RenormalizedColumn, EventsColumn}) {
+        for(const int column : {AverageColumn, UncertaintyColumn, RenormalizedColumn, RenormalizedUncertaintyColumn, EventsColumn}) {
             item->setTextAlignment(column, Qt::AlignRight | Qt::AlignVCenter);
         }
         sum += average.concentration;
@@ -728,7 +735,8 @@ void DepthProfileView::updateAverages() {
     total->setText(EventsColumn, QString::number(events));
     QFont font = total->font(0);
     font.setBold(true);
-    for(const int column : {AverageSelectionColumn, AverageColumn, UncertaintyColumn, RenormalizedColumn, EventsColumn}) {
+    for(const int column : {AverageSelectionColumn, AverageColumn, UncertaintyColumn, RenormalizedColumn,
+                            RenormalizedUncertaintyColumn, EventsColumn}) {
         total->setFont(column, font);
         if(column != AverageSelectionColumn) {
             total->setTextAlignment(column, Qt::AlignRight | Qt::AlignVCenter);
@@ -806,11 +814,14 @@ void DepthProfileView::exportProfile() {
         out << "# Out of date: the selections or the settings have changed since the profile was calculated\n";
     }
     out << "# Averages over " << number(m_profile->averageMin / Units::ThinFilmUnit) << "-"
-        << number(m_profile->averageMax / Units::ThinFilmUnit) << " 1e15 at/cm2 (at.%, renormalized at.%):";
+        << number(m_profile->averageMax / Units::ThinFilmUnit) << " 1e15 at/cm2 (at.% +- uncertainty, renormalized at.% +- "
+           "uncertainty, statistical, including the normalization):";
     for(size_t c = 0; c < m_result.curves.size(); c++) {
         const DepthProfileCurve &curve = m_result.curves[c];
-        out << " " << cutLabel(curve.z, curve.a, curve.type, false) << " " << percent(m_result.averages[c].concentration)
-            << " " << (std::isnan(m_result.averages[c].renormalized) ? QStringLiteral("-") : percent(m_result.averages[c].renormalized));
+        const DepthProfileResult::Average &average = m_result.averages[c];
+        out << " " << cutLabel(curve.z, curve.a, curve.type, false) << " " << percent(average.concentration) << " +- "
+            << percent(average.uncertainty) << " " << (std::isnan(average.renormalized) ? QStringLiteral("-")
+                                                       : percent(average.renormalized) + " +- " + percent(average.renormalizedUncertainty));
     }
     out << "\n# Depth (1e15 at/cm2, bin centre)\tDepth (ug/cm2)\tDepth (nm)";
     for(const DepthProfileCurve &curve : m_result.curves) {
