@@ -6,23 +6,27 @@
 #include <QAbstractButton>
 #include <QButtonGroup>
 #include <QColorDialog>
+#include <QComboBox>
 #include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
 
 PreferencesDialog::PreferencesDialog(QWidget *parent)
     : QDialog(parent), m_experimental(Defaults::experimentalSettings()), m_detector(Defaults::detectorSettings()),
-      m_elementColors(Defaults::customElementColors()) {
+      m_histogram(Defaults::histogramPreferences()), m_elementColors(Defaults::customElementColors()) {
     setWindowTitle("Preferences");
 
     auto *tabs = new QTabWidget;
     tabs->addTab(createSettingsPage(), "Settings");
+    tabs->addTab(createHistogramPage(), "Histogram");
     tabs->addTab(createElementColorsPage(), "Element Colors");
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 
@@ -56,6 +60,78 @@ QWidget *PreferencesDialog::createSettingsPage() {
     layout->addWidget(experimentalGroup);
     layout->addWidget(detectorGroup);
     layout->addStretch();
+    return page;
+}
+
+QWidget *PreferencesDialog::createHistogramPage() {
+    auto binSpinBox = [](int value) {
+        auto *spinBox = new QSpinBox;
+        spinBox->setRange(1, 1024);
+        spinBox->setValue(value);
+        return spinBox;
+    };
+    auto *minX = binSpinBox(m_histogram.minBinX);
+    auto *minY = binSpinBox(m_histogram.minBinY);
+    auto *maxX = binSpinBox(m_histogram.maxBinX);
+    auto *maxY = binSpinBox(m_histogram.maxBinY);
+    auto binRow = [](QSpinBox *x, QSpinBox *y) {
+        auto *row = new QHBoxLayout;
+        row->addWidget(x);
+        row->addWidget(new QLabel("×"));
+        row->addWidget(y);
+        row->addWidget(new QLabel("ch (ToF × E)"));
+        row->addStretch();
+        return row;
+    };
+
+    auto *schemeCombo = new QComboBox;
+    for(ColorScheme scheme : ColorSchemes) {
+        schemeCombo->addItem(colorSchemeName(scheme), static_cast<int>(scheme));
+    }
+    schemeCombo->setCurrentIndex(schemeCombo->findData(static_cast<int>(m_histogram.colorScheme)));
+    auto *scaleCombo = new QComboBox;
+    scaleCombo->addItem("Logarithmic", true);
+    scaleCombo->addItem("Linear", false);
+    scaleCombo->setCurrentIndex(m_histogram.logScale ? 0 : 1);
+
+    auto *note = new QLabel("The bin size follows the zoom level within these limits. The color scale can be changed "
+                            "in each histogram from its context menu.");
+    note->setWordWrap(true);
+
+    auto *page = new QWidget;
+    auto *form = new QFormLayout;
+    form->addRow("Minimum bin size:", binRow(minX, minY));
+    form->addRow("Maximum bin size:", binRow(maxX, maxY));
+    form->addRow("Color scheme:", schemeCombo);
+    form->addRow("Default color scale:", scaleCombo);
+    auto *layout = new QVBoxLayout(page);
+    layout->addWidget(note);
+    layout->addLayout(form);
+    layout->addStretch();
+
+    // The maximum is kept at least the minimum by moving the other value
+    connect(minX, &QSpinBox::valueChanged, this, [this, maxX](int value) {
+        m_histogram.minBinX = value;
+        maxX->setValue(std::max(maxX->value(), value));
+    });
+    connect(minY, &QSpinBox::valueChanged, this, [this, maxY](int value) {
+        m_histogram.minBinY = value;
+        maxY->setValue(std::max(maxY->value(), value));
+    });
+    connect(maxX, &QSpinBox::valueChanged, this, [this, minX](int value) {
+        m_histogram.maxBinX = value;
+        minX->setValue(std::min(minX->value(), value));
+    });
+    connect(maxY, &QSpinBox::valueChanged, this, [this, minY](int value) {
+        m_histogram.maxBinY = value;
+        minY->setValue(std::min(minY->value(), value));
+    });
+    connect(schemeCombo, &QComboBox::currentIndexChanged, this, [this, schemeCombo]() {
+        m_histogram.colorScheme = static_cast<ColorScheme>(schemeCombo->currentData().toInt());
+    });
+    connect(scaleCombo, &QComboBox::currentIndexChanged, this, [this, scaleCombo]() {
+        m_histogram.logScale = scaleCombo->currentData().toBool();
+    });
     return page;
 }
 
@@ -129,6 +205,7 @@ void PreferencesDialog::updateElementButton(int z) {
 void PreferencesDialog::accept() {
     Defaults::setExperimentalSettings(m_experimental);
     Defaults::setDetectorSettings(m_detector);
+    Defaults::setHistogramPreferences(m_histogram);
     Defaults::setCustomElementColors(m_elementColors);
     QDialog::accept();
 }

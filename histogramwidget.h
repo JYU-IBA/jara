@@ -9,12 +9,13 @@
 #include <QPolygonF>
 #include <QWidget>
 
+#include "defaults.h"
 #include "tofedata.h"
 
 struct Cut;
 class QRubberBand;
 
-// 2D ToF-E histogram with logarithmic color scale. Supports box zoom, moving the view, drawing polygon
+// 2D ToF-E histogram with a logarithmic or linear color scale. Supports box zoom, moving the view, drawing polygon
 // selections and editing existing cuts, which are drawn on top of the histogram. The mouse wheel and trackpad
 // pinch zoom around the cursor, two-finger trackpad scrolling moves the view.
 class HistogramWidget : public QWidget {
@@ -28,6 +29,8 @@ public:
     void setCuts(QList<Cut> *cuts); // Not owned, edited in Edit mode. Call update() after changing them.
     void setHighlightedCut(int index); // The cut edited in Edit mode, -1 for none
     void setSelectedCuts(const QList<int> &indices); // Drawn highlighted
+    void applyPreferences(const HistogramPreferences &preferences); // Binning and color scheme, the scale is kept
+    void setLogScale(bool logScale);
 
 public slots:
     void setMode(HistogramWidget::Mode mode);
@@ -49,6 +52,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
 
@@ -83,6 +87,8 @@ private:
     int m_highlightedCut = -1;
     QList<int> m_selectedCuts;
     Mode m_mode = Mode::Zoom;
+    HistogramPreferences m_preferences;
+    bool m_logScale;
     Range m_fullX{0, 1}, m_fullY{0, 1};
     Range m_viewX{0, 1}, m_viewY{0, 1}; // Edges are whole channels so that channels are not split between bins
     double m_binWidthX = 1; // Channels per bin, integer valued

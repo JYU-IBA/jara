@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "defaults.h"
+#include "histogramwidget.h"
 #include "measurementview.h"
 #include "preferencesdialog.h"
 #include "projectpanel.h"
@@ -111,7 +112,12 @@ void MainWindow::createActions() {
     m_preferencesAction->setMenuRole(QAction::PreferencesRole); // In the application menu on macOS
     connect(m_preferencesAction, &QAction::triggered, this, [this]() {
         PreferencesDialog dialog(this);
-        dialog.exec();
+        if(dialog.exec() == QDialog::Accepted) {
+            const HistogramPreferences preferences = Defaults::histogramPreferences();
+            for(HistogramWidget *histogram : m_tabs->findChildren<HistogramWidget *>()) {
+                histogram->applyPreferences(preferences);
+            }
+        }
     });
 
     m_importSettingsAction = new QAction("&Import...", this);

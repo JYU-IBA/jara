@@ -5,8 +5,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <map>
 
+#include <QContextMenuEvent>
 #include <QKeyEvent>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QNativeGestureEvent>
 #include <QWheelEvent>
@@ -22,25 +25,44 @@ constexpr int MarginBottom = 50;
 constexpr double CloseDistance = 8; // Pixels, clicking this close to the first vertex completes a polygon
 constexpr double MinimumViewSize = 2; // Channels
 
-// Viridis-like color map, built once
-const std::array<QRgb, 256> &colorMap() {
-    static const std::array<QRgb, 256> map = []() {
-        const std::array<QColor, 5> stops{QColor(0x44, 0x01, 0x54), QColor(0x3b, 0x52, 0x8b), QColor(0x21, 0x91, 0x8c),
-                                          QColor(0x5e, 0xc9, 0x62), QColor(0xfd, 0xe7, 0x25)};
-        std::array<QRgb, 256> result{};
-        for(size_t i = 0; i < result.size(); i++) {
-            const double t = static_cast<double>(i) / (result.size() - 1) * (stops.size() - 1);
-            const size_t stop = std::min(static_cast<size_t>(t), stops.size() - 2);
-            const double f = t - static_cast<double>(stop);
-            const QColor &a = stops[stop];
-            const QColor &b = stops[stop + 1];
-            result[i] = qRgb(static_cast<int>(a.red() + f * (b.red() - a.red())),
-                             static_cast<int>(a.green() + f * (b.green() - a.green())),
-                             static_cast<int>(a.blue() + f * (b.blue() - a.blue())));
-        }
-        return result;
-    }();
-    return map;
+// Color map interpolated between evenly spaced stops, built once per scheme
+const std::array<QRgb, 256> &colorMap(ColorScheme scheme) {
+    static std::map<ColorScheme, std::array<QRgb, 256>> maps;
+    auto found = maps.find(scheme);
+    if(found != maps.end()) {
+        return found->second;
+    }
+    QList<QColor> stops;
+    switch(scheme) {
+        case ColorScheme::Viridis:
+            stops = {QColor(0x44, 0x01, 0x54), QColor(0x3b, 0x52, 0x8b), QColor(0x21, 0x91, 0x8c), QColor(0x5e, 0xc9, 0x62),
+                     QColor(0xfd, 0xe7, 0x25)};
+            break;
+        case ColorScheme::Rainbow:
+            stops = {QColor(0x6a, 0x00, 0xa8), QColor(0x00, 0x30, 0xff), QColor(0x00, 0xc8, 0xff), QColor(0x00, 0xc0, 0x40),
+                     QColor(0xff, 0xe0, 0x00), QColor(0xff, 0x80, 0x00), QColor(0xe0, 0x00, 0x00)};
+            break;
+        case ColorScheme::Hot:
+            // Ends in pale yellow rather than white, empty bins are white
+            stops = {QColor(0x00, 0x00, 0x00), QColor(0xb0, 0x00, 0x00), QColor(0xff, 0x70, 0x00), QColor(0xff, 0xd0, 0x20),
+                     QColor(0xff, 0xff, 0x90)};
+            break;
+        case ColorScheme::Grayscale:
+            stops = {QColor(0xd0, 0xd0, 0xd0), QColor(0x00, 0x00, 0x00)}; // Light gray, empty bins are white
+            break;
+    }
+    std::array<QRgb, 256> &result = maps[scheme];
+    for(size_t i = 0; i < result.size(); i++) {
+        const double t = static_cast<double>(i) / (result.size() - 1) * (stops.size() - 1);
+        const auto stop = std::min(static_cast<qsizetype>(t), stops.size() - 2);
+        const double f = t - static_cast<double>(stop);
+        const QColor &a = stops[stop];
+        const QColor &b = stops[stop + 1];
+        result[i] = qRgb(static_cast<int>(a.red() + f * (b.red() - a.red())),
+                         static_cast<int>(a.green() + f * (b.green() - a.green())),
+                         static_cast<int>(a.blue() + f * (b.blue() - a.blue())));
+    }
+    return result;
 }
 
 double niceStep(double range, int targetTicks) {
@@ -68,7 +90,8 @@ QPointF closestPointOnSegment(const QPointF &p, const QPointF &a, const QPointF 
 
 }
 
-HistogramWidget::HistogramWidget(QWidget *parent) : QWidget(parent) {
+HistogramWidget::HistogramWidget(QWidget *parent)
+    : QWidget(parent), m_preferences(Defaults::histogramPreferences()), m_logScale(m_preferences.logScale) {
     m_rubberBand = new QRubberBand(QRubberBand::Rectangle, this);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
@@ -103,6 +126,18 @@ void HistogramWidget::setHighlightedCut(int index) {
 
 void HistogramWidget::setSelectedCuts(const QList<int> &indices) {
     m_selectedCuts = indices;
+    update();
+}
+
+void HistogramWidget::applyPreferences(const HistogramPreferences &preferences) {
+    m_preferences = preferences;
+    rebin();
+    update();
+}
+
+void HistogramWidget::setLogScale(bool logScale) {
+    m_logScale = logScale;
+    rebin();
     update();
 }
 
@@ -239,9 +274,12 @@ void HistogramWidget::rebin() {
     if(!m_events || plot.width() <= 0 || plot.height() <= 0) {
         return;
     }
-    // At most about one bin per pixel
-    m_binWidthX = std::max(1.0, std::ceil(m_viewX.size() / plot.width()));
-    m_binWidthY = std::max(1.0, std::ceil(m_viewY.size() / plot.height()));
+    // At most about one bin per pixel, within the limits from the preferences. With the maximum, there can be more
+    // bins than pixels.
+    m_binWidthX = std::clamp(std::ceil(m_viewX.size() / plot.width()), static_cast<double>(m_preferences.minBinX),
+                             static_cast<double>(m_preferences.maxBinX));
+    m_binWidthY = std::clamp(std::ceil(m_viewY.size() / plot.height()), static_cast<double>(m_preferences.minBinY),
+                             static_cast<double>(m_preferences.maxBinY));
     m_binsX = std::max(1, static_cast<int>(std::ceil(m_viewX.size() / m_binWidthX)));
     m_binsY = std::max(1, static_cast<int>(std::ceil(m_viewY.size() / m_binWidthY)));
     m_counts.assign(static_cast<size_t>(m_binsX) * m_binsY, 0);
@@ -259,13 +297,14 @@ void HistogramWidget::rebin() {
     m_image = QImage(m_binsX, m_binsY, QImage::Format_RGB32);
     m_image.fill(Qt::white);
     const double logMax = std::log(static_cast<double>(std::max<quint32>(m_maxCount, 2)));
-    const auto &colors = colorMap();
+    const auto &colors = colorMap(m_preferences.colorScheme);
     for(int by = 0; by < m_binsY; by++) {
         auto *line = reinterpret_cast<QRgb *>(m_image.scanLine(m_binsY - 1 - by)); // E increases upwards
         for(int bx = 0; bx < m_binsX; bx++) {
             const quint32 count = m_counts[static_cast<size_t>(by) * m_binsX + bx];
             if(count > 0) {
-                const double t = std::log(static_cast<double>(count)) / logMax;
+                const double t = m_logScale ? std::log(static_cast<double>(count)) / logMax
+                                            : static_cast<double>(count) / m_maxCount;
                 line[bx] = colors[std::clamp(static_cast<int>(t * 255), 0, 255)];
             }
         }
@@ -421,8 +460,9 @@ void HistogramWidget::drawAxes(QPainter &painter, const QRect &plot) const {
 
     if(m_events) {
         painter.drawText(plot.left(), MarginTop - 10,
-                         QString("Bin %1 × %2 ch, max %3 counts/bin, log color scale")
-                                 .arg(m_binWidthX).arg(m_binWidthY).arg(m_maxCount));
+                         QString("Bin %1 × %2 ch, max %3 counts/bin, %4 color scale")
+                                 .arg(m_binWidthX).arg(m_binWidthY).arg(m_maxCount)
+                                 .arg(m_logScale ? "log" : "linear"));
     }
 }
 
@@ -430,17 +470,32 @@ void HistogramWidget::resizeEvent(QResizeEvent *) {
     rebin();
 }
 
-void HistogramWidget::mousePressEvent(QMouseEvent *event) {
-    if(event->button() == Qt::RightButton && m_mode == Mode::Edit) {
-        // Remove a vertex, a polygon needs at least three
+void HistogramWidget::contextMenuEvent(QContextMenuEvent *event) {
+    if(m_mode == Mode::Edit && event->reason() == QContextMenuEvent::Mouse) {
+        // Right-clicking a vertex removes it, a polygon needs at least three
         const int vertex = vertexAt(event->pos());
-        if(vertex >= 0 && (*m_cuts)[m_highlightedCut].polygon.size() > 3) {
-            (*m_cuts)[m_highlightedCut].polygon.removeAt(vertex);
-            update();
-            emit cutEdited(m_highlightedCut);
+        if(vertex >= 0) {
+            if((*m_cuts)[m_highlightedCut].polygon.size() > 3) {
+                (*m_cuts)[m_highlightedCut].polygon.removeAt(vertex);
+                update();
+                emit cutEdited(m_highlightedCut);
+            }
+            return;
         }
-        return;
     }
+    QMenu menu;
+    QAction *log = menu.addAction("Logarithmic Color Scale", this, [this]() { setLogScale(true); });
+    QAction *linear = menu.addAction("Linear Color Scale", this, [this]() { setLogScale(false); });
+    log->setCheckable(true);
+    log->setChecked(m_logScale);
+    linear->setCheckable(true);
+    linear->setChecked(!m_logScale);
+    menu.addSeparator();
+    menu.addAction("Show All", this, &HistogramWidget::resetZoom);
+    menu.exec(event->globalPos());
+}
+
+void HistogramWidget::mousePressEvent(QMouseEvent *event) {
     if(event->button() != Qt::LeftButton || !plotRect().contains(event->pos())) {
         return;
     }
