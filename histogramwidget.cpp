@@ -163,9 +163,12 @@ void HistogramWidget::moveByPixels(const QPointF &delta) {
 }
 
 void HistogramWidget::wheelEvent(QWheelEvent *event) {
-    // Trackpads report scroll phases, mouse wheels do not
-    const bool trackpad = event->phase() != Qt::NoScrollPhase
-                          || (event->pointingDevice() && event->pointingDevice()->type() == QInputDevice::DeviceType::TouchPad);
+    // Trackpads report scroll phases, mouse wheels do not. On macOS, Qt uses the same device for mice and trackpads
+    // and marks it as a touchpad once a trackpad has scrolled, so the device type is not used there.
+    bool trackpad = event->phase() != Qt::NoScrollPhase;
+#ifndef Q_OS_MACOS
+    trackpad = trackpad || (event->pointingDevice() && event->pointingDevice()->type() == QInputDevice::DeviceType::TouchPad);
+#endif
     if(trackpad && !(event->modifiers() & Qt::ControlModifier)) {
         moveByPixels(event->pixelDelta().isNull() ? QPointF(event->angleDelta()) / 8.0 : QPointF(event->pixelDelta()));
     } else {
