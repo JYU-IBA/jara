@@ -12,6 +12,7 @@ namespace {
 const QString ExperimentalKey = QStringLiteral("defaults/experimentalSettings");
 const QString DetectorKey = QStringLiteral("defaults/detector");
 const QString HistogramKey = QStringLiteral("defaults/histogram");
+const QString DepthProfileKey = QStringLiteral("defaults/depthProfile");
 const QString ElementColorsKey = QStringLiteral("defaults/elementColors"); // {"14": "#rrggbb", ...}
 
 QJsonObject load(const QString &key) {
@@ -142,4 +143,18 @@ void Defaults::setHistogramPreferences(const HistogramPreferences &preferences) 
                                     {"maxBin", QJsonArray{preferences.maxBinX, preferences.maxBinY}},
                                     {"colorScheme", colorSchemeId(preferences.colorScheme)},
                                     {"logScale", preferences.logScale}});
+}
+
+DepthProfilePreferences Defaults::depthProfilePreferences() {
+    DepthProfilePreferences preferences;
+    const QJsonObject json = load(DepthProfileKey);
+    preferences.maxIterations = std::max(1, json["maxIterations"].toInt(preferences.maxIterations));
+    if(const double tolerance = json["tolerance"].toDouble(); tolerance > 0) {
+        preferences.tolerance = tolerance;
+    }
+    return preferences;
+}
+
+void Defaults::setDepthProfilePreferences(const DepthProfilePreferences &preferences) {
+    store(DepthProfileKey, QJsonObject{{"maxIterations", preferences.maxIterations}, {"tolerance", preferences.tolerance}});
 }

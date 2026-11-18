@@ -4,9 +4,18 @@
 #include <memory>
 #include <vector>
 
+#include <QList>
 #include <QString>
 
 #include "project.h"
+
+// Loads the stopping of a particle (atomic number z) in the target elements when it is not loaded yet. False with an
+// error message when JIBAL has no stopping data for some of them.
+bool loadStopping(int z, const QList<int> &targets, QString &errorMessage);
+
+// Stopping cross section in J m² of a particle (atomic number z, mass in kg) with the energy in J in an element,
+// electronic and nuclear. The stopping must have been loaded.
+double stoppingCrossSection(int z, double mass, int target, double energy);
 
 // Energy loss of a particle in a foil, with stopping from JIBAL. Stopping data is loaded when a combination of the
 // particle and an element of the foil is first needed.

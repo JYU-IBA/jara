@@ -221,7 +221,7 @@ void EnergySpectrumView::updateCurves(SpectrumPlotWidget::ViewChange viewChange)
     for(const EnergyHistogram &histogram : m_result.histograms) {
         const Cut *cut = m_measurement->cut(histogram.cutId);
         curves.append({cutLabel(histogram.z, histogram.a, histogram.type), cut ? cut->color : QColor(Qt::gray),
-                       histogram.events, histogram.counts});
+                       histogram.events, {histogram.counts.begin(), histogram.counts.end()}});
     }
     m_plot->setCurves(m_result.binWidth / Units::Megaelectronvolt, curves, viewChange);
 }

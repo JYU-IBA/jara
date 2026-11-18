@@ -19,6 +19,11 @@ struct HistogramPreferences {
     bool logScale = true; // Default for new histograms, can be changed in each histogram
 };
 
+struct DepthProfilePreferences {
+    int maxIterations = 10; // Of one run, the user can continue iterating
+    double tolerance = 0.001; // Atomic fraction. Converged when no concentration in the stopping bins changes more.
+};
+
 // Program-wide default settings, used for new projects and new settings sets. Stored with QSettings.
 namespace Defaults {
 ExperimentalSettings experimentalSettings();
@@ -34,6 +39,9 @@ void setCustomElementColors(const QMap<int, QColor> &colors);
 
 HistogramPreferences histogramPreferences();
 void setHistogramPreferences(const HistogramPreferences &preferences);
+
+DepthProfilePreferences depthProfilePreferences();
+void setDepthProfilePreferences(const DepthProfilePreferences &preferences);
 }
 
 #endif // JARA_DEFAULTS_H

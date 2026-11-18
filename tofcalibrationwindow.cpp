@@ -351,7 +351,7 @@ void ToFCalibrationWindow::showSelection(Measurement *measurement, int cutId) {
     const size_t events = std::accumulate(m_counts.begin(), m_counts.end(), size_t{0});
     QList<SpectrumPlotWidget::Curve> curves;
     if(!m_counts.empty()) {
-        curves.append({cutLabel(*cut), cut->color, events, m_counts});
+        curves.append({cutLabel(*cut), cut->color, events, {m_counts.begin(), m_counts.end()}});
     }
     m_plot->setCurves(1, curves, SpectrumPlotWidget::ViewChange::ShowAll);
     // The channels with events, the spectrum starts from channel zero

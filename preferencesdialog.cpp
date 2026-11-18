@@ -8,6 +8,7 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -21,12 +22,13 @@
 
 PreferencesDialog::PreferencesDialog(QWidget *parent)
     : QDialog(parent), m_experimental(Defaults::experimentalSettings()), m_detector(Defaults::detectorSettings()),
-      m_histogram(Defaults::histogramPreferences()), m_elementColors(Defaults::customElementColors()) {
+      m_histogram(Defaults::histogramPreferences()), m_depthProfile(Defaults::depthProfilePreferences()), m_elementColors(Defaults::customElementColors()) {
     setWindowTitle("Preferences");
 
     auto *tabs = new QTabWidget;
     tabs->addTab(createSettingsPage(), "Settings");
     tabs->addTab(createHistogramPage(), "Histogram");
+    tabs->addTab(createDepthProfilePage(), "Depth Profiles");
     tabs->addTab(createElementColorsPage(), "Element Colors");
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 
@@ -135,6 +137,33 @@ QWidget *PreferencesDialog::createHistogramPage() {
     return page;
 }
 
+QWidget *PreferencesDialog::createDepthProfilePage() {
+    auto *iterations = new QSpinBox;
+    iterations->setRange(1, 1000);
+    iterations->setValue(m_depthProfile.maxIterations);
+    auto *tolerance = new QDoubleSpinBox;
+    tolerance->setDecimals(4);
+    tolerance->setRange(0.0001, 10);
+    tolerance->setSuffix(" at.%");
+    tolerance->setValue(m_depthProfile.tolerance * 100);
+    auto *note = new QLabel("Depth profiles are iterated until no concentration used for stopping changes more than "
+                            "the tolerance, or until the maximum number of iterations. Iterating can be continued in "
+                            "each depth profile.");
+    note->setWordWrap(true);
+
+    auto *page = new QWidget;
+    auto *form = new QFormLayout;
+    form->addRow("Maximum iterations:", iterations);
+    form->addRow("Tolerance:", tolerance);
+    auto *layout = new QVBoxLayout(page);
+    layout->addWidget(note);
+    layout->addLayout(form);
+    layout->addStretch();
+    connect(iterations, &QSpinBox::valueChanged, this, [this](int value) { m_depthProfile.maxIterations = value; });
+    connect(tolerance, &QDoubleSpinBox::valueChanged, this, [this](double value) { m_depthProfile.tolerance = value / 100; });
+    return page;
+}
+
 QWidget *PreferencesDialog::createElementColorsPage() {
     auto *table = new QGridLayout;
     table->setSpacing(2);
@@ -206,6 +235,7 @@ void PreferencesDialog::accept() {
     Defaults::setExperimentalSettings(m_experimental);
     Defaults::setDetectorSettings(m_detector);
     Defaults::setHistogramPreferences(m_histogram);
+    Defaults::setDepthProfilePreferences(m_depthProfile);
     Defaults::setCustomElementColors(m_elementColors);
     QDialog::accept();
 }

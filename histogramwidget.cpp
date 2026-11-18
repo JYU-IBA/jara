@@ -241,7 +241,8 @@ void HistogramWidget::setView(const Range &x, const Range &y) {
     // Never show areas outside the full range: shrink to it, then shift back inside
     auto clamped = [](Range view, const Range &full) -> Range {
         const double size = std::min(view.size(), full.size());
-        const double min = std::clamp(view.min, full.min, full.max - size);
+        // Not std::clamp: full.max - size can be a rounding error below full.min
+        const double min = std::max(full.min, std::min(view.min, full.max - size));
         return {min, min + size};
     };
     m_viewX = clamped(x, m_fullX);

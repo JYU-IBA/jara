@@ -14,8 +14,8 @@ class QRubberBand;
 // Step between axis ticks for about targetTicks ticks over the range: 1, 2 or 5 times a power of ten
 double niceStep(double range, int targetTicks);
 
-// Spectra drawn as steps, with a legend and a logarithmic or linear count axis. Energy spectra by default, the x axis
-// can be set up for other quantities. Supports box zoom and moving the view. The mouse wheel and trackpad pinch zoom
+// Spectra drawn as steps, with a legend and a logarithmic or linear count axis. Energy spectra by default, the axes
+// can be set up for other quantities, e.g. concentrations against depth with bins of different widths. Supports box zoom and moving the view. The mouse wheel and trackpad pinch zoom
 // around the cursor, two-finger trackpad scrolling moves the view. An overlay curve and vertical markers can be drawn
 // on top, markers can be dragged.
 class SpectrumPlotWidget : public QWidget {
@@ -38,6 +38,21 @@ public:
         QString binWidthUnit = QStringLiteral("keV");
     };
 
+    struct YAxis {
+        QString title = QStringLiteral("Counts");
+        QString maxUnit = QStringLiteral("counts/bin"); // Of the highest value in the info above the plot
+        double logFloor = 0.5; // Bottom of the full range on a log scale, zero is drawn below it
+        int decimals = -1; // Of the values in the cursor info, -1 for up to six significant digits
+        bool legendEvents = true; // The numbers of events of the curves are shown in the legend
+    };
+
+    // Shaded background, e.g. an interval of depths
+    struct Region {
+        double min;
+        double max;
+        QColor color;
+    };
+
     struct Marker {
         double x;
         QColor color;
@@ -49,7 +64,8 @@ public:
         QString name; // In the legend and the cursor info
         QColor color;
         size_t events; // Shown in the legend
-        std::vector<size_t> counts; // Bin i covers energies from i * binWidth to (i + 1) * binWidth
+        std::vector<double> values; // Of the bins
+        Qt::PenStyle style = Qt::SolidLine;
     };
 
     // What happens to the view when the curves are replaced
@@ -61,7 +77,13 @@ public:
 
     explicit SpectrumPlotWidget(QWidget *parent = nullptr);
     void setXAxis(const XAxis &axis); // Before the curves
+    void setYAxis(const YAxis &axis);
+    // Bin i covers x from edges[i] to edges[i + 1]. Replaces the bins of the x axis, an empty list returns to them.
+    // Before the curves.
+    void setBinEdges(const std::vector<double> &edges);
     void setCurves(double binWidth, const QList<Curve> &curves, ViewChange viewChange); // Bin width in x axis units
+    void setRegions(const QList<Region> &regions);
+    void setInfoText(const QString &text); // Above the plot instead of the bin width and the highest value
     void setOverlay(const QList<QPointF> &points, const QColor &color); // Line through the points, x and counts
     void setMarkers(const QList<Marker> &markers);
     void setXView(double min, double max); // The counts axis is kept
@@ -109,13 +131,20 @@ private:
     void updateCursorInfo(const QPoint &pos);
     int markerAt(const QPoint &pos) const; // Index of the draggable marker near the position, -1 when there is none
     void updateIdleCursor(const QPoint &pos);
+    double binStart(size_t bin) const;
+    int binAt(double x) const; // -1 when outside the bins
     void drawCurve(QPainter &painter, const Curve &curve) const;
+    void drawRegions(QPainter &painter, const QRect &plot) const;
     void drawOverlay(QPainter &painter) const;
     void drawMarkers(QPainter &painter, const QRect &plot) const;
     void drawAxes(QPainter &painter, const QRect &plot) const;
     void drawLegend(QPainter &painter, const QRect &plot) const;
 
     XAxis m_xAxis;
+    YAxis m_yAxis;
+    std::vector<double> m_edges;
+    QList<Region> m_regions;
+    QString m_infoText;
     QList<Curve> m_curves;
     QList<QPointF> m_overlay;
     QColor m_overlayColor;
@@ -123,7 +152,7 @@ private:
     int m_draggedMarker = -1;
     double m_binWidth = 1; // In x axis units
     size_t m_bins = 0;
-    size_t m_maxCount = 0;
+    double m_maxValue = 0;
     bool m_logScale = false; // Spectra start with a linear count axis
     bool m_stale = false;
     Mode m_mode = Mode::Zoom;

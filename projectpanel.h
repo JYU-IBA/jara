@@ -8,6 +8,7 @@ class QAction;
 struct SettingsCollection;
 struct AttachedFile;
 struct DetectorSettings;
+struct DepthProfile;
 struct EnergySpectrum;
 struct ExperimentalSettings;
 struct Measurement;
@@ -48,6 +49,7 @@ public slots:
     void addMeasurements();
     void addMeasurementFiles(int sampleIndex, const QStringList &fileNames);
     void addSpectrum(); // To the current measurement
+    void addDepthProfile(); // To the current measurement
     void addSettings();
     void removeSettings();
     void addDetector();
@@ -77,6 +79,9 @@ signals:
     void spectrumOpenRequested(Measurement *measurement, EnergySpectrum *spectrum);
     void spectrumAboutToBeRemoved(EnergySpectrum *spectrum);
     void spectrumRenamed(EnergySpectrum *spectrum);
+    void depthProfileOpenRequested(Measurement *measurement, DepthProfile *profile);
+    void depthProfileAboutToBeRemoved(DepthProfile *profile);
+    void depthProfileRenamed(DepthProfile *profile);
 
 private slots:
     void currentItemChanged(QTreeWidgetItem *item);
@@ -89,6 +94,7 @@ private slots:
     void removeCurrentFile();
     void removeCurrentMeasurement();
     void removeCurrentSpectrum();
+    void removeCurrentDepthProfile();
 
 private:
     QWidget *createPropertyPages();
@@ -101,8 +107,9 @@ private:
     DetectorSettings *detectorOf(QTreeWidgetItem *item) const;
     int firstSampleRow() const; // Row of the first sample among the top-level items
     AttachedFile &currentFile() const;
-    Measurement *currentMeasurement() const; // Also of the current spectrum
+    Measurement *currentMeasurement() const; // Also of the current spectrum or depth profile
     EnergySpectrum *currentSpectrum() const;
+    DepthProfile *currentDepthProfile() const;
     void showProperties(QTreeWidgetItem *item);
     void showGeometry(const Measurement &measurement); // Beam and angles from the assigned settings
     void addSettingsCollection(const SettingsCollection &collection);
@@ -135,6 +142,7 @@ private:
     QLabel *m_scatteringAngleLabel;
     QLabel *m_exitAngleLabel;
     QLineEdit *m_spectrumNameEdit;
+    QLineEdit *m_depthProfileNameEdit;
     QAction *m_copySettingsAction;
     QAction *m_pasteSettingsAction;
 };

@@ -90,6 +90,21 @@ double averageAtomMass(const Material &material); // kg, weighted by the atomic 
 QString materialText(const Material &material); // "C" or "C 95 %, H 5 %"
 Material carbon();
 
+// Detection efficiency of an isotope against the energy of the particle as it leaves the sample, i.e. before the
+// timing detector foil. Linearly interpolated between the points, zero outside them.
+struct EfficiencyCurve {
+    int z = 0;
+    int a = 0; // Mass number, efficiencies are measured for isotopes
+    QList<QPointF> points; // Energy in J, efficiency from 0 to 1, increasing energies
+    bool operator==(const EfficiencyCurve &) const = default;
+};
+
+double efficiency(const EfficiencyCurve &curve, double energy);
+
+// The curve of an isotope, nullptr when there is none. Without a mass number (a = 0), the curve of the most abundant
+// isotope.
+const EfficiencyCurve *findEfficiency(const QList<EfficiencyCurve> &curves, int z, int a);
+
 // Default foil of the first timing detector, a typical DLC foil
 constexpr double DefaultFoilThickness = 3 * Units::MicrogramPerSquareCentimetre; // kg/m²
 
@@ -103,6 +118,8 @@ struct DetectorSettings {
     // Foil of the first timing detector. Particles lose energy in it before their time of flight is measured.
     Material foilMaterial = carbon();
     double foilThickness = DefaultFoilThickness; // kg/m²
+    QList<EfficiencyCurve> efficiencies; // At most one for each isotope, isotopes without one are detected fully
+    const EfficiencyCurve *efficiency(int z, int a) const { return findEfficiency(efficiencies, z, a); }
 };
 
 // Default bin width of new energy spectra
@@ -115,6 +132,37 @@ struct EnergySpectrum {
     QList<int> cutIds; // Included selections
 };
 
+// Defaults of new depth profiles. Depths are areal densities in atoms/m², 1e15 at/cm² = Units::ThinFilmUnit.
+constexpr double DefaultDepthBinWidth = 20 * Units::ThinFilmUnit;
+constexpr double DefaultStoppingBinWidth = 100 * Units::ThinFilmUnit;
+constexpr double DefaultMaxDepth = 5000 * Units::ThinFilmUnit;
+constexpr int DefaultMinStoppingBinEvents = 10;
+constexpr double DefaultAverageMin = 0;
+constexpr double DefaultAverageMax = 500 * Units::ThinFilmUnit;
+constexpr double DefaultDensity = 2000; // kg/m³, converts depths to nm
+
+// Depth profile of some of a measurement's selections from single scattering (slab analysis), see depthprofile.h
+struct DepthProfile {
+    QString name;
+    QList<int> cutIds; // Included selections
+    double binWidth = DefaultDepthBinWidth; // atoms/m², of the profile
+    double stoppingBinWidth = DefaultStoppingBinWidth; // atoms/m², of the composition used for stopping
+    double maxDepth = DefaultMaxDepth; // atoms/m², of the calculation, or where it starts when automatic
+    bool autoMaxDepth = true; // The calculation follows the depth the events reach
+    int minStoppingBinEvents = DefaultMinStoppingBinEvents; // Pseudo-events from the bin before, see depthprofile.h
+    bool autoNormalization = true; // Normalization interval found from the data instead of the one below
+    double normalizationMin = 0; // atoms/m², the total concentration is 100 % on average in this interval
+    double normalizationMax = DefaultAverageMax;
+    double averageMin = DefaultAverageMin; // atoms/m², interval of the average concentrations
+    double averageMax = DefaultAverageMax;
+    QList<int> cutIdsExcludedFromAverage; // Left out of the renormalized averages, e.g. the substrate
+    double density = DefaultDensity; // kg/m³
+    // What the plot shows, the calculation is not affected
+    QList<int> cutIdsHiddenFromPlot;
+    bool showTotal = false;
+    bool showNormalization = false; // The interval where the total is 100 %
+};
+
 struct Measurement {
     QString name;
     QString description;
@@ -123,6 +171,7 @@ struct Measurement {
     ExperimentalSettings *settings = nullptr; // Not owned, belong to the project. nullptr when not assigned.
     DetectorSettings *detector = nullptr; // Same as above
     std::vector<std::unique_ptr<EnergySpectrum>> spectra; // Pointers stay valid, spectrum views refer to them
+    std::vector<std::unique_ptr<DepthProfile>> depthProfiles; // Same as above
 
     // Exit angle from the surface, available when both experimental and detector settings are assigned
     bool hasExitAngle() const { return settings && detector; }
@@ -130,11 +179,12 @@ struct Measurement {
     int newCutId() const; // Not used by any cut of this measurement
     void assignCutIds(); // Gives cuts without an id, or with an id already used by an earlier cut, a new one
     const Cut *cut(int id) const; // nullptr when there is no such cut
-    void removeCut(int index); // Also from the spectra
+    void removeCut(int index); // Also from the spectra and depth profiles
     QString uniqueSpectrumName(const QString &name) const;
+    QString uniqueDepthProfileName(const QString &name) const;
 };
 
-// Copy of a measurement with copies of its spectra
+// Copy of a measurement with copies of its spectra and depth profiles
 std::unique_ptr<Measurement> copyMeasurement(const Measurement &measurement);
 
 // "Name" when it is not taken, otherwise "Name (2)", "Name (3)" and so on

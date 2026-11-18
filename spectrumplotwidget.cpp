@@ -17,8 +17,7 @@ constexpr int MarginLeft = 70;
 constexpr int MarginRight = 20;
 constexpr int MarginTop = 30;
 constexpr int MarginBottom = 50;
-constexpr double LogFloor = 0.5; // Counts, bottom of the full range on a log scale, zero is drawn below it
-constexpr double ZeroOnLogScale = 0.1;
+constexpr double ZeroOnLogScale = 0.2; // Zero values on a log scale, relative to the floor of the y axis
 constexpr int MarkerGrabDistance = 4; // Pixels
 }
 
@@ -45,6 +44,44 @@ void SpectrumPlotWidget::setXAxis(const XAxis &axis) {
     update();
 }
 
+void SpectrumPlotWidget::setYAxis(const YAxis &axis) {
+    m_yAxis = axis;
+    updateFullRange();
+    update();
+}
+
+void SpectrumPlotWidget::setBinEdges(const std::vector<double> &edges) {
+    m_edges = edges.size() >= 2 ? edges : std::vector<double>();
+}
+
+void SpectrumPlotWidget::setRegions(const QList<Region> &regions) {
+    m_regions = regions;
+    update();
+}
+
+void SpectrumPlotWidget::setInfoText(const QString &text) {
+    m_infoText = text;
+    update();
+}
+
+double SpectrumPlotWidget::binStart(size_t bin) const {
+    if(!m_edges.empty()) {
+        return m_edges[std::min(bin, m_edges.size() - 1)];
+    }
+    return m_xAxis.origin + static_cast<double>(bin) * m_binWidth;
+}
+
+int SpectrumPlotWidget::binAt(double x) const {
+    if(!m_edges.empty()) {
+        if(x < m_edges.front() || x >= m_edges.back()) {
+            return -1;
+        }
+        return static_cast<int>(std::upper_bound(m_edges.begin(), m_edges.end(), x) - m_edges.begin()) - 1;
+    }
+    const double bin = std::floor((x - m_xAxis.origin) / m_binWidth);
+    return bin < 0 || bin >= static_cast<double>(m_bins) ? -1 : static_cast<int>(bin);
+}
+
 void SpectrumPlotWidget::setOverlay(const QList<QPointF> &points, const QColor &color) {
     m_overlay = points;
     m_overlayColor = color;
@@ -65,12 +102,15 @@ void SpectrumPlotWidget::setCurves(double binWidth, const QList<Curve> &curves, 
     m_curves = curves;
     m_binWidth = binWidth > 0 ? binWidth : 1;
     m_bins = 0;
-    m_maxCount = 0;
+    m_maxValue = 0;
     for(const Curve &curve : curves) {
-        m_bins = std::max(m_bins, curve.counts.size());
-        for(const size_t count : curve.counts) {
-            m_maxCount = std::max(m_maxCount, count);
+        m_bins = std::max(m_bins, curve.values.size());
+        for(const double value : curve.values) {
+            m_maxValue = std::max(m_maxValue, value);
         }
+    }
+    if(!m_edges.empty()) {
+        m_bins = std::min(m_bins, m_edges.size() - 1);
     }
     updateFullRange();
     switch(viewChange) {
@@ -111,9 +151,14 @@ void SpectrumPlotWidget::setMode(SpectrumPlotWidget::Mode mode) {
 }
 
 void SpectrumPlotWidget::updateFullRange() {
-    m_fullX = {m_xAxis.origin, m_xAxis.origin + std::max(1, static_cast<int>(m_bins)) * m_binWidth};
-    const double top = static_cast<double>(std::max<size_t>(m_maxCount, 1));
-    m_fullY = m_logScale ? Range{std::log10(LogFloor), std::log10(top) + 0.1} : Range{0, top * 1.05};
+    if(!m_edges.empty()) {
+        m_fullX = {m_edges.front(), m_edges.back()};
+    } else {
+        m_fullX = {m_xAxis.origin, m_xAxis.origin + std::max(1, static_cast<int>(m_bins)) * m_binWidth};
+    }
+    const double floor = m_yAxis.logFloor;
+    const double top = std::max(m_maxValue, 2 * floor);
+    m_fullY = m_logScale ? Range{std::log10(floor), std::log10(top) + 0.1} : Range{0, top * 1.05};
 }
 
 void SpectrumPlotWidget::resetZoom() {
@@ -152,11 +197,13 @@ void SpectrumPlotWidget::setView(const Range &x, const Range &y) {
     // Never show areas outside the full range: shrink to it, then shift back inside. At least one bin is shown.
     auto clamped = [](Range view, const Range &full, double minimumSize) -> Range {
         const double size = std::clamp(view.size(), std::min(minimumSize, full.size()), full.size());
-        const double min = std::clamp(view.min, full.min, full.max - size);
+        // Not std::clamp: full.max - size can be a rounding error below full.min
+        const double min = std::max(full.min, std::min(view.min, full.max - size));
         return {min, min + size};
     };
-    m_viewX = clamped(x, m_fullX, m_binWidth);
-    m_viewY = clamped(y, m_fullY, m_logScale ? 0.1 : 1.0);
+    const double minBinSize = m_edges.empty() ? m_binWidth : (m_edges.back() - m_edges.front()) / static_cast<double>(m_edges.size() - 1);
+    m_viewX = clamped(x, m_fullX, minBinSize);
+    m_viewY = clamped(y, m_fullY, m_logScale ? 0.1 : std::min(1.0, m_fullY.size() / 100));
     update();
 }
 
@@ -208,7 +255,7 @@ double SpectrumPlotWidget::toPlotY(double count) const {
     if(!m_logScale) {
         return count;
     }
-    return std::log10(count > 0 ? count : ZeroOnLogScale);
+    return std::log10(count > 0 ? count : ZeroOnLogScale * m_yAxis.logFloor);
 }
 
 QPointF SpectrumPlotWidget::dataToPixel(double x, double y) const {
@@ -233,6 +280,7 @@ void SpectrumPlotWidget::paintEvent(QPaintEvent *) {
     painter.fillRect(plot, Qt::white);
     painter.save();
     painter.setClipRect(plot);
+    drawRegions(painter, plot);
     for(const Curve &curve : m_curves) {
         drawCurve(painter, curve);
     }
@@ -244,45 +292,56 @@ void SpectrumPlotWidget::paintEvent(QPaintEvent *) {
 }
 
 void SpectrumPlotWidget::drawCurve(QPainter &painter, const Curve &curve) const {
-    if(curve.counts.empty()) {
+    const size_t bins = std::min(curve.values.size(), m_bins);
+    if(bins == 0) {
         return;
     }
-    const double origin = m_xAxis.origin;
-    const auto first = static_cast<size_t>(std::clamp(std::floor((m_viewX.min - origin) / m_binWidth), 0.0, static_cast<double>(curve.counts.size() - 1)));
-    const auto last = static_cast<size_t>(std::clamp(std::ceil((m_viewX.max - origin) / m_binWidth), 0.0, static_cast<double>(curve.counts.size() - 1)));
-    const double bottom = m_logScale ? std::log10(ZeroOnLogScale) : 0;
+    // The bins in view
+    const int firstInView = binAt(m_viewX.min);
+    const int lastInView = binAt(m_viewX.max);
+    const size_t first = firstInView < 0 ? (m_viewX.min < binStart(0) ? 0 : bins - 1) : static_cast<size_t>(firstInView);
+    const size_t last = std::min(bins - 1, lastInView < 0 ? (m_viewX.max < binStart(0) ? 0 : bins - 1) : static_cast<size_t>(lastInView));
+    const double bottom = m_logScale ? std::log10(ZeroOnLogScale * m_yAxis.logFloor) : 0;
     QPolygonF steps;
-    steps.append(dataToPixel(origin + static_cast<double>(first) * m_binWidth, bottom));
+    steps.append(dataToPixel(binStart(first), bottom));
     const double binsPerPixel = static_cast<double>(last - first + 1) / plotRect().width();
     if(binsPerPixel <= 2) {
         for(size_t i = first; i <= last; i++) {
-            const double y = toPlotY(static_cast<double>(curve.counts[i]));
-            steps.append(dataToPixel(origin + static_cast<double>(i) * m_binWidth, y));
-            steps.append(dataToPixel(origin + static_cast<double>(i + 1) * m_binWidth, y));
+            const double y = toPlotY(curve.values[i]);
+            steps.append(dataToPixel(binStart(i), y));
+            steps.append(dataToPixel(binStart(i + 1), y));
         }
     } else {
-        // Many bins per pixel: the range of counts within each pixel column is drawn as a vertical line
+        // Many bins per pixel: the range of values within each pixel column is drawn as a vertical line
         const auto perColumn = static_cast<size_t>(std::ceil(binsPerPixel));
         for(size_t i = first; i <= last; i += perColumn) {
             const size_t end = std::min(last + 1, i + perColumn);
-            const auto [min, max] = std::minmax_element(curve.counts.begin() + static_cast<std::ptrdiff_t>(i),
-                                                        curve.counts.begin() + static_cast<std::ptrdiff_t>(end));
-            const double x = origin + (static_cast<double>(i + end) / 2) * m_binWidth;
-            steps.append(dataToPixel(x, toPlotY(static_cast<double>(*min))));
-            steps.append(dataToPixel(x, toPlotY(static_cast<double>(*max))));
+            const auto [min, max] = std::minmax_element(curve.values.begin() + static_cast<std::ptrdiff_t>(i),
+                                                        curve.values.begin() + static_cast<std::ptrdiff_t>(end));
+            const double x = (binStart(i) + binStart(end)) / 2;
+            steps.append(dataToPixel(x, toPlotY(*min)));
+            steps.append(dataToPixel(x, toPlotY(*max)));
         }
     }
-    steps.append(dataToPixel(origin + static_cast<double>(last + 1) * m_binWidth, bottom));
+    steps.append(dataToPixel(binStart(last + 1), bottom));
     QColor color = curve.color;
     if(m_stale) {
         color.setAlpha(90);
     }
-    QPen pen(color, 1.5);
+    QPen pen(color, 1.5, curve.style);
     if(m_stale) {
         pen.setStyle(Qt::DashLine);
     }
     painter.setPen(pen);
     painter.drawPolyline(steps);
+}
+
+void SpectrumPlotWidget::drawRegions(QPainter &painter, const QRect &plot) const {
+    for(const Region &region : m_regions) {
+        const double left = dataToPixel(region.min, 0).x();
+        const double right = dataToPixel(region.max, 0).x();
+        painter.fillRect(QRectF(QPointF(left, plot.top()), QPointF(right, plot.bottom())), region.color);
+    }
 }
 
 void SpectrumPlotWidget::drawOverlay(QPainter &painter) const {
@@ -365,18 +424,20 @@ void SpectrumPlotWidget::drawAxes(QPainter &painter, const QRect &plot) const {
 
     const QString &xTitle = m_xAxis.title;
     painter.drawText(plot.center().x() - metrics.horizontalAdvance(xTitle) / 2, height() - 8, xTitle);
-    const QString yTitle = QStringLiteral("Counts");
+    const QString &yTitle = m_yAxis.title;
     painter.save();
     painter.translate(14, plot.center().y() + metrics.horizontalAdvance(yTitle) / 2);
     painter.rotate(-90);
     painter.drawText(0, 0, yTitle);
     painter.restore();
 
-    if(!m_curves.isEmpty()) {
+    if(!m_infoText.isEmpty()) {
+        painter.drawText(plot.left(), MarginTop - 10, m_infoText);
+    } else if(!m_curves.isEmpty()) {
         painter.drawText(plot.left(), MarginTop - 10,
-                         QString("Bin %1 %2, max %3 counts/bin, %4 scale")
+                         QString("Bin %1 %2, max %3 %4, %5 scale")
                                  .arg(m_binWidth * m_xAxis.binWidthScale, 0, 'g', 6).arg(m_xAxis.binWidthUnit)
-                                 .arg(m_maxCount).arg(m_logScale ? "log" : "linear"));
+                                 .arg(m_maxValue, 0, 'g', 6).arg(m_yAxis.maxUnit).arg(m_logScale ? "log" : "linear"));
     }
 }
 
@@ -390,7 +451,7 @@ void SpectrumPlotWidget::drawLegend(QPainter &painter, const QRect &plot) const 
     QStringList labels;
     int textWidth = 0;
     for(const Curve &curve : m_curves) {
-        labels.append(QString("%1 — %2 events").arg(curve.name).arg(curve.events));
+        labels.append(m_yAxis.legendEvents ? QString("%1 — %2 events").arg(curve.name).arg(curve.events) : curve.name);
         textWidth = std::max(textWidth, metrics.horizontalAdvance(labels.last()));
     }
     const int lineHeight = metrics.height();
@@ -402,7 +463,7 @@ void SpectrumPlotWidget::drawLegend(QPainter &painter, const QRect &plot) const 
     painter.drawRect(box);
     for(int i = 0; i < m_curves.size(); i++) {
         const int y = box.top() + Padding + i * lineHeight;
-        painter.setPen(QPen(m_curves[i].color, 2));
+        painter.setPen(QPen(m_curves[i].color, 2, m_curves[i].style));
         painter.drawLine(box.left() + Padding, y + lineHeight / 2, box.left() + Padding + LineLength, y + lineHeight / 2);
         painter.setPen(Qt::black);
         painter.drawText(box.left() + Padding * 2 + LineLength, y + metrics.ascent(), labels[i]);
@@ -504,22 +565,21 @@ void SpectrumPlotWidget::updateCursorInfo(const QPoint &pos) {
         emit cursorInfoChanged({});
         return;
     }
-    const double x = pixelToData(pos).x();
-    const double bin = std::floor((x - m_xAxis.origin) / m_binWidth);
-    if(bin < 0 || bin >= static_cast<double>(m_bins)) {
+    const int bin = binAt(pixelToData(pos).x());
+    if(bin < 0) {
         emit cursorInfoChanged({});
         return;
     }
     const auto index = static_cast<size_t>(bin);
-    QStringList counts;
+    QStringList values;
     for(const Curve &curve : m_curves) {
-        counts.append(QString("%1: %2").arg(curve.name)
-                              .arg(index < curve.counts.size() ? curve.counts[index] : 0));
+        const double value = index < curve.values.size() ? curve.values[index] : 0;
+        values.append(QString("%1: %2").arg(curve.name).arg(m_yAxis.decimals < 0 ? QString::number(value, 'g', 6)
+                                                                                 : QString::number(value, 'f', m_yAxis.decimals)));
     }
-    const double start = m_xAxis.origin + bin * m_binWidth;
     const int decimals = m_xAxis.decimals;
     emit cursorInfoChanged(QString("%1 %2–%3 %4   %5")
                                    .arg(m_xAxis.title.section(' ', 0, 0))
-                                   .arg(start, 0, 'f', decimals).arg(start + m_binWidth, 0, 'f', decimals)
-                                   .arg(m_xAxis.unit, counts.join(QStringLiteral(", "))));
+                                   .arg(binStart(index), 0, 'f', decimals).arg(binStart(index + 1), 0, 'f', decimals)
+                                   .arg(m_xAxis.unit, values.join(QStringLiteral(", "))));
 }

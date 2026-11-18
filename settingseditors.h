@@ -55,6 +55,7 @@ signals:
 
 private slots:
     void editFoil();
+    void editEfficiencies();
 
 private:
     DetectorSettings *m_detector = nullptr;
@@ -65,6 +66,7 @@ private:
     QDoubleSpinBox *m_tofSlopeSpin;
     QDoubleSpinBox *m_tofOffsetSpin;
     QLabel *m_foilLabel;
+    QLabel *m_efficiencyLabel;
     QPushButton *m_calibrateButton;
 };
 

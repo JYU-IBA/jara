@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "defaults.h"
+#include "depthprofileview.h"
 #include "energyspectrumview.h"
 #include "histogramwidget.h"
 #include "measurementview.h"
@@ -88,6 +89,13 @@ QWidget *MainWindow::createProjectView() {
     });
     connect(m_projectPanel, &ProjectPanel::spectrumRenamed, this, [this](EnergySpectrum *spectrum) {
         updateSpectrumTitle(findView<EnergySpectrumView>([spectrum](EnergySpectrumView *view) { return view->spectrum() == spectrum; }));
+    });
+    connect(m_projectPanel, &ProjectPanel::depthProfileOpenRequested, this, &MainWindow::openDepthProfile);
+    connect(m_projectPanel, &ProjectPanel::depthProfileAboutToBeRemoved, this, [this](DepthProfile *profile) {
+        closeTab(findView<DepthProfileView>([profile](DepthProfileView *view) { return view->profile() == profile; }));
+    });
+    connect(m_projectPanel, &ProjectPanel::depthProfileRenamed, this, [this](DepthProfile *profile) {
+        updateDepthProfileTitle(findView<DepthProfileView>([profile](DepthProfileView *view) { return view->profile() == profile; }));
     });
     connect(m_projectPanel, &ProjectPanel::settingsOpenRequested, this, &MainWindow::openSettings);
     connect(m_projectPanel, &ProjectPanel::detectorOpenRequested, this, &MainWindow::openDetector);
@@ -384,6 +392,8 @@ void MainWindow::projectModified() {
             view->updateAssigned();
         } else if(auto *spectrumView = qobject_cast<EnergySpectrumView *>(page)) {
             spectrumView->checkStale();
+        } else if(auto *profileView = qobject_cast<DepthProfileView *>(page)) {
+            profileView->checkStale();
         }
     }
     for(ToFCalibrationWindow *window : findChildren<ToFCalibrationWindow *>()) {
@@ -450,6 +460,22 @@ void MainWindow::openSpectrum(Measurement *measurement, EnergySpectrum *spectrum
     showTab(view, view->title(), measurement->path);
 }
 
+void MainWindow::openDepthProfile(Measurement *measurement, DepthProfile *profile) {
+    auto *view = findView<DepthProfileView>([profile](DepthProfileView *view) { return view->profile() == profile; });
+    if(!view) {
+        view = new DepthProfileView(measurement, profile);
+        connect(view, &DepthProfileView::modified, this, &MainWindow::projectModified);
+        connect(view, &DepthProfileView::titleChanged, this, [this, view]() { updateDepthProfileTitle(view); });
+    }
+    showTab(view, view->title(), measurement->path);
+}
+
+void MainWindow::updateDepthProfileTitle(DepthProfileView *view) {
+    if(const auto [tabs, index] = findTab(view); tabs) {
+        tabs->setTabTitle(index, view->title());
+    }
+}
+
 void MainWindow::updateSpectrumTitle(EnergySpectrumView *view) {
     if(const auto [tabs, index] = findTab(view); tabs) {
         tabs->setTabTitle(index, view->title());
@@ -500,6 +526,10 @@ void MainWindow::recalculateStaleSpectra(const DetectorSettings *detector) {
         if(spectrumView && spectrumView->measurement()->detector == detector && spectrumView->isStale()) {
             spectrumView->recalculate();
         }
+        auto *profileView = qobject_cast<DepthProfileView *>(page);
+        if(profileView && profileView->measurement()->detector == detector && profileView->isStale()) {
+            profileView->recalculate();
+        }
     }
 }
 
@@ -545,6 +575,9 @@ void MainWindow::measurementRenamed(Measurement *measurement) {
     for(const auto &spectrum : measurement->spectra) {
         updateSpectrumTitle(findView<EnergySpectrumView>([&spectrum](EnergySpectrumView *view) { return view->spectrum() == spectrum.get(); }));
     }
+    for(const auto &profile : measurement->depthProfiles) {
+        updateDepthProfileTitle(findView<DepthProfileView>([&profile](DepthProfileView *view) { return view->profile() == profile.get(); }));
+    }
 }
 
 void MainWindow::closeSampleTabs(Sample *sample) {
@@ -557,6 +590,9 @@ void MainWindow::closeMeasurementTab(Measurement *measurement) {
     closeTab(findView<MeasurementView>([measurement](MeasurementView *view) { return view->measurement() == measurement; }));
     for(const auto &spectrum : measurement->spectra) {
         closeTab(findView<EnergySpectrumView>([&spectrum](EnergySpectrumView *view) { return view->spectrum() == spectrum.get(); }));
+    }
+    for(const auto &profile : measurement->depthProfiles) {
+        closeTab(findView<DepthProfileView>([&profile](DepthProfileView *view) { return view->profile() == profile.get(); }));
     }
 }
 

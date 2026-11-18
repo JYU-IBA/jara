@@ -28,13 +28,34 @@ bool hasStoppingData(jibal_gsto *gsto, int z1, int z2) {
     return file && file->data && jibal_gsto_file_get_data(file, z1, z2);
 }
 
-// Assigns and loads stopping of the particle in the elements of the material when it is not loaded yet
-bool loadStopping(int z, const Material &material, QString &errorMessage) {
-    jibal *library = Elements::library();
-    QList<int> missing;
+QList<int> elementsOf(const Material &material) {
+    QList<int> elements;
     for(const MaterialElement &element : material.elements) {
-        if(!loadedStopping.contains({z, element.z})) {
-            missing.append(element.z);
+        elements.append(element.z);
+    }
+    return elements;
+}
+
+// The material as a JIBAL formula, e.g. "C0.95 H0.05"
+QByteArray formula(const Material &material) {
+    QStringList parts;
+    for(const MaterialElement &element : material.elements) {
+        parts.append(QString("%1%2").arg(Elements::symbol(element.z)).arg(element.fraction, 0, 'g', 17));
+    }
+    return parts.join(' ').toLatin1();
+}
+}
+
+bool loadStopping(int z, const QList<int> &targets, QString &errorMessage) {
+    jibal *library = Elements::library();
+    if(!library) {
+        errorMessage = QStringLiteral("JIBAL is not initialized.");
+        return false;
+    }
+    QList<int> missing;
+    for(const int target : targets) {
+        if(!loadedStopping.contains({z, target}) && !missing.contains(target)) {
+            missing.append(target);
         }
     }
     if(missing.isEmpty()) {
@@ -64,14 +85,10 @@ bool loadStopping(int z, const Material &material, QString &errorMessage) {
     return true;
 }
 
-// The material as a JIBAL formula, e.g. "C0.95 H0.05"
-QByteArray formula(const Material &material) {
-    QStringList parts;
-    for(const MaterialElement &element : material.elements) {
-        parts.append(QString("%1%2").arg(Elements::symbol(element.z)).arg(element.fraction, 0, 'g', 17));
-    }
-    return parts.join(' ').toLatin1();
-}
+double stoppingCrossSection(int z, double mass, int target, double energy) {
+    const double electronic = jibal_gsto_get_em(Elements::library()->gsto, GSTO_STO_ELE, z, target, energy / mass);
+    const double nuclear = jibal_gsto_stop_nuclear_universal(energy, z, mass, target, Elements::mass(target, 0));
+    return electronic + nuclear;
 }
 
 struct FoilEnergyLoss::Layer {
@@ -88,7 +105,7 @@ FoilEnergyLoss::FoilEnergyLoss(int z, double mass, const Material &material, dou
         m_errorMessage = QStringLiteral("The concentrations of the foil material do not sum up to 100 %.");
         return;
     }
-    if(!Elements::library() || !loadStopping(z, material, m_errorMessage)) {
+    if(!loadStopping(z, elementsOf(material), m_errorMessage)) {
         return;
     }
     jibal_material *jibalMaterial = jibal_material_create(Elements::library()->elements, formula(material).constData());

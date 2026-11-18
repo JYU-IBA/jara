@@ -1,5 +1,6 @@
 #include "settingseditors.h"
 #include "elementdialog.h"
+#include "efficiencydialog.h"
 #include "elements.h"
 #include "foildialog.h"
 #include "project.h"
@@ -135,6 +136,11 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     auto *foilLayout = new QHBoxLayout;
     foilLayout->addWidget(m_foilLabel, 1);
     foilLayout->addWidget(foilButton);
+    m_efficiencyLabel = new QLabel;
+    auto *efficiencyButton = new QPushButton("Edit...");
+    auto *efficiencyLayout = new QHBoxLayout;
+    efficiencyLayout->addWidget(m_efficiencyLabel, 1);
+    efficiencyLayout->addWidget(efficiencyButton);
     m_calibrateButton = new QPushButton("ToF Calibration...");
     m_calibrateButton->setToolTip("Find the slope and offset from the leading edges of the ToF spectra of selections");
     m_calibrateButton->hide();
@@ -145,6 +151,7 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     layout->addRow("Scattering/recoil angle:", m_scatteringAngleSpin);
     layout->addRow("ToF length:", m_tofLengthSpin);
     layout->addRow("Timing detector foil:", foilLayout);
+    layout->addRow("Efficiencies:", efficiencyLayout);
     layout->addRow("ToF calibration slope:", m_tofSlopeSpin);
     layout->addRow("ToF calibration offset:", m_tofOffsetSpin);
     layout->addRow(QString(), m_calibrateButton);
@@ -160,6 +167,7 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     connectSpinBox(this, m_tofOffsetSpin, m_detector, &DetectorSettings::tofOffset);
     connect(m_calibrateButton, &QPushButton::clicked, this, &DetectorSettingsEditor::calibrationRequested);
     connect(foilButton, &QPushButton::clicked, this, &DetectorSettingsEditor::editFoil);
+    connect(efficiencyButton, &QPushButton::clicked, this, &DetectorSettingsEditor::editEfficiencies);
 
     connect(this, &DetectorSettingsEditor::changed, this, [this]() { m_edited = true; });
     auto finished = [this]() {
@@ -186,6 +194,19 @@ void DetectorSettingsEditor::setDetector(DetectorSettings *detector) {
     setValueSilently(m_tofSlopeSpin, detector->tofSlope);
     setValueSilently(m_tofOffsetSpin, detector->tofOffset);
     m_foilLabel->setText(foilText(detector->foilMaterial, detector->foilThickness));
+    m_efficiencyLabel->setText(efficiencyText(detector->efficiencies));
+}
+
+void DetectorSettingsEditor::editEfficiencies() {
+    EfficiencyDialog dialog(m_detector->efficiencies, this);
+    if(dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    m_detector->efficiencies = dialog.curves();
+    m_efficiencyLabel->setText(efficiencyText(m_detector->efficiencies));
+    emit changed();
+    m_edited = false;
+    emit editingFinished();
 }
 
 void DetectorSettingsEditor::editFoil() {

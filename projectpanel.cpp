@@ -40,12 +40,15 @@
 
 namespace {
 // Experimental settings are the first top-level nodes, then detector settings and samples. Under a sample node,
-// measurements come first, followed by attached files. Energy spectra are under their measurement.
-enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode, SpectrumNode };
-enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, SpectrumPage };
+// measurements come first, followed by attached files. Energy spectra and then depth profiles are under their
+// measurement.
+enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode, SpectrumNode, DepthProfileNode };
+enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, SpectrumPage, DepthProfilePage };
 constexpr int TypeRole = Qt::UserRole;
 constexpr int IndexRole = Qt::UserRole + 1; // Index in the sample's measurements or files, or the measurement's spectra
-constexpr int ObjectRole = Qt::UserRole + 2; // The sample, measurement or spectrum, for finding it again after sorting
+                                            // or depth profiles
+constexpr int ObjectRole = Qt::UserRole + 2; // The sample, measurement, spectrum or depth profile, for finding it again
+                                             // after sorting
 
 QString displayName(const QString &name) {
     return name.isEmpty() ? QStringLiteral("(unnamed)") : name;
@@ -96,11 +99,24 @@ QTreeWidgetItem *createSpectrumItem(const EnergySpectrum &spectrum, int index) {
     return item;
 }
 
+QTreeWidgetItem *createDepthProfileItem(const DepthProfile &profile, int index) {
+    auto *item = new QTreeWidgetItem({displayName(profile.name)});
+    item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
+    item->setData(0, TypeRole, DepthProfileNode);
+    item->setData(0, IndexRole, index);
+    item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&profile)));
+    item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_FileDialogListView));
+    return item;
+}
+
 QTreeWidgetItem *createMeasurementItem(const Measurement &measurement, int index) {
     auto *item = createItem(measurement.name, MeasurementNode, index, measurement.path, QStyle::SP_FileDialogContentsView);
     item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&measurement)));
     for(size_t i = 0; i < measurement.spectra.size(); i++) {
         item->addChild(createSpectrumItem(*measurement.spectra.at(i), static_cast<int>(i)));
+    }
+    for(size_t i = 0; i < measurement.depthProfiles.size(); i++) {
+        item->addChild(createDepthProfileItem(*measurement.depthProfiles.at(i), static_cast<int>(i)));
     }
     return item;
 }
@@ -333,6 +349,14 @@ QWidget *ProjectPanel::createPropertyPages() {
     spectrumLayout->addRow(spectrumHint);
     m_pages->insertWidget(SpectrumPage, createPage(spectrumLayout));
 
+    m_depthProfileNameEdit = new QLineEdit;
+    auto *depthProfileHint = new QLabel("Double-click to open the depth profile in a tab.");
+    depthProfileHint->setWordWrap(true);
+    auto *depthProfileLayout = new QFormLayout;
+    depthProfileLayout->addRow("Name:", m_depthProfileNameEdit);
+    depthProfileLayout->addRow(depthProfileHint);
+    m_pages->insertWidget(DepthProfilePage, createPage(depthProfileLayout));
+
     connect(m_sampleNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         QTreeWidgetItem *item = topLevelOf(m_tree->currentItem());
         sampleOf(item)->name = text;
@@ -399,6 +423,13 @@ QWidget *ProjectPanel::createPropertyPages() {
         spectrum->name = text;
         m_tree->currentItem()->setText(0, displayName(text));
         emit spectrumRenamed(spectrum);
+        emit modified();
+    });
+    connect(m_depthProfileNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
+        DepthProfile *profile = currentDepthProfile();
+        profile->name = text;
+        m_tree->currentItem()->setText(0, displayName(text));
+        emit depthProfileRenamed(profile);
         emit modified();
     });
     return m_pages;
@@ -509,10 +540,18 @@ AttachedFile &ProjectPanel::currentFile() const {
 
 Measurement *ProjectPanel::currentMeasurement() const {
     QTreeWidgetItem *item = m_tree->currentItem();
-    if(nodeType(item) == SpectrumNode) {
+    if(nodeType(item) == SpectrumNode || nodeType(item) == DepthProfileNode) {
         item = item->parent();
     }
     return currentSample()->measurements.at(nodeIndex(item)).get();
+}
+
+DepthProfile *ProjectPanel::currentDepthProfile() const {
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(!m_project || !item || nodeType(item) != DepthProfileNode) {
+        return nullptr;
+    }
+    return currentMeasurement()->depthProfiles.at(nodeIndex(item)).get();
 }
 
 EnergySpectrum *ProjectPanel::currentSpectrum() const {
@@ -603,6 +642,10 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
             m_spectrumNameEdit->setText(currentSpectrum()->name);
             m_pages->setCurrentIndex(SpectrumPage);
             break;
+        case DepthProfileNode:
+            m_depthProfileNameEdit->setText(currentDepthProfile()->name);
+            m_pages->setCurrentIndex(DepthProfilePage);
+            break;
     }
 }
 
@@ -674,6 +717,9 @@ void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
         case SpectrumNode:
             emit spectrumOpenRequested(currentMeasurement(), currentSpectrum());
             break;
+        case DepthProfileNode:
+            emit depthProfileOpenRequested(currentMeasurement(), currentDepthProfile());
+            break;
         default:
             break;
     }
@@ -702,6 +748,7 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
             if(nodeType(item) == MeasurementNode) {
                 menu.addAction("Open Measurement", this, [this]() { emit measurementOpenRequested(currentMeasurement()); });
                 menu.addAction("Add Energy Spectrum", this, &ProjectPanel::addSpectrum);
+                menu.addAction("Add Depth Profile", this, &ProjectPanel::addDepthProfile);
                 menu.addAction("Remove Measurement", this, &ProjectPanel::removeCurrentMeasurement);
                 menu.addSeparator();
             } else if(nodeType(item) == SpectrumNode) {
@@ -709,6 +756,12 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
                     emit spectrumOpenRequested(currentMeasurement(), currentSpectrum());
                 });
                 menu.addAction("Remove Energy Spectrum", this, &ProjectPanel::removeCurrentSpectrum);
+                menu.addSeparator();
+            } else if(nodeType(item) == DepthProfileNode) {
+                menu.addAction("Open Depth Profile", this, [this]() {
+                    emit depthProfileOpenRequested(currentMeasurement(), currentDepthProfile());
+                });
+                menu.addAction("Remove Depth Profile", this, &ProjectPanel::removeCurrentDepthProfile);
                 menu.addSeparator();
             } else if(nodeType(item) == FileNode) {
                 menu.addAction("Open File", this, &ProjectPanel::openCurrentFile);
@@ -1252,7 +1305,7 @@ void ProjectPanel::addSpectrum() {
     }
     measurement->spectra.push_back(std::move(spectrum));
     QTreeWidgetItem *spectrumItem = createSpectrumItem(*measurement->spectra.back(), static_cast<int>(measurement->spectra.size() - 1));
-    item->addChild(spectrumItem);
+    item->insertChild(static_cast<int>(measurement->spectra.size() - 1), spectrumItem); // Spectra before depth profiles
     item->setExpanded(true);
     m_tree->setCurrentItem(spectrumItem);
     emit modified();
@@ -1273,6 +1326,54 @@ void ProjectPanel::removeCurrentSpectrum() {
         spectra.erase(spectra.begin() + index);
         delete item;
         renumberChildren(parent, SpectrumNode);
+        m_tree->setCurrentItem(parent);
+    }
+    currentItemChanged(parent);
+    emit modified();
+}
+
+void ProjectPanel::addDepthProfile() {
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(!m_project || !item) {
+        return;
+    }
+    if(nodeType(item) == SpectrumNode || nodeType(item) == DepthProfileNode) {
+        item = item->parent();
+    }
+    if(nodeType(item) != MeasurementNode) {
+        return;
+    }
+    m_tree->setCurrentItem(item);
+    Measurement *measurement = currentMeasurement();
+    auto profile = std::make_unique<DepthProfile>();
+    profile->name = measurement->uniqueDepthProfileName("Depth profile");
+    for(const Cut &cut : measurement->cuts) {
+        profile->cutIds.append(cut.id);
+    }
+    measurement->depthProfiles.push_back(std::move(profile));
+    QTreeWidgetItem *profileItem = createDepthProfileItem(*measurement->depthProfiles.back(),
+                                                          static_cast<int>(measurement->depthProfiles.size() - 1));
+    item->addChild(profileItem);
+    item->setExpanded(true);
+    m_tree->setCurrentItem(profileItem);
+    emit modified();
+    emit depthProfileOpenRequested(measurement, currentDepthProfile());
+}
+
+void ProjectPanel::removeCurrentDepthProfile() {
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(!item || nodeType(item) != DepthProfileNode) {
+        return;
+    }
+    QTreeWidgetItem *parent = item->parent();
+    auto &profiles = currentMeasurement()->depthProfiles;
+    const int index = nodeIndex(item);
+    emit depthProfileAboutToBeRemoved(profiles.at(index).get());
+    {
+        const QSignalBlocker blocker(m_tree);
+        profiles.erase(profiles.begin() + index);
+        delete item;
+        renumberChildren(parent, DepthProfileNode);
         m_tree->setCurrentItem(parent);
     }
     currentItemChanged(parent);

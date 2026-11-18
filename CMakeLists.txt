@@ -63,6 +63,12 @@ add_executable(jara
         materialeditor.h
         foildialog.cpp
         foildialog.h
+        depthprofile.cpp
+        depthprofile.h
+        depthprofileview.cpp
+        depthprofileview.h
+        efficiencydialog.cpp
+        efficiencydialog.h
 )
 
 target_compile_definitions(jara PRIVATE JARA_VERSION="${PROJECT_VERSION}")

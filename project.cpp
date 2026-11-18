@@ -50,6 +50,74 @@ int indexOf(const std::vector<std::unique_ptr<T>> &list, const T *item) {
     return -1;
 }
 
+QJsonArray idsToJson(const QList<int> &ids) {
+    QJsonArray json;
+    for(const int id : ids) {
+        json.append(id);
+    }
+    return json;
+}
+
+QList<int> idsFromJson(const QJsonValue &json) {
+    QList<int> ids;
+    for(const auto &id : json.toArray()) {
+        ids.append(id.toInt());
+    }
+    return ids;
+}
+
+QJsonObject depthProfileToJson(const DepthProfile &profile) {
+    QJsonObject normalization{{"auto", profile.autoNormalization},
+                              {"min", profile.normalizationMin},
+                              {"max", profile.normalizationMax}};
+    return QJsonObject{
+            {"name", profile.name},
+            {"cuts", idsToJson(profile.cutIds)},
+            {"binWidth", profile.binWidth},
+            {"stoppingBinWidth", profile.stoppingBinWidth},
+            {"maxDepth", profile.maxDepth},
+            {"minStoppingBinEvents", profile.minStoppingBinEvents},
+            {"normalization", normalization},
+            {"average", QJsonObject{{"min", profile.averageMin}, {"max", profile.averageMax},
+                                    {"excludedCuts", idsToJson(profile.cutIdsExcludedFromAverage)}}},
+            {"density", profile.density},
+            {"autoMaxDepth", profile.autoMaxDepth},
+            {"plot", QJsonObject{{"hiddenCuts", idsToJson(profile.cutIdsHiddenFromPlot)},
+                                 {"total", profile.showTotal},
+                                 {"normalization", profile.showNormalization}}}};
+}
+
+// Missing or invalid values are left at their defaults
+std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
+    auto profile = std::make_unique<DepthProfile>();
+    auto positive = [&json](const char *key, double &value) {
+        if(const double read = json[key].toDouble(); read > 0) {
+            value = read;
+        }
+    };
+    profile->name = json["name"].toString();
+    profile->cutIds = idsFromJson(json["cuts"]);
+    positive("binWidth", profile->binWidth);
+    positive("stoppingBinWidth", profile->stoppingBinWidth);
+    positive("maxDepth", profile->maxDepth);
+    positive("density", profile->density);
+    profile->minStoppingBinEvents = std::max(1, json["minStoppingBinEvents"].toInt(profile->minStoppingBinEvents));
+    const QJsonObject normalization = json["normalization"].toObject();
+    profile->autoNormalization = normalization["auto"].toBool(true);
+    profile->normalizationMin = normalization["min"].toDouble(profile->normalizationMin);
+    profile->normalizationMax = normalization["max"].toDouble(profile->normalizationMax);
+    const QJsonObject average = json["average"].toObject();
+    profile->averageMin = average["min"].toDouble(profile->averageMin);
+    profile->averageMax = average["max"].toDouble(profile->averageMax);
+    profile->cutIdsExcludedFromAverage = idsFromJson(average["excludedCuts"]);
+    profile->autoMaxDepth = json["autoMaxDepth"].toBool(profile->autoMaxDepth);
+    const QJsonObject plot = json["plot"].toObject();
+    profile->cutIdsHiddenFromPlot = idsFromJson(plot["hiddenCuts"]);
+    profile->showTotal = plot["total"].toBool(profile->showTotal);
+    profile->showNormalization = plot["normalization"].toBool(profile->showNormalization);
+    return profile;
+}
+
 QJsonObject sampleToJson(const Sample &sample, const QDir &baseDir, const Project &project) {
     QJsonArray metadata;
     for(const auto &entry : sample.metadata) {
@@ -75,6 +143,11 @@ QJsonObject sampleToJson(const Sample &sample, const QDir &baseDir, const Projec
             spectra.append(QJsonObject{{"name", spectrum->name}, {"binWidth", spectrum->binWidth}, {"cuts", cutIds}});
         }
         object["spectra"] = spectra;
+        QJsonArray profiles;
+        for(const auto &profile : measurement->depthProfiles) {
+            profiles.append(depthProfileToJson(*profile));
+        }
+        object["depthProfiles"] = profiles;
         // Settings are referred to by their index in the project
         if(const int index = project.settingsIndex(measurement->settings); index >= 0) {
             object["settings"] = index;
@@ -124,6 +197,9 @@ std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &base
                 spectrum->cutIds.append(id.toInt());
             }
             sample->measurements.back()->spectra.push_back(std::move(spectrum));
+        }
+        for(const auto &profileValue : measurement["depthProfiles"].toArray()) {
+            sample->measurements.back()->depthProfiles.push_back(depthProfileFromJson(profileValue.toObject()));
         }
         const int settingsIndex = measurement["settings"].toInt(-1);
         if(settingsIndex >= 0 && settingsIndex < static_cast<int>(project.settingsCount())) {
@@ -192,6 +268,19 @@ void Measurement::removeCut(int index) {
     for(const auto &spectrum : spectra) {
         spectrum->cutIds.removeAll(id);
     }
+    for(const auto &profile : depthProfiles) {
+        profile->cutIds.removeAll(id);
+        profile->cutIdsExcludedFromAverage.removeAll(id);
+        profile->cutIdsHiddenFromPlot.removeAll(id);
+    }
+}
+
+QString Measurement::uniqueDepthProfileName(const QString &name) const {
+    QStringList names;
+    for(const auto &profile : depthProfiles) {
+        names.append(profile->name);
+    }
+    return uniqueName(name, names);
 }
 
 QString Measurement::uniqueSpectrumName(const QString &name) const {
@@ -207,6 +296,9 @@ std::unique_ptr<Measurement> copyMeasurement(const Measurement &measurement) {
                                               measurement.settings, measurement.detector);
     for(const auto &spectrum : measurement.spectra) {
         copy->spectra.push_back(std::make_unique<EnergySpectrum>(*spectrum));
+    }
+    for(const auto &profile : measurement.depthProfiles) {
+        copy->depthProfiles.push_back(std::make_unique<DepthProfile>(*profile));
     }
     return copy;
 }
@@ -297,10 +389,51 @@ Material carbon() {
     return Material{{{6, 1.0}}};
 }
 
+double efficiency(const EfficiencyCurve &curve, double energy) {
+    const QList<QPointF> &points = curve.points;
+    if(points.isEmpty() || energy < points.first().x() || energy > points.last().x()) {
+        return 0;
+    }
+    const auto above = std::upper_bound(points.begin(), points.end(), energy,
+                                        [](double e, const QPointF &point) { return e < point.x(); });
+    if(above == points.end()) {
+        return points.last().y();
+    }
+    const QPointF &high = *above;
+    const QPointF &low = *(above - 1);
+    return low.y() + (energy - low.x()) / (high.x() - low.x()) * (high.y() - low.y());
+}
+
+const EfficiencyCurve *findEfficiency(const QList<EfficiencyCurve> &curves, int z, int a) {
+    if(a <= 0) {
+        double abundance = -1;
+        for(const Elements::Isotope &isotope : Elements::isotopes(z)) {
+            if(isotope.abundance > abundance) {
+                abundance = isotope.abundance;
+                a = isotope.a;
+            }
+        }
+    }
+    for(const EfficiencyCurve &curve : curves) {
+        if(curve.z == z && curve.a == a) {
+            return &curve;
+        }
+    }
+    return nullptr;
+}
+
 QJsonObject detectorToJson(const DetectorSettings &detector) {
     QJsonArray material;
     for(const MaterialElement &element : detector.foilMaterial.elements) {
         material.append(QJsonObject{{"z", element.z}, {"fraction", element.fraction}});
+    }
+    QJsonArray efficiencies;
+    for(const EfficiencyCurve &curve : detector.efficiencies) {
+        QJsonArray points;
+        for(const QPointF &point : curve.points) {
+            points.append(QJsonArray{point.x(), point.y()});
+        }
+        efficiencies.append(QJsonObject{{"z", curve.z}, {"a", curve.a}, {"points", points}});
     }
     return QJsonObject{
             {"name", detector.name},
@@ -308,7 +441,8 @@ QJsonObject detectorToJson(const DetectorSettings &detector) {
             {"tofLength", detector.tofLength},
             {"tofSlope", detector.tofSlope},
             {"tofOffset", detector.tofOffset},
-            {"foil", QJsonObject{{"thickness", detector.foilThickness}, {"material", material}}}};
+            {"foil", QJsonObject{{"thickness", detector.foilThickness}, {"material", material}}},
+            {"efficiencies", efficiencies}};
 }
 
 DetectorSettings detectorFromJson(const QJsonObject &json) {
@@ -327,6 +461,18 @@ DetectorSettings detectorFromJson(const QJsonObject &json) {
             material.elements.append({element["z"].toInt(), element["fraction"].toDouble()});
         }
         detector.foilMaterial = isValidMaterial(material) ? material : carbon(); // Carbon by default
+    }
+    for(const auto &value : json["efficiencies"].toArray()) {
+        const QJsonObject object = value.toObject();
+        EfficiencyCurve curve{object["z"].toInt(), object["a"].toInt()};
+        for(const auto &point : object["points"].toArray()) {
+            const QJsonArray coordinates = point.toArray();
+            curve.points.append({coordinates.at(0).toDouble(), coordinates.at(1).toDouble()});
+        }
+        std::sort(curve.points.begin(), curve.points.end(), [](const QPointF &a, const QPointF &b) { return a.x() < b.x(); });
+        if(Elements::hasIsotope(curve.z, curve.a) && !curve.points.isEmpty() && !detector.efficiency(curve.z, curve.a)) {
+            detector.efficiencies.append(curve);
+        }
     }
     return detector;
 }

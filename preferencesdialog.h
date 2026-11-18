@@ -10,9 +10,8 @@
 
 class QButtonGroup;
 
-// Edits the program-wide default experimental and detector settings, histogram preferences and the default colors of
-// elements. They are
-// stored when the dialog is accepted.
+// Edits the program-wide default experimental and detector settings, histogram and depth profile preferences and the
+// default colors of elements. They are stored when the dialog is accepted.
 class PreferencesDialog : public QDialog {
     Q_OBJECT
 
@@ -24,11 +23,13 @@ private:
     QWidget *createSettingsPage();
     QWidget *createHistogramPage();
     QWidget *createElementColorsPage();
+    QWidget *createDepthProfilePage();
     void updateElementButton(int z);
 
     ExperimentalSettings m_experimental;
     DetectorSettings m_detector;
     HistogramPreferences m_histogram;
+    DepthProfilePreferences m_depthProfile;
     QMap<int, QColor> m_elementColors; // Colors changed by the user, by Z
     QButtonGroup *m_elementGroup = nullptr;
 };
