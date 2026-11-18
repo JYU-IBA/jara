@@ -81,7 +81,31 @@ QColor Defaults::elementColor(int z) {
 }
 
 QColor Defaults::builtInElementColor(int z) {
-    // Hues a golden angle apart, so that elements close to each other get clearly different colors
+    // Elements common in ERDA have colors chosen to be told apart, the same as in Potku
+    static const QMap<int, QColor> chosen{
+            {1, QColor(0xb4, 0x90, 0x3c)},  // H
+            {3, QColor(0xcf, 0x8a, 0xed)},  // Li
+            {6, QColor(0x51, 0x3c, 0x34)},  // C
+            {7, QColor(0x00, 0xaa, 0x00)},  // N
+            {8, QColor(0x00, 0x00, 0xff)},  // O
+            {9, QColor(0xef, 0x7b, 0x19)},  // F
+            {11, QColor(0x6a, 0xa8, 0x87)}, // Na
+            {12, QColor(0x4b, 0xed, 0x41)}, // Mg
+            {13, QColor(0x47, 0xbf, 0xed)}, // Al
+            {14, QColor(0x80, 0x00, 0x80)}, // Si
+            {16, QColor(0xae, 0xa2, 0x16)}, // S
+            {17, QColor(0xc2, 0x00, 0xc2)}, // Cl
+            {18, QColor(0xed, 0x86, 0xc1)}, // Ar
+            {24, QColor(0x49, 0xdd, 0xed)}, // Cr
+            {26, QColor(0xed, 0x55, 0x61)}, // Fe
+            {28, QColor(0x7a, 0x22, 0xed)}, // Ni
+            {29, QColor(0xff, 0xaa, 0x00)}, // Cu
+            {79, QColor(0xea, 0xc5, 0x17)}, // Au
+    };
+    if(const auto found = chosen.find(z); found != chosen.end()) {
+        return found.value();
+    }
+    // Others have hues a golden angle apart, so that elements close to each other get clearly different colors
     const int hue = static_cast<int>(std::lround(z * 137.508)) % 360;
     return QColor::fromHsv(hue, 230, 220);
 }
