@@ -1,4 +1,6 @@
 #include "measurementview.h"
+#include "colorbutton.h"
+#include "defaults.h"
 #include "elementdialog.h"
 #include "elements.h"
 #include "histogramwidget.h"
@@ -7,6 +9,7 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QClipboard>
+#include <QColorDialog>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -188,6 +191,7 @@ QWidget *MeasurementView::createCutPanel() {
         m_pasteAction->setEnabled(!cutsFromClipboard().isEmpty());
         QMenu menu;
         menu.addAction("Change Element...", this, &MeasurementView::changeCutElement)->setEnabled(count == 1);
+        menu.addAction("Change Color...", this, &MeasurementView::changeCutColor)->setEnabled(count > 0);
         menu.addAction(count > 1 ? QString("Remove %1 Selections").arg(count) : QString("Remove"), this, &MeasurementView::removeCuts)
                 ->setEnabled(count > 0);
         menu.addSeparator();
@@ -214,7 +218,9 @@ void MeasurementView::updateCutList() {
     const int row = m_cutList->currentRow();
     m_cutList->clear();
     for(const Cut &cut : m_measurement->cuts) {
-        m_cutList->addItem(QString("%1 — %2 events").arg(Elements::displayLabel(cut.z, cut.a)).arg(countEvents(m_events, cut.polygon)));
+        m_cutList->addItem(new QListWidgetItem(colorSwatch(cut.color), QString("%1 — %2 events")
+                                                       .arg(Elements::displayLabel(cut.z, cut.a))
+                                                       .arg(countEvents(m_events, cut.polygon))));
     }
     m_cutList->setCurrentRow(std::min(row, static_cast<int>(m_cutList->count()) - 1));
     m_histogram->update();
@@ -222,10 +228,11 @@ void MeasurementView::updateCutList() {
 
 void MeasurementView::polygonCompleted(const QList<QPointF> &polygon) {
     ElementDialog dialog(0, 0, this);
+    dialog.setColorSelectable(QColor(), true);
     if(dialog.exec() != QDialog::Accepted) {
         return; // The selection is discarded
     }
-    m_measurement->cuts.append(Cut{dialog.z(), dialog.a(), polygon});
+    m_measurement->cuts.append(Cut{dialog.z(), dialog.a(), polygon, dialog.color()});
     updateCutList();
     m_cutList->setCurrentRow(static_cast<int>(m_measurement->cuts.size()) - 1);
     emit modified();
@@ -238,12 +245,34 @@ void MeasurementView::changeCutElement() {
     }
     Cut &cut = m_measurement->cuts[row];
     ElementDialog dialog(cut.z, cut.a, this);
+    // A selection with the default color of its element gets the default color of the new element
+    dialog.setColorSelectable(cut.color, cut.color == Defaults::elementColor(cut.z));
     if(dialog.exec() != QDialog::Accepted) {
         return;
     }
     cut.z = dialog.z();
     cut.a = dialog.a();
+    cut.color = dialog.color();
     updateCutList();
+    emit modified();
+}
+
+void MeasurementView::changeCutColor() {
+    const QList<int> rows = selectedCutRows();
+    if(rows.isEmpty()) {
+        return;
+    }
+    const QColor color = QColorDialog::getColor(m_measurement->cuts.at(rows.first()).color, this, "Selection Color");
+    if(!color.isValid()) {
+        return;
+    }
+    for(int row : rows) {
+        m_measurement->cuts[row].color = color;
+    }
+    updateCutList();
+    for(int row : rows) {
+        m_cutList->item(row)->setSelected(true);
+    }
     emit modified();
 }
 

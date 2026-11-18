@@ -2,6 +2,7 @@
 #define JARA_ELEMENTS_H
 
 #include <QList>
+#include <QPoint>
 #include <QString>
 
 // Element and isotope data from JIBAL
@@ -23,6 +24,10 @@ bool hasIsotope(int z, int a);
 // Accepts a symbol ("Si", case insensitive), an atomic number ("14") or an isotope ("28Si", "Si-28", "Si28").
 // Sets a to zero when no isotope is given.
 bool parse(const QString &text, int &z, int &a);
+
+// Lanthanides and actinides are shown below the main periodic table, after a gap row
+constexpr int LanthanideRow = 8;
+QPoint tablePosition(int z); // Column (x) and row (y) of an element in the periodic table
 }
 
 #endif // JARA_ELEMENTS_H

@@ -1,4 +1,5 @@
 #include "project.h"
+#include "defaults.h"
 
 #include <algorithm>
 
@@ -158,7 +159,7 @@ QJsonArray cutsToJson(const QList<Cut> &cuts) {
         for(const QPointF &point : cut.polygon) {
             polygon.append(QJsonArray{point.x(), point.y()});
         }
-        result.append(QJsonObject{{"z", cut.z}, {"a", cut.a}, {"polygon", polygon}});
+        result.append(QJsonObject{{"z", cut.z}, {"a", cut.a}, {"color", cut.color.name()}, {"polygon", polygon}});
     }
     return result;
 }
@@ -167,7 +168,10 @@ QList<Cut> cutsFromJson(const QJsonArray &json) {
     QList<Cut> cuts;
     for(const auto &value : json) {
         const QJsonObject object = value.toObject();
-        Cut cut{object["z"].toInt(), object["a"].toInt(), {}};
+        Cut cut{object["z"].toInt(), object["a"].toInt(), {}, QColor::fromString(object["color"].toString())};
+        if(!cut.color.isValid()) {
+            cut.color = Defaults::elementColor(cut.z);
+        }
         for(const auto &point : object["polygon"].toArray()) {
             const QJsonArray coordinates = point.toArray();
             cut.polygon.append({coordinates.at(0).toDouble(), coordinates.at(1).toDouble()});

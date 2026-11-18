@@ -1,4 +1,6 @@
 #include "elementdialog.h"
+#include "colorbutton.h"
+#include "defaults.h"
 #include "elements.h"
 
 #include <QAbstractButton>
@@ -14,45 +16,6 @@
 
 namespace {
 constexpr double MinimumAbundance = 1e-6; // Isotopes listed by default
-constexpr int LanthanideRow = 8; // Lanthanides and actinides are shown below the main table, after a gap row
-
-// Column (x) and row (y) of an element in the periodic table
-QPoint tablePosition(int z) {
-    if(z == 1) {
-        return {0, 0};
-    }
-    if(z == 2) {
-        return {17, 0};
-    }
-    if(z <= 10) {
-        return z <= 4 ? QPoint(z - 3, 1) : QPoint(z - 5 + 12, 1);
-    }
-    if(z <= 18) {
-        return z <= 12 ? QPoint(z - 11, 2) : QPoint(z - 13 + 12, 2);
-    }
-    if(z <= 36) {
-        return {z - 19, 3};
-    }
-    if(z <= 54) {
-        return {z - 37, 4};
-    }
-    if(z <= 56) {
-        return {z - 55, 5};
-    }
-    if(z <= 71) {
-        return {z - 57 + 3, LanthanideRow};
-    }
-    if(z <= 86) {
-        return {z - 72 + 3, 5};
-    }
-    if(z <= 88) {
-        return {z - 87, 6};
-    }
-    if(z <= 103) {
-        return {z - 89 + 3, LanthanideRow + 1};
-    }
-    return {z - 104 + 3, 6};
-}
 }
 
 ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
@@ -61,7 +24,7 @@ ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
 
     auto *table = new QGridLayout;
     table->setSpacing(2);
-    table->setRowMinimumHeight(LanthanideRow - 1, 8);
+    table->setRowMinimumHeight(Elements::LanthanideRow - 1, 8);
     m_elementGroup = new QButtonGroup(this);
     for(int i = 1; i <= std::min(Elements::maxZ(), 118); i++) {
         auto *button = new QToolButton;
@@ -70,27 +33,31 @@ ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
         button->setCheckable(true);
         button->setFixedSize(34, 28);
         m_elementGroup->addButton(button, i);
-        const QPoint position = tablePosition(i);
+        const QPoint position = Elements::tablePosition(i);
         table->addWidget(button, position.y(), position.x());
     }
 
     m_edit = new QLineEdit;
     m_edit->setPlaceholderText("e.g. Si, 14 or 28Si");
     m_isotopeCombo = new QComboBox;
-    auto *form = new QFormLayout;
-    form->addRow("Element:", m_edit);
-    form->addRow("Isotope:", m_isotopeCombo);
+    m_colorButton = new ColorButton;
+    m_form = new QFormLayout;
+    m_form->addRow("Element:", m_edit);
+    m_form->addRow("Isotope:", m_isotopeCombo);
+    m_form->addRow("Color:", m_colorButton);
+    m_form->setRowVisible(m_colorButton, false);
 
     m_buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 
     auto *layout = new QVBoxLayout(this);
     layout->addLayout(table);
-    layout->addLayout(form);
+    layout->addLayout(m_form);
     layout->addWidget(m_buttonBox);
 
     connect(m_elementGroup, &QButtonGroup::idClicked, this, &ElementDialog::elementClicked);
     connect(m_edit, &QLineEdit::textEdited, this, &ElementDialog::textEdited);
     connect(m_isotopeCombo, &QComboBox::activated, this, &ElementDialog::isotopeChanged);
+    connect(m_colorButton, &ColorButton::colorPicked, this, [this]() { m_colorFollowsElement = false; });
     connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
@@ -101,6 +68,16 @@ ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
 
 int ElementDialog::a() const {
     return m_isotopeCombo->currentData().toInt();
+}
+
+void ElementDialog::setColorSelectable(const QColor &color, bool followElement) {
+    m_form->setRowVisible(m_colorButton, true);
+    m_colorFollowsElement = followElement;
+    m_colorButton->setColor(followElement && m_z > 0 ? Defaults::elementColor(m_z) : color);
+}
+
+QColor ElementDialog::color() const {
+    return m_colorButton->color();
 }
 
 void ElementDialog::setElement(int z, int a) {
@@ -141,6 +118,9 @@ void ElementDialog::setElement(int z, int a) {
         m_isotopeCombo->setCurrentIndex(std::max(0, m_isotopeCombo->findData(a)));
     }
     m_isotopeCombo->setEnabled(m_z > 0);
+    if(m_colorFollowsElement) {
+        m_colorButton->setColor(m_z > 0 ? Defaults::elementColor(m_z) : QColor());
+    }
     m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(m_z > 0 && (!m_requireIsotope || this->a() > 0));
 }
 

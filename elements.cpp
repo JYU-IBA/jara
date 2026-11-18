@@ -120,3 +120,40 @@ bool Elements::parse(const QString &text, int &z, int &a) {
     a = mass;
     return true;
 }
+
+QPoint Elements::tablePosition(int z) {
+    if(z == 1) {
+        return {0, 0};
+    }
+    if(z == 2) {
+        return {17, 0};
+    }
+    if(z <= 10) {
+        return z <= 4 ? QPoint(z - 3, 1) : QPoint(z - 5 + 12, 1);
+    }
+    if(z <= 18) {
+        return z <= 12 ? QPoint(z - 11, 2) : QPoint(z - 13 + 12, 2);
+    }
+    if(z <= 36) {
+        return {z - 19, 3};
+    }
+    if(z <= 54) {
+        return {z - 37, 4};
+    }
+    if(z <= 56) {
+        return {z - 55, 5};
+    }
+    if(z <= 71) {
+        return {z - 57 + 3, LanthanideRow};
+    }
+    if(z <= 86) {
+        return {z - 72 + 3, 5};
+    }
+    if(z <= 88) {
+        return {z - 87, 6};
+    }
+    if(z <= 103) {
+        return {z - 89 + 3, LanthanideRow + 1};
+    }
+    return {z - 104 + 3, 6};
+}

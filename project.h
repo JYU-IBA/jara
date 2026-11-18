@@ -6,6 +6,7 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QColor>
 #include <QList>
 #include <QPointF>
 #include <QString>
@@ -30,6 +31,7 @@ struct Cut {
     int z = 0;
     int a = 0; // Mass number, zero when no specific isotope is selected
     QList<QPointF> polygon; // ToF and E in channels
+    QColor color; // Drawn with this color
 };
 
 // Values are in SI units (energies in MeV), see units.h. Angles are measured from the sample surface. IBM geometry
@@ -78,7 +80,8 @@ struct Sample {
     std::vector<std::unique_ptr<Measurement>> measurements; // Pointers stay valid, measurement views refer to them
 };
 
-// Cuts as stored in project files, also used for copying cuts through the clipboard
+// Cuts as stored in project files, also used for copying cuts through the clipboard. Cuts without a color get the
+// default color of their element.
 QJsonArray cutsToJson(const QList<Cut> &cuts);
 QList<Cut> cutsFromJson(const QJsonArray &json);
 

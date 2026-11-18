@@ -29,6 +29,7 @@ signals:
 private slots:
     void polygonCompleted(const QList<QPointF> &polygon);
     void changeCutElement();
+    void changeCutColor();
     void removeCuts();
     void copyCuts();
     void pasteCuts();

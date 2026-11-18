@@ -66,7 +66,6 @@ QPointF closestPointOnSegment(const QPointF &p, const QPointF &a, const QPointF 
     return a + t * ab;
 }
 
-const QColor CutColor(220, 20, 60);
 }
 
 HistogramWidget::HistogramWidget(QWidget *parent) : QWidget(parent) {
@@ -312,10 +311,11 @@ void HistogramWidget::drawCuts(QPainter &painter) const {
         painter.setBrush(Qt::NoBrush);
         painter.setPen(QPen(QColor(255, 255, 255, 200), highlighted ? 5 : 3.5));
         painter.drawPolygon(polygon);
-        painter.setPen(QPen(CutColor, highlighted ? 2.5 : 1.5));
+        const QColor &color = m_cuts->at(i).color;
+        painter.setPen(QPen(color, highlighted ? 2.5 : 1.5));
         painter.drawPolygon(polygon);
         if(i == m_highlightedCut && m_mode == Mode::Edit) {
-            painter.setPen(CutColor);
+            painter.setPen(color);
             painter.setBrush(Qt::white);
             for(const QPointF &vertex : polygon) {
                 painter.drawRect(QRectF(vertex - QPointF(4, 4), QSizeF(8, 8)));
@@ -354,7 +354,7 @@ void HistogramWidget::drawCutLabel(QPainter &painter, const Cut &cut, const QPol
     painter.setPen(Qt::NoPen);
     painter.setBrush(QColor(255, 255, 255, 200));
     painter.drawRoundedRect(box, 3, 3);
-    painter.setPen(CutColor);
+    painter.setPen(cut.color);
     if(!mass.isEmpty()) {
         painter.setFont(massFont);
         painter.drawText(QPointF(box.left() + 2, baseline - raise), mass);

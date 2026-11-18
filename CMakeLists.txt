@@ -30,6 +30,8 @@ add_executable(jara
         elements.h
         elementdialog.cpp
         elementdialog.h
+        colorbutton.cpp
+        colorbutton.h
         defaults.cpp
         defaults.h
         settingseditors.cpp
