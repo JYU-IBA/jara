@@ -5,6 +5,7 @@
 
 #include <QAbstractButton>
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -150,17 +151,57 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
                             "the tolerance, or until the maximum number of iterations. Iterating can be continued in "
                             "each depth profile.");
     note->setWordWrap(true);
+    auto *iterationGroup = new QGroupBox("Iterations");
+    auto *iterationForm = new QFormLayout(iterationGroup);
+    iterationForm->addRow(note);
+    iterationForm->addRow("Maximum iterations:", iterations);
+    iterationForm->addRow("Tolerance:", tolerance);
+
+    // Depths are shown in 1e15 at/cm², stored in atoms/m²
+    auto depthSpin = [](double value, double minimum) {
+        auto *spinBox = new QDoubleSpinBox;
+        spinBox->setDecimals(1);
+        spinBox->setRange(minimum, 1e6);
+        spinBox->setValue(value / Units::ThinFilmUnit);
+        return spinBox;
+    };
+    auto *binWidth = depthSpin(m_depthProfile.binWidth, 0.1);
+    auto *stoppingBinWidth = depthSpin(m_depthProfile.stoppingBinWidth, 0.1);
+    auto *maxDepth = depthSpin(m_depthProfile.maxDepth, 1);
+    auto *autoMaxDepth = new QCheckBox("Automatic");
+    autoMaxDepth->setChecked(m_depthProfile.autoMaxDepth);
+    autoMaxDepth->setToolTip("The maximum depth follows the depth the events reach, starting from the value given");
+    auto *maxDepthRow = new QHBoxLayout;
+    maxDepthRow->addWidget(maxDepth, 1);
+    maxDepthRow->addWidget(autoMaxDepth);
+    auto *smoothing = new QSpinBox;
+    smoothing->setRange(1, 100000);
+    smoothing->setValue(m_depthProfile.smoothingEvents);
+    smoothing->setToolTip("Each stopping bin gets this many events with the composition of the bin above it");
+    auto *newGroup = new QGroupBox("New depth profiles (depths in 10¹⁵ at/cm²)");
+    auto *newForm = new QFormLayout(newGroup);
+    newForm->addRow("Profile bin:", binWidth);
+    newForm->addRow("Stopping bin:", stoppingBinWidth);
+    newForm->addRow("Smoothing events:", smoothing);
+    newForm->addRow("Maximum depth:", maxDepthRow);
 
     auto *page = new QWidget;
-    auto *form = new QFormLayout;
-    form->addRow("Maximum iterations:", iterations);
-    form->addRow("Tolerance:", tolerance);
     auto *layout = new QVBoxLayout(page);
-    layout->addWidget(note);
-    layout->addLayout(form);
+    layout->addWidget(iterationGroup);
+    layout->addWidget(newGroup);
     layout->addStretch();
     connect(iterations, &QSpinBox::valueChanged, this, [this](int value) { m_depthProfile.maxIterations = value; });
     connect(tolerance, &QDoubleSpinBox::valueChanged, this, [this](double value) { m_depthProfile.tolerance = value / 100; });
+    auto connectDepth = [this](QDoubleSpinBox *spinBox, double DepthProfilePreferences::*member) {
+        connect(spinBox, &QDoubleSpinBox::valueChanged, this, [this, member](double value) {
+            m_depthProfile.*member = value * Units::ThinFilmUnit;
+        });
+    };
+    connectDepth(binWidth, &DepthProfilePreferences::binWidth);
+    connectDepth(stoppingBinWidth, &DepthProfilePreferences::stoppingBinWidth);
+    connectDepth(maxDepth, &DepthProfilePreferences::maxDepth);
+    connect(smoothing, &QSpinBox::valueChanged, this, [this](int value) { m_depthProfile.smoothingEvents = value; });
+    connect(autoMaxDepth, &QCheckBox::toggled, this, [this](bool checked) { m_depthProfile.autoMaxDepth = checked; });
     return page;
 }
 

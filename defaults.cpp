@@ -149,12 +149,37 @@ DepthProfilePreferences Defaults::depthProfilePreferences() {
     DepthProfilePreferences preferences;
     const QJsonObject json = load(DepthProfileKey);
     preferences.maxIterations = std::max(1, json["maxIterations"].toInt(preferences.maxIterations));
-    if(const double tolerance = json["tolerance"].toDouble(); tolerance > 0) {
-        preferences.tolerance = tolerance;
-    }
+    auto positive = [&json](const char *key, double &value) {
+        if(const double read = json[key].toDouble(); read > 0) {
+            value = read;
+        }
+    };
+    positive("tolerance", preferences.tolerance);
+    positive("binWidth", preferences.binWidth);
+    positive("stoppingBinWidth", preferences.stoppingBinWidth);
+    positive("maxDepth", preferences.maxDepth);
+    preferences.smoothingEvents = std::max(1, json["smoothingEvents"].toInt(preferences.smoothingEvents));
+    preferences.autoMaxDepth = json["autoMaxDepth"].toBool(preferences.autoMaxDepth);
     return preferences;
 }
 
 void Defaults::setDepthProfilePreferences(const DepthProfilePreferences &preferences) {
-    store(DepthProfileKey, QJsonObject{{"maxIterations", preferences.maxIterations}, {"tolerance", preferences.tolerance}});
+    store(DepthProfileKey, QJsonObject{{"maxIterations", preferences.maxIterations},
+                                       {"tolerance", preferences.tolerance},
+                                       {"binWidth", preferences.binWidth},
+                                       {"stoppingBinWidth", preferences.stoppingBinWidth},
+                                       {"smoothingEvents", preferences.smoothingEvents},
+                                       {"maxDepth", preferences.maxDepth},
+                                       {"autoMaxDepth", preferences.autoMaxDepth}});
+}
+
+DepthProfile Defaults::depthProfile() {
+    const DepthProfilePreferences preferences = depthProfilePreferences();
+    DepthProfile profile;
+    profile.binWidth = preferences.binWidth;
+    profile.stoppingBinWidth = preferences.stoppingBinWidth;
+    profile.minStoppingBinEvents = preferences.smoothingEvents;
+    profile.maxDepth = preferences.maxDepth;
+    profile.autoMaxDepth = preferences.autoMaxDepth;
+    return profile;
 }

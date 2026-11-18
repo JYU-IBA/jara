@@ -1345,7 +1345,7 @@ void ProjectPanel::addDepthProfile() {
     }
     m_tree->setCurrentItem(item);
     Measurement *measurement = currentMeasurement();
-    auto profile = std::make_unique<DepthProfile>();
+    auto profile = std::make_unique<DepthProfile>(Defaults::depthProfile());
     profile->name = measurement->uniqueDepthProfileName("Depth profile");
     for(const Cut &cut : measurement->cuts) {
         profile->cutIds.append(cut.id);

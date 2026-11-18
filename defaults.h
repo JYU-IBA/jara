@@ -22,6 +22,12 @@ struct HistogramPreferences {
 struct DepthProfilePreferences {
     int maxIterations = 10; // Of one run, the user can continue iterating
     double tolerance = 0.001; // Atomic fraction. Converged when no concentration in the stopping bins changes more.
+    // Parameters of new depth profiles, depths in atoms/m²
+    double binWidth = DefaultDepthBinWidth;
+    double stoppingBinWidth = DefaultStoppingBinWidth;
+    int smoothingEvents = DefaultMinStoppingBinEvents;
+    double maxDepth = DefaultMaxDepth;
+    bool autoMaxDepth = true;
 };
 
 // Program-wide default settings, used for new projects and new settings sets. Stored with QSettings.
@@ -42,6 +48,7 @@ void setHistogramPreferences(const HistogramPreferences &preferences);
 
 DepthProfilePreferences depthProfilePreferences();
 void setDepthProfilePreferences(const DepthProfilePreferences &preferences);
+DepthProfile depthProfile(); // A new depth profile with the parameters from the preferences
 }
 
 #endif // JARA_DEFAULTS_H
