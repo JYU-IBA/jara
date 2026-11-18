@@ -3,7 +3,6 @@
 #include "elements.h"
 #include "projectimportdialog.h"
 #include "project.h"
-#include "settingseditors.h"
 
 #include <algorithm>
 
@@ -43,11 +42,10 @@ namespace {
 // Experimental settings are the first top-level nodes, then detector settings and samples. Under a sample node,
 // measurements come first, followed by attached files.
 enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode };
-enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, DetectorPage };
+enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage };
 constexpr int TypeRole = Qt::UserRole;
 constexpr int IndexRole = Qt::UserRole + 1; // Index in the sample's measurements or files
 constexpr int ObjectRole = Qt::UserRole + 2; // The sample or measurement, for finding it again after sorting
-constexpr int MeasurementRole = Qt::UserRole; // In the list of measurements assigned to experimental settings
 
 QString displayName(const QString &name) {
     return name.isEmpty() ? QStringLiteral("(unnamed)") : name;
@@ -307,8 +305,12 @@ QWidget *ProjectPanel::createPropertyPages() {
     fileLayout->addRow("Description:", m_fileDescriptionEdit);
     m_pages->insertWidget(FilePage, createPage(fileLayout));
 
-    m_pages->insertWidget(SettingsPage, createSettingsPage());
-    m_pages->insertWidget(DetectorPage, createDetectorPage());
+    auto *settingsHint = new QLabel("Double-click to edit the settings in a tab.");
+    settingsHint->setWordWrap(true);
+    auto *settingsLayout = new QVBoxLayout;
+    settingsLayout->addWidget(settingsHint);
+    settingsLayout->addStretch();
+    m_pages->insertWidget(SettingsPage, createPage(settingsLayout));
 
     connect(m_sampleNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         QTreeWidgetItem *item = topLevelOf(m_tree->currentItem());
@@ -372,45 +374,6 @@ QWidget *ProjectPanel::createPropertyPages() {
         emit modified();
     });
     return m_pages;
-}
-
-QWidget *ProjectPanel::createSettingsPage() {
-    m_settingsEditor = new ExperimentalSettingsEditor;
-    m_assignedList = createAssignedList();
-    auto *layout = new QVBoxLayout;
-    layout->addWidget(m_settingsEditor);
-    layout->addWidget(new QLabel("Assigned measurements:"));
-    layout->addWidget(m_assignedList);
-    connect(m_settingsEditor, &ExperimentalSettingsEditor::changed, this, &ProjectPanel::modified);
-    connect(m_settingsEditor, &ExperimentalSettingsEditor::nameChanged, this, [this](const QString &name) {
-        m_tree->currentItem()->setText(0, displayName(name));
-    });
-    return createPage(layout);
-}
-
-QWidget *ProjectPanel::createDetectorPage() {
-    m_detectorEditor = new DetectorSettingsEditor;
-    m_detectorAssignedList = createAssignedList();
-    auto *layout = new QVBoxLayout;
-    layout->addWidget(m_detectorEditor);
-    layout->addWidget(new QLabel("Assigned measurements:"));
-    layout->addWidget(m_detectorAssignedList);
-    connect(m_detectorEditor, &DetectorSettingsEditor::changed, this, &ProjectPanel::modified);
-    connect(m_detectorEditor, &DetectorSettingsEditor::nameChanged, this, [this](const QString &name) {
-        m_tree->currentItem()->setText(0, displayName(name));
-    });
-    return createPage(layout);
-}
-
-QListWidget *ProjectPanel::createAssignedList() {
-    auto *list = new QListWidget;
-    connect(list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *item) {
-        const auto *measurement = reinterpret_cast<const Measurement *>(item->data(MeasurementRole).value<quintptr>());
-        if(QTreeWidgetItem *treeItem = measurementItem(measurement)) {
-            m_tree->setCurrentItem(treeItem);
-        }
-    });
-    return list;
 }
 
 void ProjectPanel::setProject(Project *project) {
@@ -593,12 +556,8 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
             break;
         }
         case SettingsNode:
-            showSettings(*settingsOf(item));
-            m_pages->setCurrentIndex(SettingsPage);
-            break;
         case DetectorNode:
-            showDetector(*detectorOf(item));
-            m_pages->setCurrentIndex(DetectorPage);
+            m_pages->setCurrentIndex(SettingsPage);
             break;
     }
 }
@@ -628,28 +587,29 @@ void ProjectPanel::showGeometry(const Measurement &measurement) {
     m_exitAngleLabel->setStyleSheet(angle > 0 ? QString() : QStringLiteral("color: red"));
 }
 
-void ProjectPanel::showDetector(DetectorSettings &detector) {
-    m_detectorEditor->setDetector(&detector);
-    showAssigned(m_detectorAssignedList, m_project->measurementsUsing(&detector));
-}
-
-void ProjectPanel::showAssigned(QListWidget *list, const QList<Measurement *> &measurements) {
-    list->clear();
-    for(size_t i = 0; i < m_project->sampleCount(); i++) {
-        const Sample *sample = m_project->sample(i);
-        for(const auto &measurement : sample->measurements) {
-            if(measurements.contains(measurement.get())) {
-                auto *item = new QListWidgetItem(QString("%1 / %2").arg(displayName(sample->name), measurement->name));
-                item->setData(MeasurementRole, QVariant::fromValue(reinterpret_cast<quintptr>(measurement.get())));
-                list->addItem(item);
-            }
-        }
+void ProjectPanel::selectMeasurement(const Measurement *measurement) {
+    if(QTreeWidgetItem *item = measurementItem(measurement)) {
+        m_tree->setCurrentItem(item);
     }
 }
 
-void ProjectPanel::showSettings(ExperimentalSettings &settings) {
-    m_settingsEditor->setSettings(&settings);
-    showAssigned(m_assignedList, m_project->measurementsUsing(&settings));
+void ProjectPanel::settingsEdited() {
+    if(!m_project) {
+        return;
+    }
+    for(int i = 0; i < m_tree->topLevelItemCount(); i++) {
+        QTreeWidgetItem *item = m_tree->topLevelItem(i);
+        if(const ExperimentalSettings *settings = settingsOf(item)) {
+            item->setText(0, displayName(settings->name));
+        } else if(const DetectorSettings *detector = detectorOf(item)) {
+            item->setText(0, displayName(detector->name));
+        }
+    }
+    // The measurement page shows the names and values of the assigned settings
+    QTreeWidgetItem *current = m_tree->currentItem();
+    if(current && nodeType(current) == MeasurementNode) {
+        showProperties(current);
+    }
 }
 
 void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
@@ -660,6 +620,12 @@ void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
             break;
         case FileNode:
             openCurrentFile();
+            break;
+        case SettingsNode:
+            emit settingsOpenRequested(currentSettings());
+            break;
+        case DetectorNode:
+            emit detectorOpenRequested(currentDetector());
             break;
         default:
             break;
@@ -675,6 +641,8 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
     if(item) {
         m_tree->setCurrentItem(item);
         if(nodeType(item) == SettingsNode || nodeType(item) == DetectorNode) {
+            menu.addAction("Edit", this, [this, item]() { itemDoubleClicked(item); });
+            menu.addSeparator();
             menu.addAction(m_copySettingsAction);
             menu.addAction("Export...", this, &ProjectPanel::exportSettings);
             menu.addSeparator();
@@ -717,7 +685,7 @@ void ProjectPanel::addSettings() {
     SettingsCollection collection;
     collection.experimental.append(Defaults::experimentalSettings());
     addSettingsCollection(collection);
-    m_settingsEditor->setFocus();
+    emit settingsOpenRequested(currentSettings());
 }
 
 void ProjectPanel::removeSettings() {
@@ -733,6 +701,7 @@ void ProjectPanel::removeSettings() {
     if(QMessageBox::question(this, "Remove Experimental Settings", question) != QMessageBox::Yes) {
         return;
     }
+    emit settingsAboutToBeRemoved(currentSettings());
     {
         const QSignalBlocker blocker(m_tree);
         QTreeWidgetItem *item = m_tree->currentItem();
@@ -750,7 +719,7 @@ void ProjectPanel::addDetector() {
     SettingsCollection collection;
     collection.detectors.append(Defaults::detectorSettings());
     addSettingsCollection(collection);
-    m_detectorEditor->setFocus();
+    emit detectorOpenRequested(currentDetector());
 }
 
 void ProjectPanel::addSettingsCollection(const SettingsCollection &collection) {
@@ -1046,6 +1015,7 @@ void ProjectPanel::removeDetector() {
     if(QMessageBox::question(this, "Remove Detector Settings", question) != QMessageBox::Yes) {
         return;
     }
+    emit detectorAboutToBeRemoved(currentDetector());
     {
         const QSignalBlocker blocker(m_tree);
         QTreeWidgetItem *item = m_tree->currentItem();

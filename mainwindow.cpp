@@ -4,7 +4,10 @@
 #include "measurementview.h"
 #include "preferencesdialog.h"
 #include "projectpanel.h"
+#include "settingsview.h"
+#include "tabwidget.h"
 
+#include <QApplication>
 #include <QCloseEvent>
 #include <QFileDialog>
 #include <QDir>
@@ -16,7 +19,6 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
-#include <QTabWidget>
 
 #include <gsl/gsl_version.h>
 extern "C" {
@@ -52,7 +54,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setCentralWidget(m_stack);
 
     createActions();
-    createMenus();
+    createMenus(menuBar());
     statusBar()->showMessage(QString("JIBAL %1, GSL %2").arg(jibal_version(), GSL_VERSION));
     updateWindowState();
 }
@@ -60,17 +62,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 QWidget *MainWindow::createProjectView() {
     m_projectPanel = new ProjectPanel;
 
-    m_tabs = new QTabWidget;
-    m_tabs->setTabsClosable(true);
-    m_tabs->setMovable(true);
-    m_tabs->setDocumentMode(true);
-    m_workArea = new QStackedWidget;
-    m_workArea->addWidget(centeredLabel("Double-click a measurement in the project tree to open it here."));
-    m_workArea->addWidget(m_tabs);
+    m_tabs = new DetachableTabWidget("Double-click a measurement or settings in the project tree to open them here.\n"
+                                     "Drag a tab out to show it in a window of its own, and back to a tab bar.");
+    connectTabs(m_tabs);
 
     auto *splitter = new QSplitter;
     splitter->addWidget(m_projectPanel);
-    splitter->addWidget(m_workArea);
+    splitter->addWidget(m_tabs);
     splitter->setStretchFactor(1, 1);
     splitter->setSizes({320, 960});
 
@@ -82,8 +80,31 @@ QWidget *MainWindow::createProjectView() {
     connect(m_projectPanel, &ProjectPanel::measurementAboutToBeRemoved, this, &MainWindow::closeMeasurementTab);
     connect(m_projectPanel, &ProjectPanel::measurementOpenRequested, this, &MainWindow::openMeasurement);
     connect(m_projectPanel, &ProjectPanel::measurementRenamed, this, &MainWindow::measurementRenamed);
-    connect(m_tabs, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
+    connect(m_projectPanel, &ProjectPanel::settingsOpenRequested, this, &MainWindow::openSettings);
+    connect(m_projectPanel, &ProjectPanel::detectorOpenRequested, this, &MainWindow::openDetector);
+    connect(m_projectPanel, &ProjectPanel::settingsAboutToBeRemoved, this, [this](ExperimentalSettings *settings) {
+        closeTab(findView<SettingsView>([settings](SettingsView *view) { return view->settings() == settings; }));
+    });
+    connect(m_projectPanel, &ProjectPanel::detectorAboutToBeRemoved, this, [this](DetectorSettings *detector) {
+        closeTab(findView<SettingsView>([detector](SettingsView *view) { return view->detector() == detector; }));
+    });
     return splitter;
+}
+
+void MainWindow::connectTabs(DetachableTabWidget *tabs) {
+    connect(tabs, &QTabWidget::tabCloseRequested, this, [this, tabs](int index) { closeTab(tabs, index); });
+    connect(tabs, &DetachableTabWidget::detachRequested, this, [this, tabs](int index, const QPoint &globalPos) {
+        detachTab(tabs, index, globalPos);
+    });
+}
+
+void MainWindow::detachTab(DetachableTabWidget *tabs, int index, const QPoint &globalPos) {
+    auto *window = new TabWindow(this);
+    createMenus(window->menuBar());
+    connectTabs(window->tabs());
+    window->resize(tabs->widget(index)->size() + QSize(0, tabs->tabBar()->height()));
+    window->move(globalPos - QPoint(window->width() / 2, 10));
+    DetachableTabWidget::moveTab(tabs, index, window->tabs(), 0);
 }
 
 void MainWindow::createActions() {
@@ -104,8 +125,20 @@ void MainWindow::createActions() {
     connect(m_saveAsAction, &QAction::triggered, this, &MainWindow::saveProjectAs);
 
     m_closeAction = new QAction("&Close Project", this);
-    m_closeAction->setShortcut(QKeySequence::Close);
+    m_closeAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_W));
     connect(m_closeAction, &QAction::triggered, this, &MainWindow::closeProject);
+
+    // The current tab of the active window, the main window or a tab window
+    m_closeTabAction = new QAction("Close &Tab", this);
+    m_closeTabAction->setShortcut(QKeySequence::Close);
+    connect(m_closeTabAction, &QAction::triggered, this, [this]() {
+        QWidget *window = QApplication::activeWindow();
+        auto *tabWindow = qobject_cast<TabWindow *>(window);
+        DetachableTabWidget *tabs = tabWindow ? tabWindow->tabs() : window == this ? m_tabs : nullptr;
+        if(tabs && tabs->currentIndex() >= 0) {
+            closeTab(tabs, tabs->currentIndex());
+        }
+    });
 
     m_preferencesAction = new QAction("&Preferences...", this);
     m_preferencesAction->setShortcut(QKeySequence::Preferences);
@@ -114,7 +147,7 @@ void MainWindow::createActions() {
         PreferencesDialog dialog(this);
         if(dialog.exec() == QDialog::Accepted) {
             const HistogramPreferences preferences = Defaults::histogramPreferences();
-            for(HistogramWidget *histogram : m_tabs->findChildren<HistogramWidget *>()) {
+            for(HistogramWidget *histogram : findChildren<HistogramWidget *>()) { // Also in the tab windows
                 histogram->applyPreferences(preferences);
             }
         }
@@ -152,28 +185,31 @@ void MainWindow::createActions() {
     connect(m_removeDetectorAction, &QAction::triggered, m_projectPanel, &ProjectPanel::removeDetector);
 }
 
-void MainWindow::createMenus() {
-    QMenu *fileMenu = menuBar()->addMenu("&File");
+void MainWindow::createMenus(QMenuBar *menuBar) {
+    QMenu *fileMenu = menuBar->addMenu("&File");
     fileMenu->addAction(m_newAction);
     fileMenu->addAction(m_openAction);
-    m_recentFilesMenu = fileMenu->addMenu("Open &Recent");
+    QMenu *recentFilesMenu = fileMenu->addMenu("Open &Recent");
+    m_recentFilesMenus.append(recentFilesMenu);
+    connect(recentFilesMenu, &QObject::destroyed, this, [this, recentFilesMenu]() { m_recentFilesMenus.removeOne(recentFilesMenu); });
     updateRecentFilesMenu();
     fileMenu->addAction(m_saveAction);
     fileMenu->addAction(m_saveAsAction);
+    fileMenu->addAction(m_closeTabAction);
     fileMenu->addAction(m_closeAction);
     fileMenu->addSeparator();
     fileMenu->addAction(m_preferencesAction);
     fileMenu->addSeparator();
     fileMenu->addAction(m_quitAction);
 
-    QMenu *sampleMenu = menuBar()->addMenu("&Sample");
+    QMenu *sampleMenu = menuBar->addMenu("&Sample");
     sampleMenu->addAction(m_addSampleAction);
     sampleMenu->addAction(m_removeSampleAction);
     sampleMenu->addSeparator();
     sampleMenu->addAction(m_addMeasurementsAction);
     sampleMenu->addAction(m_addFilesAction);
 
-    QMenu *experimentMenu = menuBar()->addMenu("&Experiment");
+    QMenu *experimentMenu = menuBar->addMenu("&Experiment");
     experimentMenu->addAction(m_addSettingsAction);
     experimentMenu->addAction(m_removeSettingsAction);
     experimentMenu->addSeparator();
@@ -182,12 +218,16 @@ void MainWindow::createMenus() {
     experimentMenu->addSeparator();
     experimentMenu->addAction(m_importSettingsAction);
 
-    QMenu *helpMenu = menuBar()->addMenu("&Help");
+    QMenu *helpMenu = menuBar->addMenu("&Help");
     helpMenu->addAction("&About JaRA", this, &MainWindow::about);
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
     if(maybeSave()) {
+        // Otherwise the tab windows would keep the application running
+        for(TabWindow *window : findChildren<TabWindow *>(Qt::FindDirectChildrenOnly)) {
+            window->close();
+        }
         event->accept();
     } else {
         event->ignore();
@@ -208,9 +248,9 @@ bool MainWindow::maybeSave() {
 }
 
 void MainWindow::setProject(std::unique_ptr<Project> project) {
-    // Views refer to the old project, so they are closed before it is destroyed
-    while(m_tabs->count() > 0) {
-        closeTab(0);
+    // Views refer to the old project, so they are closed before it is destroyed. Emptied tab windows close.
+    for(QWidget *page : tabPages()) {
+        closeTab(page);
     }
     m_projectPanel->setProject(project.get());
     m_project = std::move(project);
@@ -326,33 +366,102 @@ void MainWindow::closeProject() {
 void MainWindow::projectModified() {
     m_project->setModified(true);
     updateWindowState();
-}
-
-int MainWindow::measurementTabIndex(const Measurement *measurement) const {
-    for(int i = 0; i < m_tabs->count(); i++) {
-        const auto *view = qobject_cast<MeasurementView *>(m_tabs->widget(i));
-        if(view && view->measurement() == measurement) {
-            return i;
+    // Measurements may have been assigned to other settings, renamed, added or removed
+    for(QWidget *page : tabPages()) {
+        if(auto *view = qobject_cast<SettingsView *>(page)) {
+            view->updateAssigned();
         }
     }
-    return -1;
+}
+
+QList<QWidget *> MainWindow::tabPages() const {
+    QList<QWidget *> pages;
+    for(const DetachableTabWidget *tabs : findChildren<DetachableTabWidget *>()) {
+        for(int i = 0; i < tabs->count(); i++) {
+            pages.append(tabs->widget(i));
+        }
+    }
+    return pages;
+}
+
+std::pair<DetachableTabWidget *, int> MainWindow::findTab(const QWidget *page) const {
+    for(DetachableTabWidget *tabs : findChildren<DetachableTabWidget *>()) {
+        const int index = tabs->indexOf(page);
+        if(index >= 0) {
+            return {tabs, index};
+        }
+    }
+    return {nullptr, -1};
+}
+
+template<typename View, typename Predicate> View *MainWindow::findView(Predicate predicate) const {
+    for(QWidget *page : tabPages()) {
+        auto *view = qobject_cast<View *>(page);
+        if(view && predicate(view)) {
+            return view;
+        }
+    }
+    return nullptr;
+}
+
+void MainWindow::showTab(QWidget *page, const QString &title, const QString &toolTip) {
+    auto [tabs, index] = findTab(page);
+    if(!tabs) {
+        tabs = m_tabs;
+        index = m_tabs->addTab(page, title);
+        m_tabs->setTabToolTip(index, toolTip);
+    }
+    tabs->activateTab(index);
 }
 
 void MainWindow::openMeasurement(Measurement *measurement) {
-    int index = measurementTabIndex(measurement);
-    if(index < 0) {
-        auto *view = new MeasurementView(measurement);
+    auto *view = findView<MeasurementView>([measurement](MeasurementView *view) { return view->measurement() == measurement; });
+    if(!view) {
+        view = new MeasurementView(measurement);
         connect(view, &MeasurementView::modified, this, &MainWindow::projectModified);
-        index = m_tabs->addTab(view, measurement->name);
     }
-    m_tabs->setCurrentIndex(index);
-    m_workArea->setCurrentWidget(m_tabs);
+    showTab(view, measurement->name, measurement->path);
+}
+
+void MainWindow::openSettings(ExperimentalSettings *settings) {
+    auto *view = findView<SettingsView>([settings](SettingsView *view) { return view->settings() == settings; });
+    if(!view) {
+        view = new SettingsView(m_project.get(), settings);
+        connectSettingsView(view);
+    }
+    showTab(view, view->name(), "Experimental settings");
+}
+
+void MainWindow::openDetector(DetectorSettings *detector) {
+    auto *view = findView<SettingsView>([detector](SettingsView *view) { return view->detector() == detector; });
+    if(!view) {
+        view = new SettingsView(m_project.get(), detector);
+        connectSettingsView(view);
+    }
+    showTab(view, view->name(), "Detector settings");
+}
+
+void MainWindow::connectSettingsView(SettingsView *view) {
+    connect(view, &SettingsView::modified, this, [this]() {
+        m_projectPanel->settingsEdited();
+        projectModified();
+    });
+    connect(view, &SettingsView::nameChanged, this, [this, view]() {
+        if(const auto [tabs, index] = findTab(view); tabs) {
+            tabs->setTabTitle(index, view->name());
+        }
+        m_projectPanel->settingsEdited();
+    });
+    connect(view, &SettingsView::measurementActivated, this, [this](Measurement *measurement) {
+        m_projectPanel->selectMeasurement(measurement);
+        openMeasurement(measurement);
+    });
 }
 
 void MainWindow::measurementRenamed(Measurement *measurement) {
-    const int index = measurementTabIndex(measurement);
-    if(index >= 0) {
-        m_tabs->setTabText(index, measurement->name);
+    auto *view = findView<MeasurementView>([measurement](MeasurementView *view) { return view->measurement() == measurement; });
+    if(const auto [tabs, index] = findTab(view); tabs) {
+        tabs->setTabTitle(index, measurement->name);
     }
 }
 
@@ -363,18 +472,18 @@ void MainWindow::closeSampleTabs(Sample *sample) {
 }
 
 void MainWindow::closeMeasurementTab(Measurement *measurement) {
-    const int index = measurementTabIndex(measurement);
-    if(index >= 0) {
-        closeTab(index);
-    }
+    closeTab(findView<MeasurementView>([measurement](MeasurementView *view) { return view->measurement() == measurement; }));
 }
 
-void MainWindow::closeTab(int index) {
-    QWidget *widget = m_tabs->widget(index);
-    m_tabs->removeTab(index);
-    delete widget;
-    if(m_tabs->count() == 0) {
-        m_workArea->setCurrentIndex(0);
+void MainWindow::closeTab(DetachableTabWidget *tabs, int index) {
+    QWidget *page = tabs->widget(index);
+    tabs->removeTab(index);
+    delete page;
+}
+
+void MainWindow::closeTab(QWidget *page) {
+    if(const auto [tabs, index] = findTab(page); tabs) {
+        closeTab(tabs, index);
     }
 }
 
@@ -403,21 +512,23 @@ void MainWindow::clearRecentFiles() {
 }
 
 void MainWindow::updateRecentFilesMenu() {
-    m_recentFilesMenu->clear();
     const QStringList files = recentFiles();
     const QString home = QDir::homePath();
-    for(int i = 0; i < files.size(); i++) {
-        const QString &file = files.at(i);
-        QString shown = QDir::toNativeSeparators(file.startsWith(home + "/") ? "~" + file.mid(home.size()) : file);
-        shown.replace("&", "&&"); // Not a mnemonic
-        QAction *action = m_recentFilesMenu->addAction(QString("&%1 %2").arg(i + 1).arg(shown));
-        connect(action, &QAction::triggered, this, [this, file]() { openRecentFile(file); });
-    }
-    if(files.isEmpty()) {
-        m_recentFilesMenu->addAction("No Recent Projects")->setEnabled(false);
-    } else {
-        m_recentFilesMenu->addSeparator();
-        m_recentFilesMenu->addAction("Clear Recent Projects", this, &MainWindow::clearRecentFiles);
+    for(QMenu *menu : m_recentFilesMenus) {
+        menu->clear();
+        for(int i = 0; i < files.size(); i++) {
+            const QString &file = files.at(i);
+            QString shown = QDir::toNativeSeparators(file.startsWith(home + "/") ? "~" + file.mid(home.size()) : file);
+            shown.replace("&", "&&"); // Not a mnemonic
+            QAction *action = menu->addAction(QString("&%1 %2").arg(i + 1).arg(shown));
+            connect(action, &QAction::triggered, this, [this, file]() { openRecentFile(file); });
+        }
+        if(files.isEmpty()) {
+            menu->addAction("No Recent Projects")->setEnabled(false);
+        } else {
+            menu->addSeparator();
+            menu->addAction("Clear Recent Projects", this, &MainWindow::clearRecentFiles);
+        }
     }
 }
 

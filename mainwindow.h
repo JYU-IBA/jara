@@ -7,10 +7,12 @@
 
 #include "project.h"
 
+class DetachableTabWidget;
 class ProjectPanel;
 class QMenu;
+class QMenuBar;
 class QStackedWidget;
-class QTabWidget;
+class SettingsView;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -30,22 +32,32 @@ private slots:
     void closeProject();
     void projectModified();
     void openMeasurement(Measurement *measurement);
+    void openSettings(ExperimentalSettings *settings);
+    void openDetector(DetectorSettings *detector);
     void measurementRenamed(Measurement *measurement);
     void closeSampleTabs(Sample *sample);
     void closeMeasurementTab(Measurement *measurement);
-    void closeTab(int index);
     void about();
     void openRecentFile(const QString &fileName);
     void clearRecentFiles();
 
 private:
     void createActions();
-    void createMenus();
+    void createMenus(QMenuBar *menuBar); // Also for the tab windows, the actions are shared
     QWidget *createProjectView();
+    void connectTabs(DetachableTabWidget *tabs);
+    void detachTab(DetachableTabWidget *tabs, int index, const QPoint &globalPos);
+    void closeTab(DetachableTabWidget *tabs, int index);
+    void closeTab(QWidget *page); // Wherever it is
+    void showTab(QWidget *page, const QString &title, const QString &toolTip); // Opened in the main window
+    void connectSettingsView(SettingsView *view);
+    QList<QWidget *> tabPages() const; // In all windows
+    // Tab widget and index of the page, nullptr when it is not in a tab
+    std::pair<DetachableTabWidget *, int> findTab(const QWidget *page) const;
     bool maybeSave();
     void setProject(std::unique_ptr<Project> project);
     void updateWindowState();
-    int measurementTabIndex(const Measurement *measurement) const;
+    template<typename View, typename Predicate> View *findView(Predicate predicate) const;
     void addRecentFile(const QString &fileName);
     void removeRecentFile(const QString &fileName);
     void updateRecentFilesMenu();
@@ -53,14 +65,14 @@ private:
     std::unique_ptr<Project> m_project; // nullptr when no project is open
     QStackedWidget *m_stack;
     ProjectPanel *m_projectPanel;
-    QStackedWidget *m_workArea; // Hint when no measurements are open, tabs otherwise
-    QTabWidget *m_tabs;
+    DetachableTabWidget *m_tabs; // In the main window, more can be in tab windows
     QAction *m_newAction;
     QAction *m_openAction;
-    QMenu *m_recentFilesMenu;
+    QList<QMenu *> m_recentFilesMenus; // One in each window
     QAction *m_saveAction;
     QAction *m_saveAsAction;
     QAction *m_closeAction;
+    QAction *m_closeTabAction;
     QAction *m_preferencesAction;
     QAction *m_importSettingsAction;
     QAction *m_quitAction;

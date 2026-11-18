@@ -22,6 +22,10 @@ add_executable(jara
         projectpanel.h
         measurementview.cpp
         measurementview.h
+        settingsview.cpp
+        settingsview.h
+        tabwidget.cpp
+        tabwidget.h
         histogramwidget.cpp
         histogramwidget.h
         tofedata.cpp

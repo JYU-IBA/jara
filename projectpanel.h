@@ -3,8 +3,6 @@
 
 #include <QWidget>
 
-class DetectorSettingsEditor;
-class ExperimentalSettingsEditor;
 class Project;
 class QAction;
 struct SettingsCollection;
@@ -26,8 +24,10 @@ class QTableWidgetItem;
 class QTreeWidget;
 class QTreeWidgetItem;
 
-// Project tree and a properties editor for the selected node. Experimental settings are the first top-level
-// items, followed by detector settings and then the samples with their measurements and files.
+// Project tree and a properties editor for the selected node. Experimental and detector settings are edited in tabs
+// of the work area, opened with settingsOpenRequested() and detectorOpenRequested(). Experimental settings are the first top-level
+// The tree has experimental settings as the first top-level items, followed by detector settings and then the samples
+// with their measurements and files.
 class ProjectPanel : public QWidget {
     Q_OBJECT
 
@@ -37,6 +37,8 @@ public:
     Sample *currentSample() const;
     ExperimentalSettings *currentSettings() const;
     DetectorSettings *currentDetector() const;
+    void selectMeasurement(const Measurement *measurement);
+    void settingsEdited(); // Updates the shown names and values after settings were edited elsewhere
 
 public slots:
     void addSample();
@@ -65,6 +67,10 @@ signals:
     void sampleAboutToBeRemoved(Sample *sample);
     void measurementAboutToBeRemoved(Measurement *measurement);
     void measurementOpenRequested(Measurement *measurement);
+    void settingsOpenRequested(ExperimentalSettings *settings);
+    void detectorOpenRequested(DetectorSettings *detector);
+    void settingsAboutToBeRemoved(ExperimentalSettings *settings);
+    void detectorAboutToBeRemoved(DetectorSettings *detector);
     void measurementRenamed(Measurement *measurement);
 
 private slots:
@@ -80,9 +86,6 @@ private slots:
 
 private:
     QWidget *createPropertyPages();
-    QWidget *createSettingsPage();
-    QWidget *createDetectorPage();
-    QListWidget *createAssignedList();
     QTreeWidgetItem *createSettingsItem(const ExperimentalSettings &settings);
     QTreeWidgetItem *createDetectorItem(const DetectorSettings &detector);
     QTreeWidgetItem *createSampleItem(const Sample &sample);
@@ -94,9 +97,6 @@ private:
     AttachedFile &currentFile() const;
     Measurement *currentMeasurement() const;
     void showProperties(QTreeWidgetItem *item);
-    void showSettings(ExperimentalSettings &settings);
-    void showDetector(DetectorSettings &detector);
-    void showAssigned(QListWidget *list, const QList<Measurement *> &measurements);
     void showGeometry(const Measurement &measurement); // Beam and angles from the assigned settings
     void addSettingsCollection(const SettingsCollection &collection);
     SettingsCollection currentSettingsCollection() const;
@@ -127,10 +127,6 @@ private:
     QLabel *m_incidentAngleLabel;
     QLabel *m_scatteringAngleLabel;
     QLabel *m_exitAngleLabel;
-    ExperimentalSettingsEditor *m_settingsEditor;
-    QListWidget *m_assignedList;
-    DetectorSettingsEditor *m_detectorEditor;
-    QListWidget *m_detectorAssignedList;
     QAction *m_copySettingsAction;
     QAction *m_pasteSettingsAction;
 };
