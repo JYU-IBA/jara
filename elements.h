@@ -25,6 +25,7 @@ QString label(int z, int a); // "Si" or "28Si", a = 0 means no specific isotope
 QString displayLabel(int z, int a); // Like label(), but with the mass number in Unicode superscript digits
 QList<Isotope> isotopes(int z);
 bool hasIsotope(int z, int a);
+double abundance(int z, int a); // Natural abundance of the isotope, zero when it does not occur naturally
 // Mass of the isotope in kg, or the average mass of the naturally occurring isotopes weighted by their abundances when
 // a = 0. Zero when not known.
 double mass(int z, int a);

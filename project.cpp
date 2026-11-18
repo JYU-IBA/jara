@@ -229,6 +229,10 @@ QString uniqueName(const QString &name, const QStringList &taken) {
     }
 }
 
+bool canRepresentElement(int z, int a) {
+    return a > 0 && Elements::abundance(z, a) > 0;
+}
+
 QString cutLabel(int z, int a, CutType type, bool superscript) {
     const QString label = superscript ? Elements::displayLabel(z, a) : Elements::label(z, a);
     return type == CutType::Scattered ? label + QStringLiteral("*") : label;
@@ -313,6 +317,9 @@ QJsonArray cutsToJson(const QList<Cut> &cuts) {
         QJsonObject object{{"id", cut.id}, {"z", cut.z}, {"a", cut.a},
                            {"type", cut.type == CutType::Scattered ? ScatteredTypeName : RecoilTypeName},
                            {"color", cut.color.name()}, {"polygon", polygon}};
+        if(cut.representsElement) {
+            object["representsElement"] = true;
+        }
         if(cut.tofEdge) {
             object["tofEdge"] = QJsonObject{{"channel", cut.tofEdge->channel}, {"sigma", cut.tofEdge->sigma},
                                             {"manual", cut.tofEdge->manual}};
@@ -335,6 +342,7 @@ QList<Cut> cutsFromJson(const QJsonArray &json) {
             const QJsonArray coordinates = point.toArray();
             cut.polygon.append({coordinates.at(0).toDouble(), coordinates.at(1).toDouble()});
         }
+        cut.representsElement = object["representsElement"].toBool() && canRepresentElement(cut.z, cut.a);
         if(object.contains("tofEdge")) {
             const QJsonObject edge = object["tofEdge"].toObject();
             cut.tofEdge = ToFEdge{edge["channel"].toDouble(), edge["sigma"].toDouble(), edge["manual"].toBool()};

@@ -48,7 +48,13 @@ struct Cut {
     QColor color; // Drawn with this color
     CutType type = CutType::Recoil;
     std::optional<ToFEdge> tofEdge; // Calibration point of the detector, see tofcalibration.h
+    // The isotope stands for the natural element in depth profiles: its events are weighted by 1 / natural abundance
+    // and the profile is labeled with the element. Only for isotopes that occur naturally.
+    bool representsElement = false;
 };
+
+// The selection can represent its natural element, see Cut::representsElement
+bool canRepresentElement(int z, int a);
 
 // The element or isotope, with an asterisk for scattered ions. With superscript, the mass number is in Unicode
 // superscript digits.

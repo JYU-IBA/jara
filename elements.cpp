@@ -88,6 +88,15 @@ bool Elements::hasIsotope(int z, int a) {
     return std::any_of(list.begin(), list.end(), [a](const Isotope &isotope) { return isotope.a == a; });
 }
 
+double Elements::abundance(int z, int a) {
+    for(const Isotope &isotope : isotopes(z)) {
+        if(isotope.a == a) {
+            return isotope.abundance;
+        }
+    }
+    return 0;
+}
+
 double Elements::mass(int z, int a) {
     double sum = 0;
     double abundances = 0;

@@ -679,7 +679,7 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
             continue;
         }
         const Cut *cut = m_measurement->cut(curve.cutId);
-        SpectrumPlotWidget::Curve plotCurve{cutLabel(curve.z, curve.a, curve.type), cut ? cut->color : QColor(Qt::gray),
+        SpectrumPlotWidget::Curve plotCurve{curve.label(), cut ? cut->color : QColor(Qt::gray),
                                             curve.events, {}};
         for(const double concentration : curve.concentrations) {
             plotCurve.values.push_back(concentration * 100);
@@ -736,7 +736,7 @@ void DepthProfileView::updateAverages() {
         const DepthProfileCurve &curve = m_result.curves[c];
         const DepthProfileResult::Average &average = m_result.averages[c];
         auto *item = new QTreeWidgetItem(m_averageTable);
-        item->setText(AverageSelectionColumn, cutLabel(curve.z, curve.a, curve.type));
+        item->setText(AverageSelectionColumn, curve.label());
         if(const Cut *cut = m_measurement->cut(curve.cutId)) {
             item->setIcon(AverageSelectionColumn, colorSwatch(cut->color));
         }
@@ -849,13 +849,13 @@ void DepthProfileView::exportProfile() {
     for(size_t c = 0; c < m_result.curves.size(); c++) {
         const DepthProfileCurve &curve = m_result.curves[c];
         const DepthProfileResult::Average &average = m_result.averages[c];
-        out << " " << cutLabel(curve.z, curve.a, curve.type, false) << " " << percent(average.concentration) << " +- "
+        out << " " << curve.label(false) << " " << percent(average.concentration) << " +- "
             << percent(average.uncertainty) << " " << (std::isnan(average.renormalized) ? QStringLiteral("-")
                                                        : percent(average.renormalized) + " +- " + percent(average.renormalizedUncertainty));
     }
     out << "\n# Depth (1e15 at/cm2, bin centre)\tDepth (ug/cm2)\tDepth (nm)";
     for(const DepthProfileCurve &curve : m_result.curves) {
-        const QString label = cutLabel(curve.z, curve.a, curve.type, false);
+        const QString label = curve.label(false);
         out << "\t" << label << " (at.%)\t" << label << " uncertainty\t" << label << " events";
     }
     out << "\tTotal (at.%)\n";

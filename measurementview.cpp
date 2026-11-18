@@ -176,6 +176,7 @@ QWidget *MeasurementView::createCutPanel() {
         m_copyAction->setEnabled(count > 0);
         m_pasteAction->setEnabled(!cutsFromClipboard().isEmpty());
         QMenu menu;
+        menu.setToolTipsVisible(true);
         menu.addAction("Change Element...", this, &MeasurementView::changeCutElement)->setEnabled(count == 1);
         menu.addAction("Change Color...", this, &MeasurementView::changeCutColor)->setEnabled(count > 0);
         const auto &cuts = m_measurement->cuts;
@@ -196,6 +197,20 @@ QWidget *MeasurementView::createCutPanel() {
         menu.addSeparator();
         addTypeAction("Recoil (ERD)", CutType::Recoil);
         addTypeAction("Scattered (RBS)", CutType::Scattered);
+        // Checked when all selected selections represent their element, only isotopes that occur naturally can
+        const QList<int> rows = selectedCutRows();
+        const bool canRepresent = count > 0 && std::all_of(rows.begin(), rows.end(), [this](int row) {
+            const Cut &cut = m_measurement->cuts.at(row);
+            return canRepresentElement(cut.z, cut.a);
+        });
+        QAction *represents = menu.addAction("Represents Natural Element", this, &MeasurementView::setRepresentsElement);
+        represents->setCheckable(true);
+        represents->setChecked(canRepresent && std::all_of(rows.begin(), rows.end(), [this](int row) {
+            return m_measurement->cuts.at(row).representsElement;
+        }));
+        represents->setEnabled(canRepresent);
+        represents->setToolTip("In depth profiles, the events of the isotope are weighted by 1 / its natural abundance "
+                               "and the profile is labeled with the element");
         menu.addSeparator();
         menu.addAction(count > 1 ? QString("Remove %1 Selections").arg(count) : QString("Remove"), this, &MeasurementView::removeCuts)
                 ->setEnabled(count > 0);
@@ -223,9 +238,15 @@ void MeasurementView::updateCutList() {
     const int row = m_cutList->currentRow();
     m_cutList->clear();
     for(const Cut &cut : m_measurement->cuts) {
-        m_cutList->addItem(new QListWidgetItem(colorSwatch(cut.color), QString("%1 — %2 events")
-                                                       .arg(cutLabel(cut))
-                                                       .arg(countEventsIn(m_events, cut.polygon))));
+        auto *item = new QListWidgetItem(colorSwatch(cut.color), QString("%1 — %2 events")
+                                                                      .arg(cutLabel(cut))
+                                                                      .arg(countEventsIn(m_events, cut.polygon)));
+        if(cut.representsElement) {
+            item->setToolTip(QString("Represents natural %1 in depth profiles, events weighted by 1 / %2")
+                                     .arg(Elements::symbol(cut.z))
+                                     .arg(Elements::abundance(cut.z, cut.a), 0, 'g', 4));
+        }
+        m_cutList->addItem(item);
     }
     m_cutList->setCurrentRow(std::min(row, static_cast<int>(m_cutList->count()) - 1));
     m_histogram->update();
@@ -261,6 +282,7 @@ void MeasurementView::changeCutElement() {
     cut.a = dialog.a();
     cut.color = dialog.color();
     cut.type = dialog.type();
+    cut.representsElement = cut.representsElement && canRepresentElement(cut.z, cut.a);
     updateCutList();
     emit modified();
 }
@@ -288,6 +310,19 @@ void MeasurementView::resetCutColors() {
     const QList<int> rows = selectedCutRows();
     for(Cut &cut : m_measurement->cuts) {
         cut.color = Defaults::elementColor(cut.z);
+    }
+    updateCutList();
+    for(int row : rows) {
+        m_cutList->item(row)->setSelected(true);
+    }
+    emit modified();
+}
+
+void MeasurementView::setRepresentsElement(bool represents) {
+    const QList<int> rows = selectedCutRows();
+    for(int row : rows) {
+        Cut &cut = m_measurement->cuts[row];
+        cut.representsElement = represents && canRepresentElement(cut.z, cut.a);
     }
     updateCutList();
     for(int row : rows) {

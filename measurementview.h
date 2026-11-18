@@ -32,6 +32,7 @@ private slots:
     void changeCutColor();
     void resetCutColors(); // All selections get the colors of their elements from the preferences
     void setCutType(CutType type); // Of the selected cuts
+    void setRepresentsElement(bool represents); // Of the selected cuts that can represent their element
     void removeCuts();
     void copyCuts();
     void pasteCuts();

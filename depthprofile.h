@@ -23,6 +23,8 @@
 // bins with few events from swinging and lets the iterations converge. The first iteration assumes the same
 // composition at all depths, from the weights of all events with cross sections at the beam energy.
 //
+// A selection of an isotope can represent its natural element: its events are weighted by 1 / natural abundance as well.
+//
 // The detected energy is the energy from the time of flight with the loss in the timing detector foil added back.
 // Events with an efficiency below 1e-6, which includes energies outside the efficiency curve, are left out. The
 // efficiency is that of the selection's isotope, the incident ion for scattered ions, or of the most abundant isotope
@@ -40,6 +42,7 @@ struct DepthProfileInputs {
         int a;
         CutType type;
         QList<QPointF> polygon;
+        bool representsElement;
         bool operator==(const CutInput &) const = default;
     };
     bool hasSettings = false;
@@ -74,8 +77,10 @@ public:
         int z = 0;
         int a = 0;
         CutType type = CutType::Recoil;
+        bool representsElement = false;
         std::vector<double> energies; // J, detected, of the events used
-        std::vector<double> efficiencyWeights; // 1 / efficiency of the events used
+        // 1 / efficiency of the events used, also / natural abundance when the isotope represents its element
+        std::vector<double> efficiencyWeights;
         std::vector<double> depths; // atoms/m², negative above the surface, NaN beyond the maximum depth
         std::vector<double> weights; // 1 / (efficiency * cross section), zero beyond the maximum depth
         size_t events = 0; // In the selection
@@ -152,6 +157,9 @@ struct DepthProfileCurve {
     int z = 0;
     int a = 0;
     CutType type = CutType::Recoil;
+    bool representsElement = false;
+    // The element when the isotope represents it, otherwise as cutLabel()
+    QString label(bool superscript = true) const { return cutLabel(z, representsElement ? 0 : a, type, superscript); }
     std::vector<double> concentrations; // Atomic fractions
     std::vector<double> uncertainties; // Statistical, atomic fractions, including the normalization
     std::vector<size_t> counts; // Events
