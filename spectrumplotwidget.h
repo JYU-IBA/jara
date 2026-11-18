@@ -71,7 +71,7 @@ public:
     // What happens to the view when the curves are replaced
     enum class ViewChange {
         ShowAll,
-        KeepEnergyRange, // The counts axis is scaled to show all counts
+        KeepEnergyRange, // The x axis is kept, the y axis is scaled to show all values
         Keep
     };
 

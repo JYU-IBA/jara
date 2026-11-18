@@ -565,9 +565,12 @@ void DepthProfileView::iterationStep() {
     const bool first = m_calculation->iterations() == 0;
     m_calculation->iterate();
     m_remainingIterations--;
-    updateProfile(first ? SpectrumPlotWidget::ViewChange::ShowAll : SpectrumPlotWidget::ViewChange::Keep);
     const bool converged = m_calculation->lastChange() < Defaults::depthProfilePreferences().tolerance;
-    if(converged || m_remainingIterations <= 0) {
+    const bool finished = converged || m_remainingIterations <= 0;
+    // The concentration axis is scaled to the final profile, the depth range is kept
+    updateProfile(first ? SpectrumPlotWidget::ViewChange::ShowAll
+                        : finished ? SpectrumPlotWidget::ViewChange::KeepEnergyRange : SpectrumPlotWidget::ViewChange::Keep);
+    if(finished) {
         stopIterating();
         return;
     }
