@@ -91,7 +91,8 @@ private:
     QDoubleSpinBox *m_maxDepthSpin = nullptr;
     QSpinBox *m_pseudoEventsSpin = nullptr;
     QDoubleSpinBox *m_binWidthSpin = nullptr;
-    QDoubleSpinBox *m_densitySpin = nullptr;
+    QDoubleSpinBox *m_densitySpin = nullptr; // Shown only with depths in nm
+    QLabel *m_densityLabel = nullptr;
     QCheckBox *m_autoNormalizationCheck = nullptr;
     QDoubleSpinBox *m_normalizationMinSpin = nullptr;
     QDoubleSpinBox *m_normalizationMaxSpin = nullptr;

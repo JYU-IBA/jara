@@ -13,7 +13,7 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
-#include <QFormLayout>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -211,6 +211,9 @@ QWidget *DepthProfileView::createToolBar() {
     toolBar->addWidget(unitCombo);
     connect(unitCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
         m_unit = static_cast<DepthUnit>(index);
+        // The density only converts depths to nm, it is shown with them
+        m_densityLabel->setVisible(m_unit == DepthUnit::Length);
+        m_densitySpin->setVisible(m_unit == DepthUnit::Length);
         updateProfile(SpectrumPlotWidget::ViewChange::ShowAll);
     });
     toolBar->addSeparator();
@@ -254,20 +257,21 @@ QWidget *DepthProfileView::createSidePanel() {
     m_selectionList->setHeaderLabels({"Included", "Plot"});
     m_selectionList->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_selectionList->setToolTip("Included selections are part of the calculation, the plot shows some of them");
-    m_selectionList->setMaximumHeight(180);
     connect(m_selectionList, &QTreeWidget::itemChanged, this, &DepthProfileView::selectionItemChanged);
     auto *selectionGroup = new QGroupBox("Selections");
     auto *selectionLayout = new QVBoxLayout(selectionGroup);
+    selectionLayout->setContentsMargins(6, 6, 6, 6);
     selectionLayout->addWidget(m_selectionList);
 
     // Calculation: changes start the iterations again
     m_stoppingBinSpin = depthSpinBox(0.1);
     m_stoppingBinSpin->setValue(m_profile->stoppingBinWidth / Units::ThinFilmUnit);
-    m_stoppingBinSpin->setToolTip("Depth bins of the composition used for stopping");
+    m_stoppingBinSpin->setToolTip("Depth bins of the composition used for stopping, changes start the iterations again");
     m_maxDepthSpin = depthSpinBox(1);
     m_maxDepthSpin->setValue(m_profile->maxDepth / Units::ThinFilmUnit);
     m_maxDepthSpin->setEnabled(!m_profile->autoMaxDepth);
-    m_autoMaxDepthCheck = new QCheckBox("Automatic");
+    m_maxDepthSpin->setToolTip("Of the calculation");
+    m_autoMaxDepthCheck = new QCheckBox("Auto");
     m_autoMaxDepthCheck->setChecked(m_profile->autoMaxDepth);
     m_autoMaxDepthCheck->setToolTip("Extended when events come from deeper, reduced when the events end well before it");
     auto *maxDepthRow = new QHBoxLayout;
@@ -288,11 +292,6 @@ QWidget *DepthProfileView::createSidePanel() {
     m_pseudoEventsSpin->setKeyboardTracking(false);
     m_pseudoEventsSpin->setToolTip("Each stopping bin gets this many events with the composition of the bin above it. "
                                    "Bins with fewer events mostly follow the bins above them.");
-    auto *calculationGroup = new QGroupBox("Calculation");
-    auto *calculationForm = new QFormLayout(calculationGroup);
-    calculationForm->addRow(QString("Stopping bin (%1):").arg(ThinFilmText), m_stoppingBinSpin);
-    calculationForm->addRow(QString("Maximum depth (%1):").arg(ThinFilmText), maxDepthRow);
-    calculationForm->addRow("Smoothing events:", m_pseudoEventsSpin);
     auto restartOnChange = [this](QDoubleSpinBox *spinBox, double DepthProfile::*member) {
         connect(spinBox, &QDoubleSpinBox::valueChanged, this, [this, member](double value) {
             m_profile->*member = value * Units::ThinFilmUnit;
@@ -311,38 +310,59 @@ QWidget *DepthProfileView::createSidePanel() {
     // Profile: changes only bin the events again
     m_binWidthSpin = depthSpinBox(0.1);
     m_binWidthSpin->setValue(m_profile->binWidth / Units::ThinFilmUnit);
-    m_densitySpin = new QDoubleSpinBox;
-    m_densitySpin->setDecimals(3);
-    m_densitySpin->setRange(0.001, 100);
-    m_densitySpin->setKeyboardTracking(false);
-    m_densitySpin->setValue(m_profile->density / GramPerCubicCentimetre);
-    m_densitySpin->setToolTip("Converts the depth to nm");
-    m_autoNormalizationCheck = new QCheckBox("Automatic");
+    m_binWidthSpin->setToolTip("Depth bins of the profile");
+    m_autoNormalizationCheck = new QCheckBox("Auto");
     m_autoNormalizationCheck->setChecked(m_profile->autoNormalization);
     m_autoNormalizationCheck->setToolTip("The longest interval where the moving average of the total stays within "
                                          "10 % of its typical level, or within its statistical deviation");
     m_normalizationMinSpin = depthSpinBox(-MaxDepthSpin);
     m_normalizationMaxSpin = depthSpinBox(-MaxDepthSpin);
     auto *normalizationRow = new QHBoxLayout;
-    normalizationRow->addWidget(m_normalizationMinSpin);
+    normalizationRow->addWidget(m_autoNormalizationCheck);
+    normalizationRow->addWidget(m_normalizationMinSpin, 1);
     normalizationRow->addWidget(new QLabel("–"));
-    normalizationRow->addWidget(m_normalizationMaxSpin);
-    auto *profileGroup = new QGroupBox("Profile");
-    auto *profileForm = new QFormLayout(profileGroup);
-    profileForm->addRow(QString("Bin width (%1):").arg(ThinFilmText), m_binWidthSpin);
-    profileForm->addRow("Density (g/cm³):", m_densitySpin);
-    profileForm->addRow("Total 100 % over:", m_autoNormalizationCheck);
-    profileForm->addRow(QString(), normalizationRow);
+    normalizationRow->addWidget(m_normalizationMaxSpin, 1);
+
+    // Two fields in a row, the depths share the unit in the title
+    auto *parameterGroup = new QGroupBox(QString("Parameters (depths in %1)").arg(ThinFilmText));
+    auto *grid = new QGridLayout(parameterGroup);
+    grid->setContentsMargins(6, 6, 6, 6);
+    grid->setVerticalSpacing(4);
+    grid->addWidget(new QLabel("Stopping bin:"), 0, 0);
+    grid->addWidget(m_stoppingBinSpin, 0, 1);
+    grid->addWidget(new QLabel("Max. depth:"), 0, 2);
+    grid->addLayout(maxDepthRow, 0, 3);
+    grid->addWidget(new QLabel("Smoothing:"), 1, 0);
+    grid->addWidget(m_pseudoEventsSpin, 1, 1);
+    grid->addWidget(new QLabel("Profile bin:"), 1, 2);
+    grid->addWidget(m_binWidthSpin, 1, 3);
+    m_densitySpin = new QDoubleSpinBox;
+    m_densitySpin->setDecimals(3);
+    m_densitySpin->setRange(0.001, 100);
+    m_densitySpin->setKeyboardTracking(false);
+    m_densitySpin->setValue(m_profile->density / GramPerCubicCentimetre);
+    m_densitySpin->setSuffix(" g/cm³");
+    m_densitySpin->setToolTip("Density of the sample, converts the depth to nm");
+    m_densityLabel = new QLabel("Density:");
+    m_densityLabel->hide(); // Until depths are shown in nm
+    m_densitySpin->hide();
+    grid->addWidget(m_densityLabel, 3, 0);
+    grid->addWidget(m_densitySpin, 3, 1);
+    connect(m_densitySpin, &QDoubleSpinBox::valueChanged, this, [this](double value) {
+        m_profile->density = value * GramPerCubicCentimetre;
+        emit modified();
+        updateProfile(SpectrumPlotWidget::ViewChange::ShowAll);
+    });
+    auto *normalizationLabel = new QLabel("100 % over:");
+    normalizationLabel->setToolTip("The total concentration is 100 % on average over this interval");
+    grid->addWidget(normalizationLabel, 2, 0);
+    grid->addLayout(normalizationRow, 2, 1, 1, 3);
+    grid->setColumnStretch(1, 1);
+    grid->setColumnStretch(3, 1);
     connect(m_binWidthSpin, &QDoubleSpinBox::valueChanged, this, [this](double value) {
         m_profile->binWidth = value * Units::ThinFilmUnit;
         emit modified();
         updateProfile(SpectrumPlotWidget::ViewChange::Keep);
-    });
-    connect(m_densitySpin, &QDoubleSpinBox::valueChanged, this, [this](double value) {
-        m_profile->density = value * GramPerCubicCentimetre;
-        emit modified();
-        updateProfile(m_unit == DepthUnit::Length ? SpectrumPlotWidget::ViewChange::ShowAll
-                                                  : SpectrumPlotWidget::ViewChange::Keep);
     });
     connect(m_autoNormalizationCheck, &QCheckBox::toggled, this, [this](bool checked) {
         setAutoNormalization(checked);
@@ -380,6 +400,7 @@ QWidget *DepthProfileView::createSidePanel() {
     connect(m_averageTable, &QTreeWidget::itemChanged, this, &DepthProfileView::averageItemChanged);
     auto *averageGroup = new QGroupBox("Average concentrations");
     auto *averageLayout = new QVBoxLayout(averageGroup);
+    averageLayout->setContentsMargins(6, 6, 6, 6);
     averageLayout->addLayout(averageRow);
     averageLayout->addWidget(m_averageTable);
     updateIntervalSpins();
@@ -388,8 +409,7 @@ QWidget *DepthProfileView::createSidePanel() {
     auto *layout = new QVBoxLayout(panel);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(selectionGroup);
-    layout->addWidget(calculationGroup);
-    layout->addWidget(profileGroup);
+    layout->addWidget(parameterGroup);
     layout->addWidget(averageGroup, 1);
     auto *scroll = new QScrollArea;
     scroll->setWidget(panel);
@@ -409,6 +429,13 @@ void DepthProfileView::updateSelectionList() {
         item->setCheckState(PlotColumn, m_profile->cutIdsHiddenFromPlot.contains(cut.id) ? Qt::Unchecked : Qt::Checked);
         item->setData(IncludedColumn, CutIdRole, cut.id);
     }
+    // As tall as the selections need, up to a limit, the list scrolls after it
+    constexpr int MaxVisibleSelections = 10;
+    const int rows = std::clamp(m_selectionList->topLevelItemCount(), 1, MaxVisibleSelections);
+    const int rowHeight = m_selectionList->topLevelItemCount() > 0 ? m_selectionList->sizeHintForRow(0)
+                                                                    : m_selectionList->fontMetrics().height() + 4;
+    m_selectionList->setFixedHeight(m_selectionList->header()->sizeHint().height() + rows * rowHeight
+                                    + 2 * m_selectionList->frameWidth());
 }
 
 void DepthProfileView::setAutoNormalization(bool automatic) {
