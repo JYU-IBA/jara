@@ -44,8 +44,9 @@ Each measurement has its **ToF-E histogram** under it. Double-click it to open t
 - **Add Depth Profile**, see [Depth profiles](depth-profiles.md)
 - **Add Split Analysis**, see [Split analysis](split-analysis.md)
 
-They appear under the measurement and are saved in the project. Depth profiles can be dragged to another measurement,
-which copies them. [Reports](reports.md) collect depth profiles of several measurements into a PDF.
+They appear under the measurement and are saved in the project. **Duplicate** in their context menu makes a copy with
+all of their settings under the same measurement. Depth profiles can be dragged to another measurement, which copies
+them. [Reports](reports.md) collect depth profiles of several measurements into a PDF.
 
 ## Plots
 

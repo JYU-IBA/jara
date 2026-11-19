@@ -119,6 +119,7 @@ private slots:
     void removeCurrentSpectrum();
     void removeCurrentDepthProfile();
     void removeCurrentSplit();
+    void duplicateCurrentAnalysis(); // An energy spectrum, depth profile or split analysis
     void removeCurrentReport();
 
 private:

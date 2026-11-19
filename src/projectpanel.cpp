@@ -689,18 +689,21 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
                 menu.addAction("Open Energy Spectrum", this, [this]() {
                     emit spectrumOpenRequested(currentMeasurement(), currentSpectrum());
                 });
+                menu.addAction("Duplicate", this, &ProjectPanel::duplicateCurrentAnalysis);
                 menu.addAction("Remove Energy Spectrum", this, &ProjectPanel::removeCurrentSpectrum);
                 menu.addSeparator();
             } else if(nodeType(item) == DepthProfileNode) {
                 menu.addAction("Open Depth Profile", this, [this]() {
                     emit depthProfileOpenRequested(currentMeasurement(), currentDepthProfile());
                 });
+                menu.addAction("Duplicate", this, &ProjectPanel::duplicateCurrentAnalysis);
                 menu.addAction("Remove Depth Profile", this, &ProjectPanel::removeCurrentDepthProfile);
                 menu.addSeparator();
             } else if(nodeType(item) == SplitNode) {
                 menu.addAction("Open Split Analysis", this, [this]() {
                     emit splitOpenRequested(currentMeasurement(), currentSplit());
                 });
+                menu.addAction("Duplicate", this, &ProjectPanel::duplicateCurrentAnalysis);
                 menu.addAction("Remove Split Analysis", this, &ProjectPanel::removeCurrentSplit);
                 menu.addSeparator();
             } else if(nodeType(item) == FileNode) {
@@ -1668,6 +1671,50 @@ void ProjectPanel::removeCurrentReport() {
         m_tree->setCurrentItem(nullptr);
     }
     currentItemChanged(nullptr);
+    emit modified();
+}
+
+void ProjectPanel::duplicateCurrentAnalysis() {
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(!m_project || !item || !isAnalysisNode(item) || nodeType(item) == HistogramNode) {
+        return;
+    }
+    // A copy with all of its settings under the same measurement, its selections are the same, only the name changes.
+    // After the others of its kind, which come after the histogram in the order spectra, depth profiles, split analyses.
+    QTreeWidgetItem *parent = item->parent();
+    Measurement *measurement = currentMeasurement();
+    const int index = nodeIndex(item);
+    QTreeWidgetItem *copy = nullptr;
+    switch(nodeType(item)) {
+        case SpectrumNode: {
+            auto spectrum = std::make_unique<EnergySpectrum>(*measurement->spectra.at(index));
+            spectrum->name = measurement->uniqueSpectrumName(spectrum->name);
+            measurement->spectra.push_back(std::move(spectrum));
+            copy = createSpectrumItem(*measurement->spectra.back(), static_cast<int>(measurement->spectra.size() - 1));
+            parent->insertChild(static_cast<int>(measurement->spectra.size()), copy);
+            break;
+        }
+        case DepthProfileNode: {
+            auto profile = std::make_unique<DepthProfile>(*measurement->depthProfiles.at(index));
+            profile->name = measurement->uniqueDepthProfileName(profile->name);
+            measurement->depthProfiles.push_back(std::move(profile));
+            copy = createDepthProfileItem(*measurement->depthProfiles.back(),
+                                          static_cast<int>(measurement->depthProfiles.size() - 1));
+            parent->insertChild(static_cast<int>(measurement->spectra.size() + measurement->depthProfiles.size()), copy);
+            break;
+        }
+        case SplitNode: {
+            auto split = std::make_unique<SplitAnalysis>(*measurement->splitAnalyses.at(index));
+            split->name = measurement->uniqueSplitAnalysisName(split->name);
+            measurement->splitAnalyses.push_back(std::move(split));
+            copy = createSplitItem(*measurement->splitAnalyses.back(), static_cast<int>(measurement->splitAnalyses.size() - 1));
+            parent->addChild(copy);
+            break;
+        }
+        default:
+            return;
+    }
+    m_tree->setCurrentItem(copy);
     emit modified();
 }
 
