@@ -180,6 +180,8 @@ struct DepthProfileResult {
     std::vector<double> totals; // Sum of the concentrations in each bin
     double normalizationMin = 0; // atoms/m², the interval used, also when found automatically
     double normalizationMax = 0;
+    double averageMin = 0; // atoms/m², the averaging interval snapped to the bins
+    double averageMax = 0;
     struct Average {
         double concentration = 0; // Atomic fraction, as in the profile
         double uncertainty = 0; // Statistical, including the normalization
@@ -192,6 +194,10 @@ struct DepthProfileResult {
     size_t bins() const { return totals.size(); }
     double binStart(size_t bin) const { return firstBinStart + static_cast<double>(bin) * binWidth; }
 };
+
+// Moves the ends of a depth interval to the nearest edges of the profile bins, which all are at multiples of the bin
+// width. The interval includes the bins between the edges, at least one: when both ends meet, the bin after them.
+void snapToBins(double &min, double &max, double binWidth);
 
 DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, const DepthProfile &profile);
 

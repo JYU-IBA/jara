@@ -501,22 +501,24 @@ void DepthProfileView::setAutoNormalization(bool automatic) {
 }
 
 void DepthProfileView::updateIntervalSpins() {
-    // The automatic interval is shown when there is one
+    // The automatic interval is shown when there is one. The intervals are snapped to the bins, as they are used.
     const bool automatic = m_profile->autoNormalization && m_result.normalizationMax > m_result.normalizationMin;
-    const double normalizationMin = automatic ? m_result.normalizationMin : m_profile->normalizationMin;
-    const double normalizationMax = automatic ? m_result.normalizationMax : m_profile->normalizationMax;
+    double normalizationMin = automatic ? m_result.normalizationMin : m_profile->normalizationMin;
+    double normalizationMax = automatic ? m_result.normalizationMax : m_profile->normalizationMax;
+    snapToBins(normalizationMin, normalizationMax, m_profile->binWidth);
     setValueSilently(m_normalizationMinSpin, normalizationMin / Units::ThinFilmUnit);
     setValueSilently(m_normalizationMaxSpin, normalizationMax / Units::ThinFilmUnit);
     m_normalizationMinSpin->setEnabled(!m_profile->autoNormalization);
     m_normalizationMaxSpin->setEnabled(!m_profile->autoNormalization);
-    setValueSilently(m_averageMinSpin, m_profile->averageMin / Units::ThinFilmUnit);
-    setValueSilently(m_averageMaxSpin, m_profile->averageMax / Units::ThinFilmUnit);
+    double averageMin = m_profile->averageMin;
+    double averageMax = m_profile->averageMax;
+    snapToBins(averageMin, averageMax, m_profile->binWidth);
+    setValueSilently(m_averageMinSpin, averageMin / Units::ThinFilmUnit);
+    setValueSilently(m_averageMaxSpin, averageMax / Units::ThinFilmUnit);
 }
 
 void DepthProfileView::setInterval(Interval interval, double min, double max) {
-    if(min > max) {
-        std::swap(min, max);
-    }
+    snapToBins(min, max, m_profile->binWidth);
     if(interval == Interval::Normalization) {
         m_profile->normalizationMin = min;
         m_profile->normalizationMax = max;
@@ -764,8 +766,8 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
     QColor averageFill = AverageColor;
     averageFill.setAlpha(30);
     // Both intervals can be dragged, dragging the normalization interval makes it manual
-    const double averageMin = toDisplay(m_profile->averageMin);
-    const double averageMax = toDisplay(m_profile->averageMax);
+    const double averageMin = toDisplay(m_result.averageMin);
+    const double averageMax = toDisplay(m_result.averageMax);
     QList<SpectrumPlotWidget::Region> regions{{averageMin, averageMax, averageFill}};
     QList<SpectrumPlotWidget::Marker> markers{{averageMin, AverageColor, Qt::DashLine, true},
                                               {averageMax, AverageColor, Qt::DashLine, true}};
@@ -926,8 +928,8 @@ void DepthProfileView::exportProfile() {
     if(m_stale) {
         out << "# Out of date: the selections or the settings have changed since the profile was calculated\n";
     }
-    out << "# Averages over " << number(m_profile->averageMin / Units::ThinFilmUnit) << "-"
-        << number(m_profile->averageMax / Units::ThinFilmUnit) << " 1e15 at/cm2 (at.% +- uncertainty, renormalized at.% +- "
+    out << "# Averages over " << number(m_result.averageMin / Units::ThinFilmUnit) << "-"
+        << number(m_result.averageMax / Units::ThinFilmUnit) << " 1e15 at/cm2 (at.% +- uncertainty, renormalized at.% +- "
            "uncertainty, statistical, including the normalization):";
     for(size_t c = 0; c < m_result.curves.size(); c++) {
         const DepthProfileCurve &curve = m_result.curves[c];

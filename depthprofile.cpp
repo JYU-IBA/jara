@@ -541,6 +541,14 @@ double DepthProfileCalculation::massDepth(double depth) const {
     return mass;
 }
 
+void snapToBins(double &min, double &max, double binWidth) {
+    if(min > max) {
+        std::swap(min, max);
+    }
+    min = std::round(min / binWidth) * binWidth;
+    max = std::max(min + binWidth, std::round(max / binWidth) * binWidth);
+}
+
 DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, const DepthProfile &profile) {
     DepthProfileResult result;
     const double width = profile.binWidth;
@@ -635,14 +643,14 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
         }
     }
 
-    // Bins with their centres in an interval
-    auto binsIn = [&result, bins](double min, double max) {
+    // Bins in an interval snapped to them, inclusive
+    auto binsIn = [&result, bins, width](double &min, double &max) {
+        snapToBins(min, max, width);
+        const double first = std::max(0.0, std::round((min - result.firstBinStart) / width));
+        const double last = std::min(static_cast<double>(bins), std::round((max - result.firstBinStart) / width));
         std::vector<size_t> inside;
-        for(size_t i = 0; i < bins; i++) {
-            const double centre = result.binStart(i) + result.binWidth / 2;
-            if(centre >= min && centre <= max) {
-                inside.push_back(i);
-            }
+        for(double i = first; i < last; i++) {
+            inside.push_back(static_cast<size_t>(i));
         }
         return inside;
     };
@@ -707,7 +715,9 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
             normalizationBins.push_back(i);
         }
     } else {
-        normalizationBins = binsIn(profile.normalizationMin, profile.normalizationMax);
+        double min = profile.normalizationMin;
+        double max = profile.normalizationMax;
+        normalizationBins = binsIn(min, max);
     }
     double scale = 0;
     for(const size_t i : normalizationBins) {
@@ -751,7 +761,9 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     }
 
     // Averages over the averaging interval: the mean of the selection's weights divided by the scale
-    const std::vector<size_t> averageBins = binsIn(profile.averageMin, profile.averageMax);
+    result.averageMin = profile.averageMin;
+    result.averageMax = profile.averageMax;
+    const std::vector<size_t> averageBins = binsIn(result.averageMin, result.averageMax);
     const auto averageCount = static_cast<double>(averageBins.size());
     std::vector<bool> inAverage(bins, false);
     for(const size_t i : averageBins) {
