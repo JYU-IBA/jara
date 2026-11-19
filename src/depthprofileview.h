@@ -39,7 +39,7 @@ public:
 
 public slots:
     void recalculate(); // Iterates from the beginning
-    void checkStale(); // Call after the project has changed, also updates the selections shown
+    void checkStale(); // Call after the project has changed, also updates the selection summary
     void applyPreferences(); // Call after the preferences have changed
 
 signals:
@@ -49,7 +49,7 @@ signals:
 private slots:
     void iterateOrStop();
     void iterationStep();
-    void selectionItemChanged(QTreeWidgetItem *item, int column);
+    void chooseSelections(); // In a dialog
     void averageItemChanged(QTreeWidgetItem *item, int column);
     void markerMoved(int index, double x);
     void exportProfile();
@@ -61,7 +61,7 @@ private:
     QWidget *createToolBar();
     QWidget *createStaleBar();
     QWidget *createSidePanel();
-    void updateSelectionList();
+    void updateSelectionSummary();
     void updateIntervalSpins();
     void startIterating();
     void stopIterating();
@@ -88,7 +88,7 @@ private:
     DepthUnit m_unit = DepthUnit::ThinFilm;
     QList<Interval> m_markerIntervals; // Interval of each pair of plot markers
     SpectrumPlotWidget *m_plot = nullptr;
-    QTreeWidget *m_selectionList = nullptr; // Included in the calculation, shown in the plot
+    QLabel *m_selectionSummary = nullptr; // Selections included in the calculation
     MeasurementRangeWidget *m_rangeWidget = nullptr;
     QCheckBox *m_autoMaxDepthCheck = nullptr;
     QTimer *m_iterationTimer = nullptr;
@@ -103,6 +103,7 @@ private:
     QDoubleSpinBox *m_normalizationMaxSpin = nullptr;
     QDoubleSpinBox *m_averageMinSpin = nullptr;
     QDoubleSpinBox *m_averageMaxSpin = nullptr;
+    QCheckBox *m_followNormalizationCheck = nullptr;
     QTreeWidget *m_averageTable = nullptr;
     QPushButton *m_iterateButton = nullptr;
     QActionGroup *m_legendGroup = nullptr; // Of the legend positions in the context menu of the plot

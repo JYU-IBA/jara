@@ -146,6 +146,7 @@ QJsonObject depthProfileToJson(const DepthProfile &profile) {
             {"minStoppingBinEvents", profile.minStoppingBinEvents},
             {"normalization", normalization},
             {"average", QJsonObject{{"min", profile.averageMin}, {"max", profile.averageMax},
+                                    {"followsNormalization", profile.averageFollowsNormalization},
                                     {"excludedCuts", idsToJson(profile.cutIdsExcludedFromAverage)}}},
             {"density", profile.density},
             {"separateIsotopes", profile.separateIsotopes},
@@ -153,6 +154,7 @@ QJsonObject depthProfileToJson(const DepthProfile &profile) {
             {"plot", QJsonObject{{"hiddenCuts", idsToJson(profile.cutIdsHiddenFromPlot)},
                                  {"total", profile.showTotal},
                                  {"normalization", profile.showNormalization},
+                                 {"shadeAverage", profile.shadeAverage},
                                  {"legend", legendPositionId(profile.legendPosition)},
                                  {"legendConcentrations", profile.showLegendConcentrations}}}};
     rangeToJson(json, profile.rangeMin, profile.rangeMax);
@@ -181,6 +183,7 @@ std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
     const QJsonObject average = json["average"].toObject();
     profile->averageMin = average["min"].toDouble(profile->averageMin);
     profile->averageMax = average["max"].toDouble(profile->averageMax);
+    profile->averageFollowsNormalization = average["followsNormalization"].toBool(profile->averageFollowsNormalization);
     profile->cutIdsExcludedFromAverage = idsFromJson(average["excludedCuts"]);
     profile->autoMaxDepth = json["autoMaxDepth"].toBool(profile->autoMaxDepth);
     profile->separateIsotopes = json["separateIsotopes"].toBool(profile->separateIsotopes);
@@ -188,6 +191,7 @@ std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
     profile->cutIdsHiddenFromPlot = idsFromJson(plot["hiddenCuts"]);
     profile->showTotal = plot["total"].toBool(profile->showTotal);
     profile->showNormalization = plot["normalization"].toBool(profile->showNormalization);
+    profile->shadeAverage = plot["shadeAverage"].toBool(profile->shadeAverage);
     profile->legendPosition = legendPositionFromId(plot["legend"].toString(), profile->legendPosition);
     profile->showLegendConcentrations = plot["legendConcentrations"].toBool(profile->showLegendConcentrations);
     rangeFromJson(json, profile->rangeMin, profile->rangeMax);

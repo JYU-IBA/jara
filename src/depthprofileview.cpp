@@ -12,6 +12,8 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QGridLayout>
@@ -19,6 +21,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
@@ -44,11 +47,12 @@ constexpr int CutIdRole = Qt::UserRole;
 constexpr int CutIdsRole = Qt::UserRole + 1; // Of the selections summed in a row of the averages
 constexpr int ConcentrationDecimals = 2; // at.%
 
-enum SelectionColumn { IncludedColumn, PlotColumn };
 constexpr double MaxDepthSpin = 1e6; // 1e15 at/cm²
 const QColor NormalizationColor(0x1f, 0x77, 0xb4);
 const QColor AverageColor(0xff, 0x7f, 0x0e);
 
+// The selection column has a check box for showing the selection in the plot, the renormalized one for including it in
+// the renormalized averages
 enum AverageColumn {
     AverageSelectionColumn,
     AverageColumn,
@@ -153,13 +157,23 @@ DepthProfileView::DepthProfileView(Measurement *measurement, DepthProfile *profi
     QAction *concentrations = legendMenu->addAction("Show Concentrations");
     concentrations->setCheckable(true);
     concentrations->setChecked(m_profile->showLegendConcentrations);
-    concentrations->setToolTip("The renormalized average concentrations after the names");
+    concentrations->setToolTip("The average concentrations after the names, renormalized unless averaged over the "
+                               "normalization interval");
     connect(concentrations, &QAction::toggled, this, [this](bool checked) {
         m_profile->showLegendConcentrations = checked;
         emit modified();
         updateProfile(SpectrumPlotWidget::ViewChange::Keep);
     });
-    m_plot->setContextActions({legendMenu->menuAction()});
+    auto *shadeAverage = new QAction("Shade Averaging Interval", this);
+    shadeAverage->setCheckable(true);
+    shadeAverage->setChecked(m_profile->shadeAverage);
+    shadeAverage->setToolTip("The ends of the interval are drawn either way");
+    connect(shadeAverage, &QAction::toggled, this, [this](bool checked) {
+        m_profile->shadeAverage = checked;
+        emit modified();
+        updateProfile(SpectrumPlotWidget::ViewChange::Keep);
+    });
+    m_plot->setContextActions({legendMenu->menuAction(), shadeAverage});
     updateLegendPosition();
     m_hint = ZoomHint;
     m_statusLabel = new QLabel(m_hint);
@@ -192,7 +206,7 @@ DepthProfileView::DepthProfileView(Measurement *measurement, DepthProfile *profi
     connect(m_plot, &SpectrumPlotWidget::cursorInfoChanged, this, [this](const QString &text) {
         m_statusLabel->setText(text.isEmpty() ? m_hint : text);
     });
-    updateSelectionList();
+    updateSelectionSummary();
     recalculate();
 }
 
@@ -304,16 +318,17 @@ QWidget *DepthProfileView::createStaleBar() {
 }
 
 QWidget *DepthProfileView::createSidePanel() {
-    m_selectionList = new QTreeWidget;
-    m_selectionList->setRootIsDecorated(false);
-    m_selectionList->setHeaderLabels({"Included", "Plot"});
-    m_selectionList->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_selectionList->setToolTip("Included selections are part of the calculation, the plot shows some of them");
-    connect(m_selectionList, &QTreeWidget::itemChanged, this, &DepthProfileView::selectionItemChanged);
+    m_selectionSummary = new QLabel;
+    auto *chooseButton = new QPushButton("Choose...");
+    chooseButton->setToolTip("Choose the selections included in the calculation");
+    connect(chooseButton, &QPushButton::clicked, this, &DepthProfileView::chooseSelections);
+    auto *summaryRow = new QHBoxLayout;
+    summaryRow->addWidget(m_selectionSummary, 1);
+    summaryRow->addWidget(chooseButton);
     auto *selectionGroup = new QGroupBox("Selections");
     auto *selectionLayout = new QVBoxLayout(selectionGroup);
     selectionLayout->setContentsMargins(6, 6, 6, 6);
-    selectionLayout->addWidget(m_selectionList);
+    selectionLayout->addLayout(summaryRow);
     m_rangeWidget = new MeasurementRangeWidget(&m_events, m_measurement);
     m_rangeWidget->setRange(m_profile->rangeMin, m_profile->rangeMax);
     selectionLayout->addWidget(new QLabel("Part of the measurement:"));
@@ -449,8 +464,23 @@ QWidget *DepthProfileView::createSidePanel() {
     m_averageMaxSpin = depthSpinBox(-MaxDepthSpin);
     intervalSpin(m_averageMinSpin, Interval::Average, true);
     intervalSpin(m_averageMaxSpin, Interval::Average, false);
+    m_followNormalizationCheck = new QCheckBox("Normalization");
+    m_followNormalizationCheck->setChecked(m_profile->averageFollowsNormalization);
+    m_followNormalizationCheck->setToolTip("Average over the normalization interval, where the total is 100 % on "
+                                           "average, so no renormalization is needed");
+    connect(m_followNormalizationCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        if(!checked) {
+            // Starts from the interval followed
+            m_profile->averageMin = m_result.averageMin;
+            m_profile->averageMax = m_result.averageMax;
+        }
+        m_profile->averageFollowsNormalization = checked;
+        emit modified();
+        updateProfile(SpectrumPlotWidget::ViewChange::Keep);
+    });
     auto *averageRow = new QHBoxLayout;
     averageRow->addWidget(new QLabel(QString("Over (%1):").arg(ThinFilmText)));
+    averageRow->addWidget(m_followNormalizationCheck);
     averageRow->addWidget(m_averageMinSpin, 1);
     averageRow->addWidget(new QLabel("–"));
     averageRow->addWidget(m_averageMaxSpin, 1);
@@ -458,7 +488,9 @@ QWidget *DepthProfileView::createSidePanel() {
     m_averageTable->setRootIsDecorated(false);
     m_averageTable->setHeaderLabels({"Selection", "at.%", "±", "Renorm. at.%", "±", "Events"});
     m_averageTable->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_averageTable->setToolTip("Unchecked selections, e.g. the substrate, are left out of the renormalized averages");
+    m_averageTable->headerItem()->setToolTip(AverageSelectionColumn, "Checked selections are shown in the plot");
+    m_averageTable->headerItem()->setToolTip(RenormalizedColumn, "Averages renormalized to 100 % among the checked "
+                                                                 "selections, e.g. leaving out the substrate");
     connect(m_averageTable, &QTreeWidget::itemChanged, this, &DepthProfileView::averageItemChanged);
     auto *averageGroup = new QGroupBox("Average concentrations");
     auto *averageLayout = new QVBoxLayout(averageGroup);
@@ -480,27 +512,63 @@ QWidget *DepthProfileView::createSidePanel() {
     return scroll;
 }
 
-void DepthProfileView::updateSelectionList() {
-    const QSignalBlocker blocker(m_selectionList);
-    m_selectionList->clear();
+void DepthProfileView::updateSelectionSummary() {
+    int included = 0;
+    int all = 0;
+    for(const Cut &cut : m_measurement->cuts) {
+        if(isAnalyzed(cut)) {
+            all++;
+            included += m_profile->cutIds.contains(cut.id) ? 1 : 0;
+        }
+    }
+    m_selectionSummary->setText(QString("%1/%2 selections included").arg(included).arg(all));
+}
+
+void DepthProfileView::chooseSelections() {
+    QDialog dialog(this);
+    dialog.setWindowTitle("Selections");
+    auto *list = new QListWidget;
     for(const Cut &cut : m_measurement->cuts) {
         if(!isAnalyzed(cut)) {
             continue;
         }
-        auto *item = new QTreeWidgetItem(m_selectionList, {cutLabel(cut)});
-        item->setIcon(IncludedColumn, colorSwatch(cut.color));
+        auto *item = new QListWidgetItem(colorSwatch(cut.color), cutLabel(cut), list);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-        item->setCheckState(IncludedColumn, m_profile->cutIds.contains(cut.id) ? Qt::Checked : Qt::Unchecked);
-        item->setCheckState(PlotColumn, m_profile->cutIdsHiddenFromPlot.contains(cut.id) ? Qt::Unchecked : Qt::Checked);
-        item->setData(IncludedColumn, CutIdRole, cut.id);
+        item->setCheckState(m_profile->cutIds.contains(cut.id) ? Qt::Checked : Qt::Unchecked);
+        item->setData(CutIdRole, cut.id);
     }
-    // As tall as the selections need, up to a limit, the list scrolls after it
-    constexpr int MaxVisibleSelections = 10;
-    const int rows = std::clamp(m_selectionList->topLevelItemCount(), 1, MaxVisibleSelections);
-    const int rowHeight = m_selectionList->topLevelItemCount() > 0 ? m_selectionList->sizeHintForRow(0)
-                                                                    : m_selectionList->fontMetrics().height() + 4;
-    m_selectionList->setFixedHeight(m_selectionList->header()->sizeHint().height() + rows * rowHeight
-                                    + 2 * m_selectionList->frameWidth());
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    auto setAll = [list](Qt::CheckState state) {
+        for(int i = 0; i < list->count(); i++) {
+            list->item(i)->setCheckState(state);
+        }
+    };
+    connect(buttons->addButton("All", QDialogButtonBox::ActionRole), &QPushButton::clicked, &dialog,
+            [setAll]() { setAll(Qt::Checked); });
+    connect(buttons->addButton("None", QDialogButtonBox::ActionRole), &QPushButton::clicked, &dialog,
+            [setAll]() { setAll(Qt::Unchecked); });
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->addWidget(new QLabel("Selections included in the calculation:"));
+    layout->addWidget(list);
+    layout->addWidget(buttons);
+    if(dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    QList<int> cutIds;
+    for(int i = 0; i < list->count(); i++) {
+        if(list->item(i)->checkState() == Qt::Checked) {
+            cutIds.append(list->item(i)->data(CutIdRole).toInt());
+        }
+    }
+    if(cutIds == m_profile->cutIds) {
+        return;
+    }
+    m_profile->cutIds = cutIds;
+    updateSelectionSummary();
+    emit modified();
+    recalculate();
 }
 
 void DepthProfileView::setAutoNormalization(bool automatic) {
@@ -524,11 +592,15 @@ void DepthProfileView::updateIntervalSpins() {
     setValueSilently(m_normalizationMaxSpin, normalizationMax / Units::ThinFilmUnit);
     m_normalizationMinSpin->setEnabled(!m_profile->autoNormalization);
     m_normalizationMaxSpin->setEnabled(!m_profile->autoNormalization);
-    double averageMin = m_profile->averageMin;
-    double averageMax = m_profile->averageMax;
+    // The normalization interval when the averages follow it
+    const bool follows = m_profile->averageFollowsNormalization;
+    double averageMin = follows ? normalizationMin : m_profile->averageMin;
+    double averageMax = follows ? normalizationMax : m_profile->averageMax;
     snapToBins(averageMin, averageMax, m_profile->binWidth);
     setValueSilently(m_averageMinSpin, averageMin / Units::ThinFilmUnit);
     setValueSilently(m_averageMaxSpin, averageMax / Units::ThinFilmUnit);
+    m_averageMinSpin->setEnabled(!follows);
+    m_averageMaxSpin->setEnabled(!follows);
 }
 
 void DepthProfileView::setInterval(Interval interval, double min, double max) {
@@ -544,38 +616,22 @@ void DepthProfileView::setInterval(Interval interval, double min, double max) {
     updateProfile(SpectrumPlotWidget::ViewChange::Keep);
 }
 
-void DepthProfileView::selectionItemChanged(QTreeWidgetItem *item, int column) {
-    const int id = item->data(IncludedColumn, CutIdRole).toInt();
-    if(column == PlotColumn) {
-        m_profile->cutIdsHiddenFromPlot.removeAll(id);
-        if(item->checkState(PlotColumn) != Qt::Checked) {
-            m_profile->cutIdsHiddenFromPlot.append(id);
-        }
-        emit modified();
-        updateProfile(SpectrumPlotWidget::ViewChange::Keep);
-        return;
-    }
-    m_profile->cutIds.removeAll(id);
-    if(item->checkState(IncludedColumn) == Qt::Checked) {
-        m_profile->cutIds.append(id);
-    }
-    emit modified();
-    recalculate();
-}
-
 void DepthProfileView::averageItemChanged(QTreeWidgetItem *item, int column) {
-    if(column != AverageSelectionColumn || !item->data(AverageSelectionColumn, CutIdsRole).isValid()) {
+    if((column != AverageSelectionColumn && column != RenormalizedColumn)
+       || !item->data(AverageSelectionColumn, CutIdsRole).isValid()) {
         return;
     }
     // All of the selections summed in the row
+    QList<int> &ids = column == AverageSelectionColumn ? m_profile->cutIdsHiddenFromPlot : m_profile->cutIdsExcludedFromAverage;
     for(const int id : item->data(AverageSelectionColumn, CutIdsRole).value<QList<int>>()) {
-        m_profile->cutIdsExcludedFromAverage.removeAll(id);
-        if(item->checkState(AverageSelectionColumn) != Qt::Checked) {
-            m_profile->cutIdsExcludedFromAverage.append(id);
+        ids.removeAll(id);
+        if(item->checkState(column) != Qt::Checked) {
+            ids.append(id);
         }
     }
     emit modified();
-    updateProfile(SpectrumPlotWidget::ViewChange::Keep);
+    // Changing the plot or the averages in the event handler of the table would rebuild the table under it
+    QTimer::singleShot(0, this, [this]() { updateProfile(SpectrumPlotWidget::ViewChange::Keep); });
 }
 
 void DepthProfileView::recalculate() {
@@ -755,8 +811,11 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
         SpectrumPlotWidget::Curve plotCurve{curve.label(), cut ? cut->color : QColor(Qt::gray),
                                             curve.events, {}};
         const DepthProfileResult::Average &average = m_result.averages[c];
-        // Left out selections have no renormalized average
-        if(m_profile->showLegendConcentrations && !std::isnan(average.renormalized)) {
+        // Over the normalization interval the averages need no renormalization. Otherwise left out selections have
+        // no renormalized average.
+        if(m_profile->showLegendConcentrations && m_profile->averageFollowsNormalization) {
+            plotCurve.legendSuffix = QString(": %1").arg(percentWithUncertainty(average.concentration, average.uncertainty));
+        } else if(m_profile->showLegendConcentrations && !std::isnan(average.renormalized)) {
             plotCurve.legendSuffix = QString(": %1").arg(percentWithUncertainty(average.renormalized,
                                                                                 average.renormalizedUncertainty));
         }
@@ -779,26 +838,42 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
     normalizationFill.setAlpha(30);
     QColor averageFill = AverageColor;
     averageFill.setAlpha(30);
-    // Both intervals can be dragged, dragging the normalization interval makes it manual
+    // Both intervals can be dragged, dragging the normalization interval makes it manual. The ends of the averaging
+    // interval are always drawn, the shading is optional. When the averages follow the normalization interval, the
+    // averaging interval stands for both.
+    const bool follows = m_profile->averageFollowsNormalization;
     const double averageMin = toDisplay(m_result.averageMin);
     const double averageMax = toDisplay(m_result.averageMax);
-    QList<SpectrumPlotWidget::Region> regions{{averageMin, averageMax, averageFill}};
+    QList<SpectrumPlotWidget::Region> regions;
+    if(m_profile->shadeAverage) {
+        regions.append({averageMin, averageMax, averageFill});
+    }
     QList<SpectrumPlotWidget::Marker> markers{{averageMin, AverageColor, Qt::DashLine, true},
                                               {averageMax, AverageColor, Qt::DashLine, true}};
-    m_markerIntervals = {Interval::Average, Interval::Average};
+    const Interval averageInterval = follows ? Interval::Normalization : Interval::Average;
+    m_markerIntervals = {averageInterval, averageInterval};
     if(m_profile->showNormalization) {
         const double normalizationMin = toDisplay(m_result.normalizationMin);
         const double normalizationMax = toDisplay(m_result.normalizationMax);
         regions.prepend({normalizationMin, normalizationMax, normalizationFill});
-        markers.append({normalizationMin, NormalizationColor, Qt::DashLine, true});
-        markers.append({normalizationMax, NormalizationColor, Qt::DashLine, true});
-        m_markerIntervals.append({Interval::Normalization, Interval::Normalization});
+        if(!follows) {
+            markers.append({normalizationMin, NormalizationColor, Qt::DashLine, true});
+            markers.append({normalizationMax, NormalizationColor, Qt::DashLine, true});
+            m_markerIntervals.append({Interval::Normalization, Interval::Normalization});
+        }
     }
     m_plot->setRegions(regions);
     m_plot->setMarkers(markers);
-    m_plot->setInfoText(QString("Bin %1 %2, averages over the orange interval%3")
-                                .arg(m_profile->binWidth / Units::ThinFilmUnit, 0, 'g', 6).arg(ThinFilmText)
-                                .arg(m_profile->showNormalization ? QStringLiteral(", total 100 % over the blue one") : QString()));
+    QString intervals;
+    if(follows) {
+        intervals = QStringLiteral(", total 100 % and averages over the orange interval");
+    } else {
+        intervals = QStringLiteral(", averages over the orange interval");
+        if(m_profile->showNormalization) {
+            intervals += QStringLiteral(", total 100 % over the blue one");
+        }
+    }
+    m_plot->setInfoText(QString("Bin %1 %2%3").arg(m_profile->binWidth / Units::ThinFilmUnit, 0, 'g', 6).arg(ThinFilmText, intervals));
     updateAverages();
 }
 
@@ -825,6 +900,10 @@ void DepthProfileView::updateLegendPosition() {
 void DepthProfileView::updateAverages() {
     const QSignalBlocker blocker(m_averageTable);
     m_averageTable->clear();
+    // Over the normalization interval the averages are already normalized to 100 %
+    for(const int column : {RenormalizedColumn, RenormalizedUncertaintyColumn}) {
+        m_averageTable->setColumnHidden(column, m_profile->averageFollowsNormalization);
+    }
     if(m_result.curves.empty() || !m_result.errorMessage.isEmpty()) {
         return;
     }
@@ -841,8 +920,10 @@ void DepthProfileView::updateAverages() {
         }
         item->setData(AverageSelectionColumn, CutIdsRole, QVariant::fromValue(curve.cutIds));
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        const bool plotted = !curve.allIn(m_profile->cutIdsHiddenFromPlot);
+        item->setCheckState(AverageSelectionColumn, plotted ? Qt::Checked : Qt::Unchecked);
         const bool included = !curve.allIn(m_profile->cutIdsExcludedFromAverage);
-        item->setCheckState(AverageSelectionColumn, included ? Qt::Checked : Qt::Unchecked);
+        item->setCheckState(RenormalizedColumn, included ? Qt::Checked : Qt::Unchecked);
         item->setText(AverageColumn, percent(average.concentration));
         item->setText(UncertaintyColumn, percent(average.uncertainty));
         item->setText(RenormalizedColumn, percent(average.renormalized));
@@ -892,8 +973,8 @@ void DepthProfileView::checkStale() {
     if(!m_plot) {
         return;
     }
-    // Selections may have been added, removed or recolored, which only needs the list and the curves updated
-    updateSelectionList();
+    // Selections may have been added, removed or recolored, which only needs the summary and the curves updated
+    updateSelectionSummary();
     m_rangeWidget->refresh();
     updateProfile(SpectrumPlotWidget::ViewChange::Keep);
     setStale(depthProfileInputs(*m_measurement, *m_profile) != m_calculatedInputs);

@@ -767,8 +767,8 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     }
 
     // Averages over the averaging interval: the mean of the selection's weights divided by the scale
-    result.averageMin = profile.averageMin;
-    result.averageMax = profile.averageMax;
+    result.averageMin = profile.averageFollowsNormalization ? result.normalizationMin : profile.averageMin;
+    result.averageMax = profile.averageFollowsNormalization ? result.normalizationMax : profile.averageMax;
     const std::vector<size_t> averageBins = binsIn(result.averageMin, result.averageMax);
     const auto averageCount = static_cast<double>(averageBins.size());
     std::vector<bool> inAverage(bins, false);

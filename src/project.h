@@ -242,6 +242,9 @@ struct DepthProfile {
     double normalizationMax = DefaultAverageMax;
     double averageMin = DefaultAverageMin; // atoms/m², interval of the average concentrations
     double averageMax = DefaultAverageMax;
+    // The averages are over the normalization interval instead of the one above. The renormalized averages are then
+    // not needed, the total is 100 % on average over the interval.
+    bool averageFollowsNormalization = true;
     QList<int> cutIdsExcludedFromAverage; // Left out of the renormalized averages, e.g. the substrate
     double density = DefaultDensity; // kg/m³
     bool separateIsotopes = false; // Selections of an element are summed into one unless this is set, see depthprofile.h
@@ -252,6 +255,7 @@ struct DepthProfile {
     QList<int> cutIdsHiddenFromPlot;
     bool showTotal = false;
     bool showNormalization = false; // The interval where the total is 100 %
+    bool shadeAverage = true; // The averaging interval is shaded, its ends are always drawn
     LegendPosition legendPosition = LegendPosition::Default;
     bool showLegendConcentrations = true; // The renormalized averages in the legend
 };
