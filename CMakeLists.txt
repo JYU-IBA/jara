@@ -14,70 +14,70 @@ find_package(GSL REQUIRED)
 find_package(Jibal REQUIRED)
 
 add_executable(jara
-        main.cpp
-        mainwindow.cpp
-        mainwindow.h
-        project.cpp
-        project.h
-        projectpanel.cpp
-        projectpanel.h
-        measurementview.cpp
-        measurementview.h
-        energyspectrum.cpp
-        energyspectrum.h
-        energyspectrumview.cpp
-        energyspectrumview.h
-        spectrumplotwidget.cpp
-        spectrumplotwidget.h
-        settingsview.cpp
-        settingsview.h
-        tabwidget.cpp
-        tabwidget.h
-        histogramwidget.cpp
-        histogramwidget.h
-        tofedata.cpp
-        tofedata.h
-        elements.cpp
-        elements.h
-        elementdialog.cpp
-        elementdialog.h
-        colorbutton.cpp
-        colorbutton.h
-        defaults.cpp
-        defaults.h
-        settingseditors.cpp
-        settingseditors.h
-        preferencesdialog.cpp
-        preferencesdialog.h
-        units.h
-        projectimportdialog.cpp
-        projectimportdialog.h
-        tofcalibration.cpp
-        tofcalibration.h
-        tofcalibrationwindow.cpp
-        tofcalibrationwindow.h
-        calibrationplotwidget.cpp
-        calibrationplotwidget.h
-        stopping.cpp
-        stopping.h
-        materialeditor.cpp
-        materialeditor.h
-        foildialog.cpp
-        foildialog.h
-        depthprofile.cpp
-        depthprofile.h
-        depthprofileview.cpp
-        depthprofileview.h
-        efficiencydialog.cpp
-        efficiencydialog.h
-        version.h
+        src/main.cpp
+        src/mainwindow.cpp
+        src/mainwindow.h
+        src/project.cpp
+        src/project.h
+        src/projectpanel.cpp
+        src/projectpanel.h
+        src/measurementview.cpp
+        src/measurementview.h
+        src/energyspectrum.cpp
+        src/energyspectrum.h
+        src/energyspectrumview.cpp
+        src/energyspectrumview.h
+        src/spectrumplotwidget.cpp
+        src/spectrumplotwidget.h
+        src/settingsview.cpp
+        src/settingsview.h
+        src/tabwidget.cpp
+        src/tabwidget.h
+        src/histogramwidget.cpp
+        src/histogramwidget.h
+        src/tofedata.cpp
+        src/tofedata.h
+        src/elements.cpp
+        src/elements.h
+        src/elementdialog.cpp
+        src/elementdialog.h
+        src/colorbutton.cpp
+        src/colorbutton.h
+        src/defaults.cpp
+        src/defaults.h
+        src/settingseditors.cpp
+        src/settingseditors.h
+        src/preferencesdialog.cpp
+        src/preferencesdialog.h
+        src/units.h
+        src/projectimportdialog.cpp
+        src/projectimportdialog.h
+        src/tofcalibration.cpp
+        src/tofcalibration.h
+        src/tofcalibrationwindow.cpp
+        src/tofcalibrationwindow.h
+        src/calibrationplotwidget.cpp
+        src/calibrationplotwidget.h
+        src/stopping.cpp
+        src/stopping.h
+        src/materialeditor.cpp
+        src/materialeditor.h
+        src/foildialog.cpp
+        src/foildialog.h
+        src/depthprofile.cpp
+        src/depthprofile.h
+        src/depthprofileview.cpp
+        src/depthprofileview.h
+        src/efficiencydialog.cpp
+        src/efficiencydialog.h
+        src/version.h
         ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 
 # Regenerated on every build, but version.cpp is only rewritten (and recompiled) when the git state changes
 add_custom_target(jara_version
         COMMAND ${CMAKE_COMMAND}
-                -DVERSION_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/version.cpp.in
+                -DVERSION_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/src/version.cpp.in
                 -DVERSION_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/version.cpp
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/version.cmake
         BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
@@ -87,7 +87,7 @@ add_custom_target(jara_version
 add_dependencies(jara jara_version)
 
 target_compile_definitions(jara PRIVATE JARA_VERSION="${PROJECT_VERSION}")
-target_include_directories(jara PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(jara PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(jara PRIVATE Qt6::Widgets GSL::gsl jibal)
 
 # macOS refuses to show native file dialogs for an app bundle without an identifier
