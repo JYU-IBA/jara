@@ -39,7 +39,8 @@ private slots:
     void showFileProblems(const QList<Project::FileProblem> &problems); // Of a project just opened
     void closeProject();
     void projectModified();
-    void openMeasurement(Measurement *measurement);
+    void openMeasurement(Measurement *measurement); // Its ToF-E histogram
+    void openMeasurementInfo(Measurement *measurement);
     void openSpectrum(Measurement *measurement, EnergySpectrum *spectrum);
     void openDepthProfile(Measurement *measurement, DepthProfile *profile);
     void openSplit(Measurement *measurement, SplitAnalysis *split);
@@ -74,6 +75,7 @@ private:
     void updateSplitTitle(SplitView *view); // nullptr is ignored
     void updateReportTitle(ReportView *view); // nullptr is ignored
     void projectSaved(); // Updates what shows when it was saved
+    static QString histogramTitle(const Measurement *measurement); // Of the tab
     QList<QWidget *> tabPages() const; // In all windows
     // Tab widget and index of the page, nullptr when it is not in a tab
     std::pair<DetachableTabWidget *, int> findTab(const QWidget *page) const;

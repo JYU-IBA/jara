@@ -30,13 +30,14 @@ Double-click the project information to open it in a tab: the project's **name**
   [split analysis](split-analysis.md) relies on.
 - Measurements can be dragged to another sample.
 
-Each measurement is assigned experimental, detector and physics settings in its properties below the tree, see
-[Settings](settings.md). The properties also show the beam, the angles and the exit angle that follow from them.
+Double-click a measurement to open it in a tab: its name, description and data file, and the experimental, detector
+and physics settings assigned to it, see [Settings](settings.md). The tab also shows the beam, the angles and the exit
+angle that follow from them.
 
 ## Working with a measurement
 
-Double-click a measurement to open its ToF-E histogram and draw [selections](selections.md). Right-click a measurement
-in the tree to add analyses to it:
+Each measurement has its **ToF-E histogram** under it. Double-click it to open the histogram and draw
+[selections](selections.md). Right-click a measurement in the tree to add analyses to it:
 
 - **Add Energy Spectrum**, see [Energy spectra](energy-spectra.md)
 - **Add Depth Profile**, see [Depth profiles](depth-profiles.md)

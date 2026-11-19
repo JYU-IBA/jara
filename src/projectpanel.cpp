@@ -43,9 +43,9 @@ namespace {
 // measurements come first, followed by attached files. Energy spectra, depth profiles and then split analyses are
 // under their measurement.
 enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode, SpectrumNode, DepthProfileNode, PhysicsNode,
-                SplitNode, ReportNode, ProjectNode };
+                SplitNode, ReportNode, ProjectNode, HistogramNode };
 enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, SpectrumPage, DepthProfilePage, SplitPage,
-            ReportPage, ProjectPage };
+            ReportPage, ProjectPage, HistogramPage };
 constexpr int FirstSettingsRow = 1; // After the project information
 constexpr int TypeRole = Qt::UserRole;
 constexpr int IndexRole = Qt::UserRole + 1; // Index in the sample's measurements or files, or the measurement's spectra,
@@ -140,14 +140,25 @@ QTreeWidgetItem *createReportItem(const Report &report, int index) {
     return item;
 }
 
-// Spectra, depth profiles and split analyses of a measurement
+// The ToF-E histogram, spectra, depth profiles and split analyses of a measurement
 bool isAnalysisNode(const QTreeWidgetItem *item) {
-    return nodeType(item) == SpectrumNode || nodeType(item) == DepthProfileNode || nodeType(item) == SplitNode;
+    return nodeType(item) == HistogramNode || nodeType(item) == SpectrumNode || nodeType(item) == DepthProfileNode
+           || nodeType(item) == SplitNode;
+}
+
+// The first child of a measurement, there is always one
+QTreeWidgetItem *createHistogramItem() {
+    auto *item = new QTreeWidgetItem({QStringLiteral("ToF-E histogram")});
+    item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
+    item->setData(0, TypeRole, HistogramNode);
+    item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_DesktopIcon));
+    return item;
 }
 
 QTreeWidgetItem *createMeasurementItem(const Measurement &measurement, int index) {
     auto *item = createItem(measurement.name, MeasurementNode, index, measurement.path, QStyle::SP_FileDialogContentsView);
     item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&measurement)));
+    item->addChild(createHistogramItem());
     for(size_t i = 0; i < measurement.spectra.size(); i++) {
         item->addChild(createSpectrumItem(*measurement.spectra.at(i), static_cast<int>(i)));
     }
@@ -370,35 +381,19 @@ QWidget *ProjectPanel::createPropertyPages() {
     sampleLayout->addRow(metadataGroup);
     m_pages->insertWidget(SamplePage, createPage(sampleLayout));
 
-    m_measurementNameEdit = new QLineEdit;
-    m_measurementDescriptionEdit = new QLineEdit;
-    m_measurementPathLabel = pathLabel();
-    m_measurementSettingsCombo = new QComboBox;
-    m_measurementDetectorCombo = new QComboBox;
-    // Read-only summary of the assigned settings
-    m_beamIonLabel = new QLabel;
-    m_beamEnergyLabel = new QLabel;
-    m_incidentAngleLabel = new QLabel;
-    m_incidentAngleLabel->setToolTip(FromSurface);
-    m_scatteringAngleLabel = new QLabel;
-    m_scatteringAngleLabel->setToolTip(FromSurface);
-    m_exitAngleLabel = new QLabel;
-    m_exitAngleLabel->setToolTip(QString("%1. Scattering angle minus incident angle (IBM geometry).").arg(FromSurface));
-    auto *measurementLayout = new QFormLayout;
-    measurementLayout->addRow("Name:", m_measurementNameEdit);
-    measurementLayout->addRow("Description:", m_measurementDescriptionEdit);
-    measurementLayout->addRow("Data file:", m_measurementPathLabel);
-    measurementLayout->addRow("Experimental settings:", m_measurementSettingsCombo);
-    measurementLayout->addRow("Detector settings:", m_measurementDetectorCombo);
-    m_measurementPhysicsCombo = new QComboBox;
-    m_measurementPhysicsCombo->setToolTip("Without physics settings, the default ones are used");
-    measurementLayout->addRow("Physics settings:", m_measurementPhysicsCombo);
-    measurementLayout->addRow("Incident ion:", m_beamIonLabel);
-    measurementLayout->addRow("Beam energy:", m_beamEnergyLabel);
-    measurementLayout->addRow("Incident angle:", m_incidentAngleLabel);
-    measurementLayout->addRow("Scattering angle:", m_scatteringAngleLabel);
-    measurementLayout->addRow("Exit angle:", m_exitAngleLabel);
+    auto *measurementHint = new QLabel("Double-click to open the measurement in a tab, its ToF-E histogram is under it.");
+    measurementHint->setWordWrap(true);
+    auto *measurementLayout = new QVBoxLayout;
+    measurementLayout->addWidget(measurementHint);
+    measurementLayout->addStretch();
     m_pages->insertWidget(MeasurementPage, createPage(measurementLayout));
+
+    auto *histogramHint = new QLabel("Double-click to open the ToF-E histogram in a tab and work with its selections.");
+    histogramHint->setWordWrap(true);
+    auto *histogramLayout = new QVBoxLayout;
+    histogramLayout->addWidget(histogramHint);
+    histogramLayout->addStretch();
+    m_pages->insertWidget(HistogramPage, createPage(histogramLayout));
 
     m_filePathLabel = pathLabel();
     m_fileDescriptionEdit = new QLineEdit;
@@ -479,42 +474,6 @@ QWidget *ProjectPanel::createPropertyPages() {
         menu.exec(m_metadataTable->viewport()->mapToGlobal(pos));
     });
     connect(m_metadataTable, &QTableWidget::itemChanged, this, &ProjectPanel::metadataItemChanged);
-    connect(m_measurementNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
-        Measurement *measurement = currentMeasurement();
-        measurement->name = text;
-        m_tree->currentItem()->setText(0, text);
-        emit measurementRenamed(measurement);
-        emit modified();
-    });
-    connect(m_measurementNameEdit, &QLineEdit::editingFinished, this, [this]() {
-        if(m_measurementNameEdit->isModified()) {
-            m_measurementNameEdit->setModified(false);
-            sortSamples();
-        }
-    });
-    connect(m_measurementDescriptionEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
-        currentMeasurement()->description = text;
-        emit modified();
-    });
-    connect(m_measurementSettingsCombo, &QComboBox::activated, this, [this]() {
-        const int index = m_measurementSettingsCombo->currentData().toInt();
-        Measurement *measurement = currentMeasurement();
-        measurement->settings = index >= 0 ? m_project->settings(index) : nullptr;
-        showGeometry(*measurement);
-        emit modified();
-    });
-    connect(m_measurementDetectorCombo, &QComboBox::activated, this, [this]() {
-        const int index = m_measurementDetectorCombo->currentData().toInt();
-        Measurement *measurement = currentMeasurement();
-        measurement->detector = index >= 0 ? m_project->detector(index) : nullptr;
-        showGeometry(*measurement);
-        emit modified();
-    });
-    connect(m_measurementPhysicsCombo, &QComboBox::activated, this, [this]() {
-        const int index = m_measurementPhysicsCombo->currentData().toInt();
-        currentMeasurement()->physics = index >= 0 ? m_project->physics(index) : nullptr;
-        emit modified();
-    });
     connect(m_fileDescriptionEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         currentFile().description = text;
         emit modified();
@@ -773,36 +732,12 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
             m_pages->setCurrentIndex(SamplePage);
             break;
         }
-        case MeasurementNode: {
-            const Measurement *measurement = currentMeasurement();
-            m_measurementNameEdit->setText(measurement->name);
-            m_measurementDescriptionEdit->setText(measurement->description);
-            m_measurementPathLabel->setText(measurement->path);
-            m_measurementSettingsCombo->clear();
-            m_measurementSettingsCombo->addItem("None", -1);
-            for(size_t i = 0; i < m_project->settingsCount(); i++) {
-                m_measurementSettingsCombo->addItem(displayName(m_project->settings(i)->name), static_cast<int>(i));
-            }
-            m_measurementSettingsCombo->setCurrentIndex(
-                    m_measurementSettingsCombo->findData(m_project->settingsIndex(measurement->settings)));
-            m_measurementDetectorCombo->clear();
-            m_measurementDetectorCombo->addItem("None", -1);
-            for(size_t i = 0; i < m_project->detectorCount(); i++) {
-                m_measurementDetectorCombo->addItem(displayName(m_project->detector(i)->name), static_cast<int>(i));
-            }
-            m_measurementDetectorCombo->setCurrentIndex(
-                    m_measurementDetectorCombo->findData(m_project->detectorIndex(measurement->detector)));
-            m_measurementPhysicsCombo->clear();
-            m_measurementPhysicsCombo->addItem("Default", -1);
-            for(size_t i = 0; i < m_project->physicsCount(); i++) {
-                m_measurementPhysicsCombo->addItem(displayName(m_project->physics(i)->name), static_cast<int>(i));
-            }
-            m_measurementPhysicsCombo->setCurrentIndex(
-                    m_measurementPhysicsCombo->findData(m_project->physicsIndex(measurement->physics)));
-            showGeometry(*measurement);
+        case MeasurementNode:
             m_pages->setCurrentIndex(MeasurementPage);
             break;
-        }
+        case HistogramNode:
+            m_pages->setCurrentIndex(HistogramPage);
+            break;
         case FileNode: {
             const AttachedFile &file = currentFile();
             m_filePathLabel->setText(file.path);
@@ -837,29 +772,14 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
     }
 }
 
-void ProjectPanel::showGeometry(const Measurement &measurement) {
-    // Same number formatting as in the settings editors, with the locale's decimal separator
-    auto angleText = [this](double angle) { return locale().toString(angle / Units::Degree, 'f', 2) + "°"; };
-    const QString noExperimental = QStringLiteral("No experimental settings");
-    const QString noDetector = QStringLiteral("No detector settings");
-    if(const ExperimentalSettings *settings = measurement.settings) {
-        m_beamIonLabel->setText(settings->beamZ > 0 ? Elements::displayLabel(settings->beamZ, settings->beamA) : QStringLiteral("Not set"));
-        m_beamEnergyLabel->setText(locale().toString(settings->beamEnergy / Units::Megaelectronvolt, 'f', 3) + " MeV");
-        m_incidentAngleLabel->setText(angleText(settings->incidentAngle));
-    } else {
-        m_beamIonLabel->setText(noExperimental);
-        m_beamEnergyLabel->setText(noExperimental);
-        m_incidentAngleLabel->setText(noExperimental);
+void ProjectPanel::measurementRenamedElsewhere(Measurement *measurement) {
+    if(QTreeWidgetItem *item = measurementItem(measurement)) {
+        item->setText(0, measurement->name);
     }
-    m_scatteringAngleLabel->setText(measurement.detector ? angleText(measurement.detector->scatteringAngle) : noDetector);
-    if(!measurement.hasExitAngle()) {
-        m_exitAngleLabel->setText("Needs experimental and detector settings");
-        m_exitAngleLabel->setStyleSheet({});
-        return;
-    }
-    const double angle = measurement.exitAngle();
-    m_exitAngleLabel->setText(angle > 0 ? angleText(angle) : angleText(angle) + " (incident angle exceeds scattering angle)");
-    m_exitAngleLabel->setStyleSheet(angle > 0 ? QString() : QStringLiteral("color: red"));
+}
+
+void ProjectPanel::measurementRenameFinished() {
+    sortSamples(); // By name, the selection is kept
 }
 
 void ProjectPanel::selectMeasurement(const Measurement *measurement) {
@@ -882,17 +802,15 @@ void ProjectPanel::settingsEdited() {
             item->setText(0, displayName(physics->name));
         }
     }
-    // The measurement page shows the names and values of the assigned settings
-    QTreeWidgetItem *current = m_tree->currentItem();
-    if(current && nodeType(current) == MeasurementNode) {
-        showProperties(current);
-    }
 }
 
 void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
     m_tree->setCurrentItem(item); // The actions below work on the current item
     switch(nodeType(item)) {
         case MeasurementNode:
+            emit measurementInfoOpenRequested(currentMeasurement());
+            break;
+        case HistogramNode:
             emit measurementOpenRequested(currentMeasurement());
             break;
         case FileNode:
@@ -955,11 +873,15 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
             menu.addAction("Remove Report", this, &ProjectPanel::removeCurrentReport);
         } else {
             if(nodeType(item) == MeasurementNode) {
-                menu.addAction("Open Measurement", this, [this]() { emit measurementOpenRequested(currentMeasurement()); });
+                menu.addAction("Open Measurement", this, [this]() { emit measurementInfoOpenRequested(currentMeasurement()); });
+                menu.addAction("Open ToF-E Histogram", this, [this]() { emit measurementOpenRequested(currentMeasurement()); });
                 menu.addAction("Add Energy Spectrum", this, &ProjectPanel::addSpectrum);
                 menu.addAction("Add Depth Profile", this, &ProjectPanel::addDepthProfile);
                 menu.addAction("Add Split Analysis", this, &ProjectPanel::addSplit);
                 menu.addAction("Remove Measurement", this, &ProjectPanel::removeCurrentMeasurement);
+                menu.addSeparator();
+            } else if(nodeType(item) == HistogramNode) {
+                menu.addAction("Open ToF-E Histogram", this, [this]() { emit measurementOpenRequested(currentMeasurement()); });
                 menu.addSeparator();
             } else if(nodeType(item) == SpectrumNode) {
                 menu.addAction("Open Energy Spectrum", this, [this]() {
@@ -1427,7 +1349,7 @@ void ProjectPanel::copyDepthProfile(const DepthProfile *profile, Measurement *ta
     QTreeWidgetItem *profileItem = createDepthProfileItem(*target->depthProfiles.back(),
                                                           static_cast<int>(target->depthProfiles.size() - 1));
     // Depth profiles before split analyses
-    targetItem->insertChild(static_cast<int>(target->spectra.size() + target->depthProfiles.size() - 1), profileItem);
+    targetItem->insertChild(static_cast<int>(target->spectra.size() + target->depthProfiles.size()), profileItem); // After the histogram
     targetItem->setExpanded(true);
     m_tree->setCurrentItem(profileItem);
     emit modified();
@@ -1686,7 +1608,7 @@ void ProjectPanel::addSpectrum() {
     }
     measurement->spectra.push_back(std::move(spectrum));
     QTreeWidgetItem *spectrumItem = createSpectrumItem(*measurement->spectra.back(), static_cast<int>(measurement->spectra.size() - 1));
-    item->insertChild(static_cast<int>(measurement->spectra.size() - 1), spectrumItem); // Spectra before depth profiles
+    item->insertChild(static_cast<int>(measurement->spectra.size()), spectrumItem); // After the histogram, before depth profiles
     item->setExpanded(true);
     m_tree->setCurrentItem(spectrumItem);
     emit modified();
@@ -1737,7 +1659,7 @@ void ProjectPanel::addDepthProfile() {
     QTreeWidgetItem *profileItem = createDepthProfileItem(*measurement->depthProfiles.back(),
                                                           static_cast<int>(measurement->depthProfiles.size() - 1));
     // Depth profiles before split analyses
-    item->insertChild(static_cast<int>(measurement->spectra.size() + measurement->depthProfiles.size() - 1), profileItem);
+    item->insertChild(static_cast<int>(measurement->spectra.size() + measurement->depthProfiles.size()), profileItem); // After the histogram
     item->setExpanded(true);
     m_tree->setCurrentItem(profileItem);
     emit modified();

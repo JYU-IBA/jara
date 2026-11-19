@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "defaults.h"
 #include "depthprofileview.h"
+#include "measurementinfoview.h"
 #include "projectinfoview.h"
 #include "reportview.h"
 #include "splitview.h"
@@ -158,6 +159,7 @@ QWidget *MainWindow::createProjectView() {
     connect(m_projectPanel, &ProjectPanel::sampleAboutToBeRemoved, this, &MainWindow::closeSampleTabs);
     connect(m_projectPanel, &ProjectPanel::measurementAboutToBeRemoved, this, &MainWindow::closeMeasurementTab);
     connect(m_projectPanel, &ProjectPanel::measurementOpenRequested, this, &MainWindow::openMeasurement);
+    connect(m_projectPanel, &ProjectPanel::measurementInfoOpenRequested, this, &MainWindow::openMeasurementInfo);
     connect(m_projectPanel, &ProjectPanel::measurementRenamed, this, &MainWindow::measurementRenamed);
     connect(m_projectPanel, &ProjectPanel::spectrumOpenRequested, this, &MainWindow::openSpectrum);
     connect(m_projectPanel, &ProjectPanel::spectrumAboutToBeRemoved, this, [this](EnergySpectrum *spectrum) {
@@ -601,6 +603,8 @@ void MainWindow::projectModified() {
             splitView->refresh();
         } else if(auto *reportView = qobject_cast<ReportView *>(page)) {
             reportView->refresh();
+        } else if(auto *infoView = qobject_cast<MeasurementInfoView *>(page)) {
+            infoView->refresh();
         }
     }
     for(ToFCalibrationWindow *window : findChildren<ToFCalibrationWindow *>()) {
@@ -653,6 +657,24 @@ void MainWindow::openMeasurement(Measurement *measurement) {
     if(!view) {
         view = new MeasurementView(measurement);
         connect(view, &MeasurementView::modified, this, &MainWindow::projectModified);
+    }
+    showTab(view, histogramTitle(measurement), measurement->path);
+}
+
+QString MainWindow::histogramTitle(const Measurement *measurement) {
+    return QString("%1 — ToF-E histogram").arg(measurement->name);
+}
+
+void MainWindow::openMeasurementInfo(Measurement *measurement) {
+    auto *view = findView<MeasurementInfoView>([measurement](MeasurementInfoView *view) { return view->measurement() == measurement; });
+    if(!view) {
+        view = new MeasurementInfoView(m_project.get(), measurement);
+        connect(view, &MeasurementInfoView::modified, this, &MainWindow::projectModified);
+        connect(view, &MeasurementInfoView::renamed, this, [this](Measurement *renamed) {
+            m_projectPanel->measurementRenamedElsewhere(renamed);
+            measurementRenamed(renamed);
+        });
+        connect(view, &MeasurementInfoView::renameFinished, m_projectPanel, &ProjectPanel::measurementRenameFinished);
     }
     showTab(view, measurement->name, measurement->path);
 }
@@ -769,7 +791,7 @@ void MainWindow::connectSettingsView(SettingsView *view) {
     });
     connect(view, &SettingsView::measurementActivated, this, [this](Measurement *measurement) {
         m_projectPanel->selectMeasurement(measurement);
-        openMeasurement(measurement);
+        openMeasurementInfo(measurement);
     });
     // Spectra and depth profiles follow the ToF calibration, the foil or the physics settings once an edit is finished
     connect(view, &SettingsView::editingFinished, this, &MainWindow::recalculateStaleSpectra);
@@ -835,6 +857,10 @@ void MainWindow::closeToFCalibration(const DetectorSettings *detector) {
 void MainWindow::measurementRenamed(Measurement *measurement) {
     auto *view = findView<MeasurementView>([measurement](MeasurementView *view) { return view->measurement() == measurement; });
     if(const auto [tabs, index] = findTab(view); tabs) {
+        tabs->setTabTitle(index, histogramTitle(measurement));
+    }
+    auto *infoView = findView<MeasurementInfoView>([measurement](MeasurementInfoView *view) { return view->measurement() == measurement; });
+    if(const auto [tabs, index] = findTab(infoView); tabs) {
         tabs->setTabTitle(index, measurement->name);
     }
     for(const auto &spectrum : measurement->spectra) {
@@ -856,6 +882,7 @@ void MainWindow::closeSampleTabs(Sample *sample) {
 
 void MainWindow::closeMeasurementTab(Measurement *measurement) {
     closeTab(findView<MeasurementView>([measurement](MeasurementView *view) { return view->measurement() == measurement; }));
+    closeTab(findView<MeasurementInfoView>([measurement](MeasurementInfoView *view) { return view->measurement() == measurement; }));
     for(const auto &spectrum : measurement->spectra) {
         closeTab(findView<EnergySpectrumView>([&spectrum](EnergySpectrumView *view) { return view->spectrum() == spectrum.get(); }));
     }

@@ -29,7 +29,7 @@ spectra and depth profiles. Stopping, masses and isotopes come from [JIBAL](http
 1. Build JaRA, see [Building](docs/building.md).
 2. Create a project (File → New), add a sample and its measurement files (`*.asc`).
 3. Add experimental and detector settings and assign them to the measurements.
-4. Open a measurement, draw selections around the particles in the ToF-E histogram.
+4. Open the ToF-E histogram of a measurement and draw selections around the particles.
 5. Calibrate the ToF with a few selections, then add energy spectra or depth profiles to the measurement.
 
 [Getting started](docs/getting-started.md) goes through these steps in more detail.

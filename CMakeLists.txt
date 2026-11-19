@@ -22,6 +22,8 @@ add_executable(jara
         src/project.h
         src/projectpanel.cpp
         src/projectpanel.h
+        src/measurementinfoview.cpp
+        src/measurementinfoview.h
         src/measurementview.cpp
         src/measurementview.h
         src/energyspectrum.cpp

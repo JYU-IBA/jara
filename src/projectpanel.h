@@ -49,6 +49,8 @@ public:
 
 public slots:
     void updateProjectName(); // In the tree, after it was changed or the project saved (the file name may be used)
+    void measurementRenamedElsewhere(Measurement *measurement); // The text of its item
+    void measurementRenameFinished(); // Sorts the measurements
     void addSample();
     void removeSample();
     void addFiles();
@@ -81,7 +83,8 @@ signals:
     void currentPhysicsChanged(PhysicsSettings *physics);
     void sampleAboutToBeRemoved(Sample *sample);
     void measurementAboutToBeRemoved(Measurement *measurement);
-    void measurementOpenRequested(Measurement *measurement);
+    void measurementOpenRequested(Measurement *measurement); // Its ToF-E histogram
+    void measurementInfoOpenRequested(Measurement *measurement);
     void settingsOpenRequested(ExperimentalSettings *settings);
     void detectorOpenRequested(DetectorSettings *detector);
     void physicsOpenRequested(PhysicsSettings *physics);
@@ -138,7 +141,6 @@ private:
     Report *currentReport() const;
     int firstReportRow() const; // After the samples
     void showProperties(QTreeWidgetItem *item);
-    void showGeometry(const Measurement &measurement); // Beam and angles from the assigned settings
     void addSettingsCollection(const SettingsCollection &collection);
     SettingsCollection currentSettingsCollection() const;
     static SettingsCollection settingsInClipboard();
@@ -160,17 +162,6 @@ private:
     QTableWidget *m_metadataTable;
     QLabel *m_filePathLabel;
     QLineEdit *m_fileDescriptionEdit;
-    QLabel *m_measurementPathLabel;
-    QLineEdit *m_measurementNameEdit;
-    QLineEdit *m_measurementDescriptionEdit;
-    QComboBox *m_measurementSettingsCombo;
-    QComboBox *m_measurementDetectorCombo;
-    QComboBox *m_measurementPhysicsCombo;
-    QLabel *m_beamIonLabel;
-    QLabel *m_beamEnergyLabel;
-    QLabel *m_incidentAngleLabel;
-    QLabel *m_scatteringAngleLabel;
-    QLabel *m_exitAngleLabel;
     QLineEdit *m_spectrumNameEdit;
     QLineEdit *m_depthProfileNameEdit;
     QLineEdit *m_splitNameEdit;

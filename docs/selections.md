@@ -1,6 +1,6 @@
 # Selections
 
-Double-click a measurement to open its ToF-E histogram. The toolbar switches between modes:
+Double-click the ToF-E histogram under a measurement to open it. The toolbar switches between modes:
 
 - **Zoom Box** and **Move**, as in all [plots](getting-started.md#plots)
 - **Select**: click to add the vertices of a polygon. Enter or clicking the first vertex completes it, Backspace
