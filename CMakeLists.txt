@@ -72,6 +72,8 @@ add_executable(jara
         src/rangewidget.cpp
         src/rangewidget.h
         src/split.cpp
+        src/tableexport.cpp
+        src/tableexport.h
         src/split.h
         src/splitview.cpp
         src/splitview.h

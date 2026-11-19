@@ -3,19 +3,17 @@
 #include "elements.h"
 #include "project.h"
 #include "rangewidget.h"
+#include "tableexport.h"
 
 #include <QActionGroup>
 #include <QApplication>
 #include <QDoubleSpinBox>
-#include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QSaveFile>
 #include <QSplitter>
-#include <QTextStream>
 #include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
@@ -279,53 +277,42 @@ void EnergySpectrumView::exportSpectrum() {
         QMessageBox::warning(this, "Export Energy Spectrum", "There is no spectrum to export.");
         return;
     }
-    const QString fileName = QFileDialog::getSaveFileName(this, "Export Energy Spectrum",
-                                                          QString("%1 %2.txt").arg(m_measurement->name, m_spectrum->name),
-                                                          "Text files (*.txt);;All files (*)");
-    if(fileName.isEmpty()) {
-        return;
-    }
-    // Numbers are written without the locale, so that other programs can read them
-    QString text;
-    QTextStream out(&text);
-    out << "# JaRA energy spectrum\n";
-    out << "# Measurement: " << m_measurement->name << " (" << m_measurement->path << ")\n";
-    out << "# Spectrum: " << m_spectrum->name << "\n";
-    out << "# ToF length " << QString::number(m_calculatedInputs.tofLength, 'g', 10) << " m, slope "
-        << QString::number(m_calculatedInputs.tofSlope, 'g', 10) << " s/ch, offset "
-        << QString::number(m_calculatedInputs.tofOffset, 'g', 10) << " s\n";
+    auto number = [](double value) { return QString::number(value, 'g', 10); };
+    ExportTable table;
+    table.comments.append(QString("JaRA energy spectrum: %1 / %2 (%3)").arg(m_measurement->name, m_spectrum->name,
+                                                                         m_measurement->path));
+    QString parameters = QString("ToF length %1 m, slope %2 s/ch, offset %3 s; ")
+                                 .arg(number(m_calculatedInputs.tofLength), number(m_calculatedInputs.tofSlope),
+                                      number(m_calculatedInputs.tofOffset));
     if(m_calculatedInputs.beamZ > 0) {
-        out << "# Incident ion " << Elements::label(m_calculatedInputs.beamZ, m_calculatedInputs.beamA)
-            << ", its mass is used for scattered ions (marked with *)\n";
+        parameters += QString("incident ion %1, the mass of scattered ions (*); ")
+                              .arg(Elements::label(m_calculatedInputs.beamZ, m_calculatedInputs.beamA));
     }
-    out << "# Bin width " << QString::number(m_result.binWidth / Units::Megaelectronvolt, 'g', 10) << " MeV\n";
-    out << "# Events are spread uniformly within their ToF channel before the conversion to energy\n";
+    table.comments.append(parameters + QString("bin %1 MeV").arg(number(m_result.binWidth / Units::Megaelectronvolt)));
     if(m_calculatedInputs.rangeMin > 0 || m_calculatedInputs.rangeMax < 1) {
         const Cut *reference = m_measurement->referenceCut();
-        out << "# Part of the measurement: " << QString::number(m_calculatedInputs.rangeMin * 100, 'g', 6) << " % to "
-            << QString::number(m_calculatedInputs.rangeMax * 100, 'g', 6) << " % of the counts of "
-            << (reference ? cutLabel(*reference, false) : QStringLiteral("all events")) << "\n";
+        table.comments.append(QString("Events of %1-%2 % of the counts of %3")
+                                      .arg(number(m_calculatedInputs.rangeMin * 100), number(m_calculatedInputs.rangeMax * 100),
+                                           reference ? cutLabel(*reference, false) : QStringLiteral("all events")));
     }
     if(m_stale) {
-        out << "# Out of date: the selections, the ToF calibration or the incident ion have changed since the spectrum was calculated\n";
+        table.comments.append(QStringLiteral("Out of date"));
     }
-    out << "# E (MeV, bin centre)";
+    table.columns.append(QStringLiteral("E (MeV)"));
     for(const EnergyHistogram &histogram : m_result.histograms) {
-        out << "\t" << cutLabel(histogram.z, histogram.a, histogram.type, false);
+        table.columns.append(cutLabel(histogram.z, histogram.a, histogram.type, false));
     }
-    out << "\n";
     const size_t bins = m_result.histograms.front().counts.size();
     for(size_t i = 0; i < bins; i++) {
-        out << QString::number((static_cast<double>(i) + 0.5) * m_result.binWidth / Units::Megaelectronvolt, 'g', 10);
+        QStringList row{number((static_cast<double>(i) + 0.5) * m_result.binWidth / Units::Megaelectronvolt)};
         for(const EnergyHistogram &histogram : m_result.histograms) {
-            out << "\t" << histogram.counts[i];
+            row.append(QString::number(histogram.counts[i]));
         }
-        out << "\n";
+        table.rows.append(row);
     }
-    QSaveFile file(fileName);
-    if(!file.open(QIODevice::WriteOnly) || file.write(text.toUtf8()) < 0 || !file.commit()) {
-        QMessageBox::critical(this, "Export Energy Spectrum", QString("Could not write %1:\n%2").arg(fileName, file.errorString()));
-        return;
+    const QString fileName = exportTable(this, "Export Energy Spectrum",
+                                         QString("%1 %2").arg(m_measurement->name, m_spectrum->name), table);
+    if(!fileName.isEmpty()) {
+        m_statusLabel->setText(QString("Exported %1").arg(fileName));
     }
-    m_statusLabel->setText(QString("Exported %1").arg(fileName));
 }

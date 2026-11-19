@@ -1,5 +1,6 @@
 #include "depthprofileview.h"
 #include "rangewidget.h"
+#include "tableexport.h"
 #include "colorbutton.h"
 #include "defaults.h"
 #include "elements.h"
@@ -15,7 +16,6 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
-#include <QFileDialog>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -25,11 +25,9 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QSaveFile>
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QSplitter>
-#include <QTextStream>
 #include <QTimer>
 #include <QToolBar>
 #include <QTreeWidget>
@@ -1051,70 +1049,75 @@ void DepthProfileView::exportProfile() {
         QMessageBox::warning(this, "Export Depth Profile", "There is no depth profile to export.");
         return;
     }
-    const QString fileName = QFileDialog::getSaveFileName(this, "Export Depth Profile",
-                                                          QString("%1 %2.txt").arg(m_measurement->name, m_profile->name),
-                                                          "Text files (*.txt);;All files (*)");
-    if(fileName.isEmpty()) {
-        return;
-    }
-    // Numbers are written without the locale, so that other programs can read them
-    QString text;
-    QTextStream out(&text);
     auto number = [](double value, int precision = 6) { return QString::number(value, 'g', precision); };
-    out << "# JaRA depth profile\n";
-    out << "# Measurement: " << m_measurement->name << " (" << m_measurement->path << ")\n";
-    out << "# Profile: " << m_profile->name << "\n";
-    out << "# Incident ion " << Elements::label(m_calculatedInputs.beamZ, m_calculatedInputs.beamA) << ", "
-        << number(m_calculatedInputs.beamEnergy / Units::Megaelectronvolt) << " MeV, incident angle "
-        << number(m_calculatedInputs.incidentAngle / Units::Degree) << " deg, scattering angle "
-        << number(m_calculatedInputs.scatteringAngle / Units::Degree) << " deg from the surface\n";
-    out << "# Single scattering, Rutherford cross sections with the Andersen correction, iteration "
-        << m_calculation->iterations() << ", " << changeText(m_calculation->lastChange()) << " in the last one\n";
-    out << "# Stopping bins " << number(m_profile->stoppingBinWidth / Units::ThinFilmUnit) << " 1e15 at/cm2, "
-        << m_profile->minStoppingBinEvents << " smoothing events, density " << number(m_profile->density / GramPerCubicCentimetre)
-        << " g/cm3 for nm, maximum depth " << number(m_calculation->maxDepth() / Units::ThinFilmUnit) << " 1e15 at/cm2\n";
-    out << "# Total 100 % on average over " << number(m_result.normalizationMin / Units::ThinFilmUnit) << "-"
-        << number(m_result.normalizationMax / Units::ThinFilmUnit) << " 1e15 at/cm2\n";
+    // In at.%, as in the tables, "nan" for none
+    auto value = [](double fraction) {
+        return std::isnan(fraction) ? QStringLiteral("nan") : QString::number(fraction * 100, 'f', ConcentrationDecimals);
+    };
+    const double thinFilm = Units::ThinFilmUnit;
+    ExportTable table;
+    table.comments.append(QString("JaRA depth profile: %1 / %2 (%3)").arg(m_measurement->name, m_profile->name,
+                                                                        m_measurement->path));
+    table.comments.append(QString("%1 %2 MeV, incident %3 deg, scattering %4 deg from the surface; screening %5; "
+                                  "iteration %6, %7")
+                                  .arg(Elements::label(m_calculatedInputs.beamZ, m_calculatedInputs.beamA),
+                                       number(m_calculatedInputs.beamEnergy / Units::Megaelectronvolt),
+                                       number(m_calculatedInputs.incidentAngle / Units::Degree),
+                                       number(m_calculatedInputs.scatteringAngle / Units::Degree),
+                                       screeningModelName(m_calculatedInputs.physics.screening))
+                                  .arg(m_calculation->iterations())
+                                  .arg(changeText(m_calculation->lastChange())));
+    table.comments.append(QString("Depths in 1e15 at/cm2: stopping bins %1 with %2 smoothing events, maximum %3, 100 % "
+                                  "over %4-%5, averages over %6-%7; density %8 g/cm3 for nm")
+                                  .arg(number(m_profile->stoppingBinWidth / thinFilm))
+                                  .arg(m_profile->minStoppingBinEvents)
+                                  .arg(number(m_calculation->maxDepth() / thinFilm), number(m_result.normalizationMin / thinFilm),
+                                       number(m_result.normalizationMax / thinFilm), number(m_result.averageMin / thinFilm),
+                                       number(m_result.averageMax / thinFilm),
+                                       number(m_profile->density / GramPerCubicCentimetre)));
     if(m_calculatedInputs.rangeMin > 0 || m_calculatedInputs.rangeMax < 1) {
         const Cut *reference = m_measurement->referenceCut();
-        out << "# Part of the measurement: " << number(m_calculatedInputs.rangeMin * 100) << " % to "
-            << number(m_calculatedInputs.rangeMax * 100) << " % of the counts of "
-            << (reference ? cutLabel(*reference, false) : QStringLiteral("all events")) << "\n";
+        table.comments.append(QString("Events of %1-%2 % of the counts of %3")
+                                      .arg(number(m_calculatedInputs.rangeMin * 100), number(m_calculatedInputs.rangeMax * 100),
+                                           reference ? cutLabel(*reference, false) : QStringLiteral("all events")));
     }
     if(m_stale) {
-        out << "# Out of date: the selections or the settings have changed since the profile was calculated\n";
+        table.comments.append(QStringLiteral("Out of date"));
     }
-    out << "# Averages over " << number(m_result.averageMin / Units::ThinFilmUnit) << "-"
-        << number(m_result.averageMax / Units::ThinFilmUnit) << " 1e15 at/cm2 (at.% +- uncertainty, renormalized at.% +- "
-           "uncertainty, statistical, including the normalization):";
+    // Renormalized averages only when they differ from the averages
+    QStringList averages;
     for(size_t c = 0; c < m_result.curves.size(); c++) {
-        const DepthProfileCurve &curve = m_result.curves[c];
         const DepthProfileResult::Average &average = m_result.averages[c];
-        out << " " << curve.label(false) << " " << percent(average.concentration) << " +- "
-            << percent(average.uncertainty) << " " << (std::isnan(average.renormalized) ? QStringLiteral("-")
-                                                       : percent(average.renormalized) + " +- " + percent(average.renormalizedUncertainty));
+        QString text = QString("%1 %2 +- %3").arg(m_result.curves[c].label(false), value(average.concentration),
+                                                  value(average.uncertainty));
+        if(!m_profile->averageFollowsNormalization && !std::isnan(average.renormalized)) {
+            text += QString(" (renormalized %1 +- %2)").arg(value(average.renormalized), value(average.renormalizedUncertainty));
+        }
+        averages.append(text);
     }
-    out << "\n# Depth (1e15 at/cm2, bin centre)\tDepth (ug/cm2)\tDepth (nm)";
+    table.comments.append(QStringLiteral("Averages (at.%): ") + averages.join(QStringLiteral(", ")));
+    table.columns = QStringList{QStringLiteral("Depth (1e15 at/cm2)"), QStringLiteral("Depth (ug/cm2)"),
+                                QStringLiteral("Depth (nm)")};
     for(const DepthProfileCurve &curve : m_result.curves) {
         const QString label = curve.label(false);
-        out << "\t" << label << " (at.%)\t" << label << " uncertainty\t" << label << " events";
+        table.columns.append({label + QStringLiteral(" (at.%)"), label + QStringLiteral(" uncertainty"),
+                              label + QStringLiteral(" events")});
     }
-    out << "\tTotal (at.%)\n";
+    table.columns.append(QStringLiteral("Total (at.%)"));
     for(size_t i = 0; i < m_result.bins(); i++) {
         const double depth = m_result.binStart(i) + m_result.binWidth / 2;
         const double mass = m_calculation->massDepth(depth);
-        out << number(depth / Units::ThinFilmUnit, 8) << "\t" << number(mass / Units::MicrogramPerSquareCentimetre) << "\t"
-            << number(mass / m_profile->density / Nanometre);
+        QStringList row{number(depth / thinFilm, 8), number(mass / Units::MicrogramPerSquareCentimetre),
+                        number(mass / m_profile->density / Nanometre)};
         for(const DepthProfileCurve &curve : m_result.curves) {
-            out << "\t" << percent(curve.concentrations[i]) << "\t" << percent(curve.uncertainties[i]) << "\t"
-                << curve.counts[i];
+            row.append({value(curve.concentrations[i]), value(curve.uncertainties[i]), QString::number(curve.counts[i])});
         }
-        out << "\t" << percent(m_result.totals[i]) << "\n";
+        row.append(value(m_result.totals[i]));
+        table.rows.append(row);
     }
-    QSaveFile file(fileName);
-    if(!file.open(QIODevice::WriteOnly) || file.write(text.toUtf8()) < 0 || !file.commit()) {
-        QMessageBox::critical(this, "Export Depth Profile", QString("Could not write %1:\n%2").arg(fileName, file.errorString()));
-        return;
+    const QString fileName = exportTable(this, "Export Depth Profile",
+                                         QString("%1 %2").arg(m_measurement->name, m_profile->name), table);
+    if(!fileName.isEmpty()) {
+        m_statusLabel->setText(QString("Exported %1").arg(fileName));
     }
-    m_statusLabel->setText(QString("Exported %1").arg(fileName));
 }

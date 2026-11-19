@@ -1,20 +1,18 @@
 #include "splitview.h"
 #include "colorbutton.h"
 #include "project.h"
+#include "tableexport.h"
 
 #include <cmath>
 
 #include <QActionGroup>
 #include <QApplication>
-#include <QFileDialog>
 #include <QHeaderView>
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
-#include <QSaveFile>
 #include <QSpinBox>
 #include <QSplitter>
-#include <QTextStream>
 #include <QTimer>
 #include <QToolBar>
 #include <QTreeWidget>
@@ -314,47 +312,38 @@ void SplitView::exportSplit() {
         QMessageBox::warning(this, "Export Split Analysis", "There is nothing to export.");
         return;
     }
-    const QString fileName = QFileDialog::getSaveFileName(this, "Export Split Analysis",
-                                                          QString("%1 %2.txt").arg(m_measurement->name, m_split->name),
-                                                          "Text files (*.txt);;All files (*)");
-    if(fileName.isEmpty()) {
-        return;
-    }
-    // Numbers are written without the locale, so that other programs can read them
-    QString text;
-    QTextStream out(&text);
-    out << "# JaRA split analysis\n";
-    out << "# Measurement: " << m_measurement->name << " (" << m_measurement->path << ")\n";
-    out << "# Split analysis: " << m_split->name << "\n";
-    out << "# Divided by " << referenceText() << ": " << m_result.referenceCounts << " counts in " << m_result.parts
-        << " parts\n";
-    out << "# Fits: counts = intercept + slope * reference counts (%), change = 100 * (100 % * slope) / mean in %\n";
+    auto number = [](double value, int precision = 10) { return QString::number(value, 'g', precision); };
+    ExportTable table;
+    table.comments.append(QString("JaRA split analysis: %1 / %2 (%3)").arg(m_measurement->name, m_split->name,
+                                                                         m_measurement->path));
+    table.comments.append(QString("%1 parts of %2 counts of %3; lines fitted to the counts against the reference "
+                                  "counts (%), change over the measurement relative to the mean")
+                                  .arg(m_result.parts)
+                                  .arg(number(static_cast<double>(m_result.referenceCounts) / m_result.parts, 6))
+                                  .arg(referenceText()));
+    QStringList changes;
     for(const SplitCounts &counts : m_result.selections) {
         const Cut *cut = m_measurement->cut(counts.cutId);
-        out << "# " << (cut ? cutLabel(*cut, false) : QString()) << ": total " << counts.total << ", mean "
-            << QString::number(counts.fit.mean, 'g', 10) << ", intercept " << QString::number(counts.fit.intercept, 'g', 10)
-            << ", slope " << QString::number(counts.fit.slope, 'g', 10) << " ± "
-            << QString::number(counts.fit.slopeUncertainty, 'g', 10) << " /%, change "
-            << QString::number(counts.fit.relativeChange(), 'g', 6) << " ± "
-            << QString::number(counts.fit.relativeChangeUncertainty(), 'g', 6) << " %\n";
+        changes.append(QString("%1 %2 +- %3").arg(cut ? cutLabel(*cut, false) : QString(),
+                                                   number(counts.fit.relativeChange(), 3),
+                                                   number(counts.fit.relativeChangeUncertainty(), 2)));
     }
-    out << "# Part\tReference counts (%, middle)";
+    table.comments.append(QStringLiteral("Change (%): ") + changes.join(QStringLiteral(", ")));
+    table.columns = QStringList{QStringLiteral("Part"), QStringLiteral("Reference counts (%)")};
     for(const SplitCounts &counts : m_result.selections) {
         const Cut *cut = m_measurement->cut(counts.cutId);
-        out << "\t" << (cut ? cutLabel(*cut, false) : QString());
+        table.columns.append(cut ? cutLabel(*cut, false) : QString());
     }
-    out << "\n";
     for(int i = 0; i < m_result.parts; i++) {
-        out << i + 1 << "\t" << QString::number(m_result.partMiddle(i), 'g', 10);
+        QStringList row{QString::number(i + 1), number(m_result.partMiddle(i))};
         for(const SplitCounts &counts : m_result.selections) {
-            out << "\t" << counts.counts[static_cast<size_t>(i)];
+            row.append(QString::number(counts.counts[static_cast<size_t>(i)]));
         }
-        out << "\n";
+        table.rows.append(row);
     }
-    QSaveFile file(fileName);
-    if(!file.open(QIODevice::WriteOnly) || file.write(text.toUtf8()) < 0 || !file.commit()) {
-        QMessageBox::critical(this, "Export Split Analysis", QString("Could not write %1:\n%2").arg(fileName, file.errorString()));
-        return;
+    const QString fileName = exportTable(this, "Export Split Analysis",
+                                         QString("%1 %2").arg(m_measurement->name, m_split->name), table);
+    if(!fileName.isEmpty()) {
+        m_statusLabel->setText(QString("Exported %1").arg(fileName));
     }
-    m_statusLabel->setText(QString("Exported %1").arg(fileName));
 }
