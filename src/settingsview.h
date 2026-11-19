@@ -4,6 +4,7 @@
 #include <QWidget>
 
 class DetectorSettingsEditor;
+class ExperimentalSettingsEditor;
 class PhysicsSettingsEditor;
 class Project;
 class QListWidget;
@@ -26,7 +27,7 @@ public:
     PhysicsSettings *physics() const { return m_physics; } // Same as above
     QString name() const;
     void updateAssigned(); // Call after measurements or their assignments change
-    void refresh(); // Shows the values of detector or physics settings again after they were changed elsewhere
+    void refresh(); // Shows the values again after they were changed elsewhere, e.g. renamed in the project tree
 
 signals:
     void modified();
@@ -43,6 +44,7 @@ private:
     DetectorSettings *m_detector = nullptr;
     PhysicsSettings *m_physics = nullptr;
     QListWidget *m_assignedList = nullptr;
+    ExperimentalSettingsEditor *m_experimentalEditor = nullptr;
     DetectorSettingsEditor *m_detectorEditor = nullptr;
     PhysicsSettingsEditor *m_physicsEditor = nullptr;
 };

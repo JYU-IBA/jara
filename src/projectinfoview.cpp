@@ -44,6 +44,9 @@ ProjectInfoView::ProjectInfoView(Project *project, QWidget *parent) : QWidget(pa
 
 void ProjectInfoView::refresh() {
     const QString format = QStringLiteral("yyyy-MM-dd HH:mm:ss");
+    if(!m_nameEdit->hasFocus()) {
+        m_nameEdit->setText(m_project->name());
+    }
     m_nameEdit->setPlaceholderText(m_project->displayName());
     m_fileLabel->setText(m_project->fileName().isEmpty() ? QStringLiteral("Not saved yet") : m_project->fileName());
     m_createdLabel->setText(m_project->created().isValid() ? m_project->created().toString(format) : QStringLiteral("Unknown"));

@@ -3,6 +3,7 @@
 #include "depthprofileview.h"
 #include "measurementinfoview.h"
 #include "projectinfoview.h"
+#include "sampleview.h"
 #include "reportview.h"
 #include "splitview.h"
 #include "energyspectrumview.h"
@@ -176,6 +177,18 @@ QWidget *MainWindow::createProjectView() {
         updateDepthProfileTitle(findView<DepthProfileView>([profile](DepthProfileView *view) { return view->profile() == profile; }));
     });
     connect(m_projectPanel, &ProjectPanel::projectInfoOpenRequested, this, &MainWindow::openProjectInfo);
+    connect(m_projectPanel, &ProjectPanel::sampleOpenRequested, this, &MainWindow::openSample);
+    connect(m_projectPanel, &ProjectPanel::projectRenamed, this, &MainWindow::projectSaved); // Shows the name
+    connect(m_projectPanel, &ProjectPanel::settingsRenamed, this, [this]() {
+        for(QWidget *page : tabPages()) {
+            if(auto *view = qobject_cast<SettingsView *>(page)) {
+                view->refresh();
+                if(const auto [tabs, index] = findTab(view); tabs) {
+                    tabs->setTabTitle(index, view->name());
+                }
+            }
+        }
+    });
     connect(m_projectPanel, &ProjectPanel::reportOpenRequested, this, &MainWindow::openReport);
     connect(m_projectPanel, &ProjectPanel::reportAboutToBeRemoved, this, [this](Report *report) {
         closeTab(findView<ReportView>([report](ReportView *view) { return view->report() == report; }));
@@ -605,6 +618,11 @@ void MainWindow::projectModified() {
             reportView->refresh();
         } else if(auto *infoView = qobject_cast<MeasurementInfoView *>(page)) {
             infoView->refresh();
+        } else if(auto *sampleView = qobject_cast<SampleView *>(page)) {
+            sampleView->refresh();
+            if(const auto [tabs, index] = findTab(sampleView); tabs) {
+                tabs->setTabTitle(index, sampleView->sample()->name);
+            }
         }
     }
     for(ToFCalibrationWindow *window : findChildren<ToFCalibrationWindow *>()) {
@@ -665,6 +683,22 @@ QString MainWindow::histogramTitle(const Measurement *measurement) {
     return QString("%1 — ToF-E histogram").arg(measurement->name);
 }
 
+void MainWindow::openSample(Sample *sample) {
+    auto *view = findView<SampleView>([sample](SampleView *view) { return view->sample() == sample; });
+    if(!view) {
+        view = new SampleView(sample);
+        connect(view, &SampleView::modified, this, &MainWindow::projectModified);
+        connect(view, &SampleView::renamed, this, [this, view](Sample *renamed) {
+            m_projectPanel->sampleRenamedElsewhere(renamed);
+            if(const auto [tabs, index] = findTab(view); tabs) {
+                tabs->setTabTitle(index, renamed->name);
+            }
+        });
+        connect(view, &SampleView::renameFinished, m_projectPanel, &ProjectPanel::renameFinished);
+    }
+    showTab(view, sample->name, "Sample");
+}
+
 void MainWindow::openMeasurementInfo(Measurement *measurement) {
     auto *view = findView<MeasurementInfoView>([measurement](MeasurementInfoView *view) { return view->measurement() == measurement; });
     if(!view) {
@@ -674,7 +708,7 @@ void MainWindow::openMeasurementInfo(Measurement *measurement) {
             m_projectPanel->measurementRenamedElsewhere(renamed);
             measurementRenamed(renamed);
         });
-        connect(view, &MeasurementInfoView::renameFinished, m_projectPanel, &ProjectPanel::measurementRenameFinished);
+        connect(view, &MeasurementInfoView::renameFinished, m_projectPanel, &ProjectPanel::renameFinished);
     }
     showTab(view, measurement->name, measurement->path);
 }
@@ -875,6 +909,7 @@ void MainWindow::measurementRenamed(Measurement *measurement) {
 }
 
 void MainWindow::closeSampleTabs(Sample *sample) {
+    closeTab(findView<SampleView>([sample](SampleView *view) { return view->sample() == sample; }));
     for(const auto &measurement : sample->measurements) {
         closeMeasurementTab(measurement.get());
     }

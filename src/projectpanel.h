@@ -15,7 +15,6 @@ struct Report;
 struct EnergySpectrum;
 struct ExperimentalSettings;
 struct Measurement;
-struct MetadataEntry;
 struct Sample;
 class QComboBox;
 class QDropEvent;
@@ -23,7 +22,6 @@ class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPlainTextEdit;
-class QStackedWidget;
 class QTableWidget;
 class QTableWidgetItem;
 class QTreeWidget;
@@ -50,7 +48,8 @@ public:
 public slots:
     void updateProjectName(); // In the tree, after it was changed or the project saved (the file name may be used)
     void measurementRenamedElsewhere(Measurement *measurement); // The text of its item
-    void measurementRenameFinished(); // Sorts the measurements
+    void sampleRenamedElsewhere(Sample *sample); // Same as above
+    void renameFinished(); // Sorts samples and measurements by name, after one was renamed in a tab
     void addSample();
     void removeSample();
     void addFiles();
@@ -85,6 +84,9 @@ signals:
     void measurementAboutToBeRemoved(Measurement *measurement);
     void measurementOpenRequested(Measurement *measurement); // Its ToF-E histogram
     void measurementInfoOpenRequested(Measurement *measurement);
+    void sampleOpenRequested(Sample *sample);
+    void settingsRenamed(); // In the tree, settings tabs show the name
+    void projectRenamed(); // Same as above
     void settingsOpenRequested(ExperimentalSettings *settings);
     void detectorOpenRequested(DetectorSettings *detector);
     void physicsOpenRequested(PhysicsSettings *physics);
@@ -108,11 +110,9 @@ signals:
 
 private slots:
     void currentItemChanged(QTreeWidgetItem *item);
+    void itemRenamed(QTreeWidgetItem *item); // In place
     void itemDoubleClicked(QTreeWidgetItem *item);
     void showContextMenu(const QPoint &pos);
-    void addMetadata();
-    void removeMetadata();
-    void metadataItemChanged(QTableWidgetItem *item);
     void openCurrentFile();
     void removeCurrentFile();
     void removeCurrentMeasurement();
@@ -122,7 +122,6 @@ private slots:
     void removeCurrentReport();
 
 private:
-    QWidget *createPropertyPages();
     QTreeWidgetItem *createSettingsItem(const ExperimentalSettings &settings);
     QTreeWidgetItem *createDetectorItem(const DetectorSettings &detector);
     QTreeWidgetItem *createPhysicsItem(const PhysicsSettings &physics);
@@ -140,11 +139,9 @@ private:
     SplitAnalysis *currentSplit() const;
     Report *currentReport() const;
     int firstReportRow() const; // After the samples
-    void showProperties(QTreeWidgetItem *item);
     void addSettingsCollection(const SettingsCollection &collection);
     SettingsCollection currentSettingsCollection() const;
     static SettingsCollection settingsInClipboard();
-    void appendMetadataRow(const MetadataEntry &entry);
     QTreeWidgetItem *measurementItem(const Measurement *measurement) const;
     void sortSamples();
     void rebuildSampleItems(const void *select); // Sorts and rebuilds the sample items, selects the given sample or measurement
@@ -156,16 +153,6 @@ private:
 
     Project *m_project = nullptr;
     QTreeWidget *m_tree;
-    QStackedWidget *m_pages;
-    QLineEdit *m_sampleNameEdit;
-    QPlainTextEdit *m_sampleDescriptionEdit;
-    QTableWidget *m_metadataTable;
-    QLabel *m_filePathLabel;
-    QLineEdit *m_fileDescriptionEdit;
-    QLineEdit *m_spectrumNameEdit;
-    QLineEdit *m_depthProfileNameEdit;
-    QLineEdit *m_splitNameEdit;
-    QLineEdit *m_reportNameEdit;
     QAction *m_copySettingsAction;
     QAction *m_pasteSettingsAction;
 };

@@ -32,6 +32,8 @@ add_executable(jara
         src/energyspectrumview.h
         src/spectrumplotwidget.cpp
         src/spectrumplotwidget.h
+        src/sampleview.cpp
+        src/sampleview.h
         src/settingsview.cpp
         src/settingsview.h
         src/tabwidget.cpp

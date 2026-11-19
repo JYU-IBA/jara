@@ -41,6 +41,7 @@ private slots:
     void projectModified();
     void openMeasurement(Measurement *measurement); // Its ToF-E histogram
     void openMeasurementInfo(Measurement *measurement);
+    void openSample(Sample *sample);
     void openSpectrum(Measurement *measurement, EnergySpectrum *spectrum);
     void openDepthProfile(Measurement *measurement, DepthProfile *profile);
     void openSplit(Measurement *measurement, SplitAnalysis *split);

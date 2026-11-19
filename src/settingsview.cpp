@@ -13,6 +13,7 @@ constexpr int MeasurementRole = Qt::UserRole;
 SettingsView::SettingsView(Project *project, ExperimentalSettings *settings, QWidget *parent)
     : QWidget(parent), m_project(project), m_settings(settings) {
     auto *editor = new ExperimentalSettingsEditor;
+    m_experimentalEditor = editor;
     editor->setSettings(settings);
     connect(editor, &ExperimentalSettingsEditor::changed, this, &SettingsView::modified);
     connect(editor, &ExperimentalSettingsEditor::nameChanged, this, &SettingsView::nameChanged);
@@ -67,6 +68,9 @@ void SettingsView::createLayout(QWidget *editor) {
 }
 
 void SettingsView::refresh() {
+    if(m_experimentalEditor) {
+        m_experimentalEditor->setSettings(m_settings);
+    }
     if(m_physicsEditor) {
         m_physicsEditor->refresh();
     }

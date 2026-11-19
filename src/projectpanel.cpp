@@ -29,8 +29,6 @@
 #include <QMimeData>
 #include <QPlainTextEdit>
 #include <QSaveFile>
-#include <QSplitter>
-#include <QStackedWidget>
 #include <QStyle>
 #include <QTableWidget>
 #include <QTimer>
@@ -44,8 +42,6 @@ namespace {
 // under their measurement.
 enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode, SpectrumNode, DepthProfileNode, PhysicsNode,
                 SplitNode, ReportNode, ProjectNode, HistogramNode };
-enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, SpectrumPage, DepthProfilePage, SplitPage,
-            ReportPage, ProjectPage, HistogramPage };
 constexpr int FirstSettingsRow = 1; // After the project information
 constexpr int TypeRole = Qt::UserRole;
 constexpr int IndexRole = Qt::UserRole + 1; // Index in the sample's measurements or files, or the measurement's spectra,
@@ -72,6 +68,12 @@ QTreeWidgetItem *topLevelOf(QTreeWidgetItem *item) {
     return item;
 }
 
+// Named items can be renamed in place
+QTreeWidgetItem *renamable(QTreeWidgetItem *item) {
+    item->setFlags(item->flags() | Qt::ItemIsEditable);
+    return item;
+}
+
 QTreeWidgetItem *createItem(const QString &text, NodeType type, int index, const QString &path, QStyle::StandardPixmap icon) {
     auto *item = new QTreeWidgetItem({text});
     if(type != MeasurementNode) {
@@ -92,6 +94,11 @@ const void *objectOf(const QTreeWidgetItem *item) {
     return reinterpret_cast<const void *>(item->data(0, ObjectRole).value<quintptr>());
 }
 
+// The object of the item, which belongs to the project, as its type
+template<typename T> T *objectOf(const QTreeWidgetItem *item) {
+    return const_cast<T *>(static_cast<const T *>(objectOf(item)));
+}
+
 QTreeWidgetItem *createSpectrumItem(const EnergySpectrum &spectrum, int index) {
     auto *item = new QTreeWidgetItem({displayName(spectrum.name)});
     item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
@@ -99,7 +106,7 @@ QTreeWidgetItem *createSpectrumItem(const EnergySpectrum &spectrum, int index) {
     item->setData(0, IndexRole, index);
     item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&spectrum)));
     item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView));
-    return item;
+    return renamable(item);
 }
 
 QTreeWidgetItem *createDepthProfileItem(const DepthProfile &profile, int index) {
@@ -108,7 +115,7 @@ QTreeWidgetItem *createDepthProfileItem(const DepthProfile &profile, int index) 
     item->setData(0, IndexRole, index);
     item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&profile)));
     item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_FileDialogListView));
-    return item;
+    return renamable(item);
 }
 
 QTreeWidgetItem *createSplitItem(const SplitAnalysis &split, int index) {
@@ -118,7 +125,7 @@ QTreeWidgetItem *createSplitItem(const SplitAnalysis &split, int index) {
     item->setData(0, IndexRole, index);
     item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&split)));
     item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_FileDialogInfoView));
-    return item;
+    return renamable(item);
 }
 
 QTreeWidgetItem *createProjectItem(const Project &project) {
@@ -127,7 +134,7 @@ QTreeWidgetItem *createProjectItem(const Project &project) {
     item->setData(0, TypeRole, ProjectNode);
     item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_FileDialogInfoView));
     item->setToolTip(0, "Project information");
-    return item;
+    return renamable(item);
 }
 
 QTreeWidgetItem *createReportItem(const Report &report, int index) {
@@ -137,7 +144,7 @@ QTreeWidgetItem *createReportItem(const Report &report, int index) {
     item->setData(0, IndexRole, index);
     item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&report)));
     item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_FileDialogContentsView));
-    return item;
+    return renamable(item);
 }
 
 // The ToF-E histogram, spectra, depth profiles and split analyses of a measurement
@@ -168,7 +175,7 @@ QTreeWidgetItem *createMeasurementItem(const Measurement &measurement, int index
     for(size_t i = 0; i < measurement.splitAnalyses.size(); i++) {
         item->addChild(createSplitItem(*measurement.splitAnalyses.at(i), static_cast<int>(i)));
     }
-    return item;
+    return renamable(item);
 }
 
 QTreeWidgetItem *createFileItem(const AttachedFile &file, int index) {
@@ -241,20 +248,8 @@ QList<int> correspondingCutIds(const QList<int> &ids, const Measurement &source,
     return result;
 }
 
-QWidget *createPage(QLayout *layout) {
-    auto *page = new QWidget;
-    page->setLayout(layout);
-    return page;
-}
 
-QLabel *pathLabel() {
-    auto *label = new QLabel;
-    label->setWordWrap(true);
-    label->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    return label;
-}
 
-constexpr auto FromSurface = "Measured from the sample surface";
 const QString JsonMimeType = QStringLiteral("application/json");
 const QString SettingsFileFilter = QStringLiteral("JSON files (*.json);;All files (*)");
 
@@ -330,16 +325,15 @@ ProjectPanel::ProjectPanel(QWidget *parent) : QWidget(parent) {
     m_tree->setHeaderHidden(true);
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    auto *splitter = new QSplitter(Qt::Vertical);
-    splitter->addWidget(m_tree);
-    splitter->addWidget(createPropertyPages());
-    splitter->setStretchFactor(0, 1);
+    // Renamed in place with F2 or from the context menu, double-clicking opens items
+    m_tree->setEditTriggers(QAbstractItemView::EditKeyPressed);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(splitter);
+    layout->addWidget(m_tree);
 
     connect(m_tree, &QTreeWidget::currentItemChanged, this, &ProjectPanel::currentItemChanged);
     connect(m_tree, &QTreeWidget::itemDoubleClicked, this, &ProjectPanel::itemDoubleClicked);
+    connect(m_tree, &QTreeWidget::itemChanged, this, &ProjectPanel::itemRenamed);
     connect(m_tree, &QTreeWidget::customContextMenuRequested, this, &ProjectPanel::showContextMenu);
     m_tree->setAcceptDrops(true);
     m_tree->setDragEnabled(true); // Measurements can be dragged to another sample
@@ -355,158 +349,6 @@ ProjectPanel::ProjectPanel(QWidget *parent) : QWidget(parent) {
     }
     connect(m_copySettingsAction, &QAction::triggered, this, &ProjectPanel::copySettings);
     connect(m_pasteSettingsAction, &QAction::triggered, this, &ProjectPanel::pasteSettings);
-}
-
-QWidget *ProjectPanel::createPropertyPages() {
-    m_pages = new QStackedWidget;
-
-    auto *emptyLayout = new QVBoxLayout;
-    emptyLayout->addStretch();
-    m_pages->insertWidget(EmptyPage, createPage(emptyLayout));
-
-    m_sampleNameEdit = new QLineEdit;
-    m_sampleDescriptionEdit = new QPlainTextEdit;
-    m_metadataTable = new QTableWidget(0, 2);
-    m_metadataTable->setHorizontalHeaderLabels({"Key", "Value"});
-    m_metadataTable->horizontalHeader()->setStretchLastSection(true);
-    m_metadataTable->verticalHeader()->hide();
-    m_metadataTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_metadataTable->setContextMenuPolicy(Qt::CustomContextMenu);
-    auto *metadataGroup = new QGroupBox("Metadata");
-    auto *metadataLayout = new QVBoxLayout(metadataGroup);
-    metadataLayout->addWidget(m_metadataTable);
-    auto *sampleLayout = new QFormLayout;
-    sampleLayout->addRow("Name:", m_sampleNameEdit);
-    sampleLayout->addRow("Description:", m_sampleDescriptionEdit);
-    sampleLayout->addRow(metadataGroup);
-    m_pages->insertWidget(SamplePage, createPage(sampleLayout));
-
-    auto *measurementHint = new QLabel("Double-click to open the measurement in a tab, its ToF-E histogram is under it.");
-    measurementHint->setWordWrap(true);
-    auto *measurementLayout = new QVBoxLayout;
-    measurementLayout->addWidget(measurementHint);
-    measurementLayout->addStretch();
-    m_pages->insertWidget(MeasurementPage, createPage(measurementLayout));
-
-    auto *histogramHint = new QLabel("Double-click to open the ToF-E histogram in a tab and work with its selections.");
-    histogramHint->setWordWrap(true);
-    auto *histogramLayout = new QVBoxLayout;
-    histogramLayout->addWidget(histogramHint);
-    histogramLayout->addStretch();
-    m_pages->insertWidget(HistogramPage, createPage(histogramLayout));
-
-    m_filePathLabel = pathLabel();
-    m_fileDescriptionEdit = new QLineEdit;
-    auto *fileLayout = new QFormLayout;
-    fileLayout->addRow("Path:", m_filePathLabel);
-    fileLayout->addRow("Description:", m_fileDescriptionEdit);
-    m_pages->insertWidget(FilePage, createPage(fileLayout));
-
-    auto *settingsHint = new QLabel("Double-click to edit the settings in a tab.");
-    settingsHint->setWordWrap(true);
-    auto *settingsLayout = new QVBoxLayout;
-    settingsLayout->addWidget(settingsHint);
-    settingsLayout->addStretch();
-    m_pages->insertWidget(SettingsPage, createPage(settingsLayout));
-
-    m_spectrumNameEdit = new QLineEdit;
-    auto *spectrumHint = new QLabel("Double-click to open the energy spectrum in a tab.");
-    spectrumHint->setWordWrap(true);
-    auto *spectrumLayout = new QFormLayout;
-    spectrumLayout->addRow("Name:", m_spectrumNameEdit);
-    spectrumLayout->addRow(spectrumHint);
-    m_pages->insertWidget(SpectrumPage, createPage(spectrumLayout));
-
-    m_depthProfileNameEdit = new QLineEdit;
-    auto *depthProfileHint = new QLabel("Double-click to open the depth profile in a tab.");
-    depthProfileHint->setWordWrap(true);
-    auto *depthProfileLayout = new QFormLayout;
-    depthProfileLayout->addRow("Name:", m_depthProfileNameEdit);
-    depthProfileLayout->addRow(depthProfileHint);
-    m_pages->insertWidget(DepthProfilePage, createPage(depthProfileLayout));
-
-    m_splitNameEdit = new QLineEdit;
-    auto *splitHint = new QLabel("Double-click to open the split analysis in a tab.");
-    splitHint->setWordWrap(true);
-    auto *splitLayout = new QFormLayout;
-    splitLayout->addRow("Name:", m_splitNameEdit);
-    splitLayout->addRow(splitHint);
-    m_pages->insertWidget(SplitPage, createPage(splitLayout));
-
-    auto *projectHint = new QLabel("Double-click to open the project information in a tab.");
-    projectHint->setWordWrap(true);
-    auto *projectLayout = new QVBoxLayout;
-    projectLayout->addWidget(projectHint);
-    projectLayout->addStretch();
-    m_pages->insertWidget(ProjectPage, createPage(projectLayout));
-
-    m_reportNameEdit = new QLineEdit;
-    auto *reportHint = new QLabel("Double-click to open the report in a tab.");
-    reportHint->setWordWrap(true);
-    auto *reportLayout = new QFormLayout;
-    reportLayout->addRow("Name:", m_reportNameEdit);
-    reportLayout->addRow(reportHint);
-    m_pages->insertWidget(ReportPage, createPage(reportLayout));
-
-    connect(m_sampleNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
-        QTreeWidgetItem *item = topLevelOf(m_tree->currentItem());
-        sampleOf(item)->name = text;
-        item->setText(0, displayName(text));
-        emit modified();
-    });
-    // Renamed samples and measurements are moved to their place when the name is finished, not while typing
-    connect(m_sampleNameEdit, &QLineEdit::editingFinished, this, [this]() {
-        if(m_sampleNameEdit->isModified()) {
-            m_sampleNameEdit->setModified(false);
-            sortSamples();
-        }
-    });
-    connect(m_sampleDescriptionEdit, &QPlainTextEdit::textChanged, this, [this]() {
-        currentSample()->description = m_sampleDescriptionEdit->toPlainText();
-        emit modified();
-    });
-    connect(m_metadataTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
-        QMenu menu;
-        menu.addAction("Add Entry", this, &ProjectPanel::addMetadata);
-        if(m_metadataTable->selectionModel()->hasSelection()) {
-            menu.addAction("Remove Entry", this, &ProjectPanel::removeMetadata);
-        }
-        menu.exec(m_metadataTable->viewport()->mapToGlobal(pos));
-    });
-    connect(m_metadataTable, &QTableWidget::itemChanged, this, &ProjectPanel::metadataItemChanged);
-    connect(m_fileDescriptionEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
-        currentFile().description = text;
-        emit modified();
-    });
-    connect(m_spectrumNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
-        EnergySpectrum *spectrum = currentSpectrum();
-        spectrum->name = text;
-        m_tree->currentItem()->setText(0, displayName(text));
-        emit spectrumRenamed(spectrum);
-        emit modified();
-    });
-    connect(m_depthProfileNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
-        DepthProfile *profile = currentDepthProfile();
-        profile->name = text;
-        m_tree->currentItem()->setText(0, displayName(text));
-        emit depthProfileRenamed(profile);
-        emit modified();
-    });
-    connect(m_reportNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
-        Report *report = currentReport();
-        report->name = text;
-        m_tree->currentItem()->setText(0, displayName(text));
-        emit reportRenamed(report);
-        emit modified();
-    });
-    connect(m_splitNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
-        SplitAnalysis *split = currentSplit();
-        split->name = text;
-        m_tree->currentItem()->setText(0, displayName(text));
-        emit splitRenamed(split);
-        emit modified();
-    });
-    return m_pages;
 }
 
 void ProjectPanel::setProject(Project *project) {
@@ -543,7 +385,7 @@ QTreeWidgetItem *ProjectPanel::createSettingsItem(const ExperimentalSettings &se
     item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
     item->setData(0, TypeRole, SettingsNode);
     item->setIcon(0, style()->standardIcon(QStyle::SP_FileDialogInfoView));
-    return item;
+    return renamable(item);
 }
 
 QTreeWidgetItem *ProjectPanel::createDetectorItem(const DetectorSettings &detector) {
@@ -551,7 +393,7 @@ QTreeWidgetItem *ProjectPanel::createDetectorItem(const DetectorSettings &detect
     item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
     item->setData(0, TypeRole, DetectorNode);
     item->setIcon(0, style()->standardIcon(QStyle::SP_DriveHDIcon));
-    return item;
+    return renamable(item);
 }
 
 QTreeWidgetItem *ProjectPanel::createPhysicsItem(const PhysicsSettings &physics) {
@@ -559,7 +401,7 @@ QTreeWidgetItem *ProjectPanel::createPhysicsItem(const PhysicsSettings &physics)
     item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
     item->setData(0, TypeRole, PhysicsNode);
     item->setIcon(0, style()->standardIcon(QStyle::SP_FileDialogDetailedView));
-    return item;
+    return renamable(item);
 }
 
 QTreeWidgetItem *ProjectPanel::createSampleItem(const Sample &sample) {
@@ -574,7 +416,7 @@ QTreeWidgetItem *ProjectPanel::createSampleItem(const Sample &sample) {
     for(int i = 0; i < sample.files.size(); i++) {
         item->addChild(createFileItem(sample.files.at(i), i));
     }
-    return item;
+    return renamable(item);
 }
 
 int ProjectPanel::sampleIndexOf(QTreeWidgetItem *item) const {
@@ -594,6 +436,7 @@ int ProjectPanel::firstSampleRow() const {
 
 void ProjectPanel::updateProjectName() {
     if(m_project) {
+        const QSignalBlocker blocker(m_tree);
         m_tree->topLevelItem(0)->setText(0, m_project->displayName());
     }
 }
@@ -705,80 +548,29 @@ QTreeWidgetItem *ProjectPanel::measurementItem(const Measurement *measurement) c
 }
 
 void ProjectPanel::currentItemChanged(QTreeWidgetItem *item) {
-    showProperties(item);
     emit currentSampleChanged(sampleOf(item));
     emit currentSettingsChanged(settingsOf(item));
     emit currentDetectorChanged(detectorOf(item));
     emit currentPhysicsChanged(physicsOf(item));
 }
 
-void ProjectPanel::showProperties(QTreeWidgetItem *item) {
-    if(!item) {
-        m_pages->setCurrentIndex(EmptyPage);
-        return;
-    }
-    const Sample *sample = sampleOf(item);
-    switch(nodeType(item)) {
-        case SampleNode: {
-            m_sampleNameEdit->setText(sample->name);
-            {
-                const QSignalBlocker blocker(m_sampleDescriptionEdit);
-                m_sampleDescriptionEdit->setPlainText(sample->description);
-            }
-            m_metadataTable->setRowCount(0);
-            for(const auto &entry : sample->metadata) {
-                appendMetadataRow(entry);
-            }
-            m_pages->setCurrentIndex(SamplePage);
-            break;
-        }
-        case MeasurementNode:
-            m_pages->setCurrentIndex(MeasurementPage);
-            break;
-        case HistogramNode:
-            m_pages->setCurrentIndex(HistogramPage);
-            break;
-        case FileNode: {
-            const AttachedFile &file = currentFile();
-            m_filePathLabel->setText(file.path);
-            m_fileDescriptionEdit->setText(file.description);
-            m_pages->setCurrentIndex(FilePage);
-            break;
-        }
-        case SettingsNode:
-        case DetectorNode:
-        case PhysicsNode:
-            m_pages->setCurrentIndex(SettingsPage);
-            break;
-        case SpectrumNode:
-            m_spectrumNameEdit->setText(currentSpectrum()->name);
-            m_pages->setCurrentIndex(SpectrumPage);
-            break;
-        case DepthProfileNode:
-            m_depthProfileNameEdit->setText(currentDepthProfile()->name);
-            m_pages->setCurrentIndex(DepthProfilePage);
-            break;
-        case SplitNode:
-            m_splitNameEdit->setText(currentSplit()->name);
-            m_pages->setCurrentIndex(SplitPage);
-            break;
-        case ReportNode:
-            m_reportNameEdit->setText(currentReport()->name);
-            m_pages->setCurrentIndex(ReportPage);
-            break;
-        case ProjectNode:
-            m_pages->setCurrentIndex(ProjectPage);
-            break;
-    }
-}
-
 void ProjectPanel::measurementRenamedElsewhere(Measurement *measurement) {
     if(QTreeWidgetItem *item = measurementItem(measurement)) {
-        item->setText(0, measurement->name);
+        const QSignalBlocker blocker(m_tree);
+        item->setText(0, displayName(measurement->name));
     }
 }
 
-void ProjectPanel::measurementRenameFinished() {
+void ProjectPanel::sampleRenamedElsewhere(Sample *sample) {
+    for(int row = firstSampleRow(); row < firstReportRow(); row++) {
+        if(QTreeWidgetItem *item = m_tree->topLevelItem(row); objectOf(item) == sample) {
+            const QSignalBlocker blocker(m_tree);
+            item->setText(0, displayName(sample->name));
+        }
+    }
+}
+
+void ProjectPanel::renameFinished() {
     sortSamples(); // By name, the selection is kept
 }
 
@@ -807,6 +599,9 @@ void ProjectPanel::settingsEdited() {
 void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
     m_tree->setCurrentItem(item); // The actions below work on the current item
     switch(nodeType(item)) {
+        case SampleNode:
+            emit sampleOpenRequested(currentSample());
+            break;
         case MeasurementNode:
             emit measurementInfoOpenRequested(currentMeasurement());
             break;
@@ -853,6 +648,10 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
     QTreeWidgetItem *item = m_tree->itemAt(pos);
     if(item) {
         m_tree->setCurrentItem(item);
+        if(item->flags() & Qt::ItemIsEditable) {
+            menu.addAction("Rename", this, [this, item]() { m_tree->editItem(item); });
+            menu.addSeparator();
+        }
         if(nodeType(item) == SettingsNode || nodeType(item) == DetectorNode || nodeType(item) == PhysicsNode) {
             menu.addAction("Edit", this, [this, item]() { itemDoubleClicked(item); });
             menu.addSeparator();
@@ -872,7 +671,10 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
             menu.addAction("Open Report", this, [this]() { emit reportOpenRequested(currentReport()); });
             menu.addAction("Remove Report", this, &ProjectPanel::removeCurrentReport);
         } else {
-            if(nodeType(item) == MeasurementNode) {
+            if(nodeType(item) == SampleNode) {
+                menu.addAction("Open Sample", this, [this]() { emit sampleOpenRequested(currentSample()); });
+                menu.addSeparator();
+            } else if(nodeType(item) == MeasurementNode) {
                 menu.addAction("Open Measurement", this, [this]() { emit measurementInfoOpenRequested(currentMeasurement()); });
                 menu.addAction("Open ToF-E Histogram", this, [this]() { emit measurementOpenRequested(currentMeasurement()); });
                 menu.addAction("Add Energy Spectrum", this, &ProjectPanel::addSpectrum);
@@ -1420,14 +1222,114 @@ void ProjectPanel::removePhysics() {
     emit modified();
 }
 
+void ProjectPanel::itemRenamed(QTreeWidgetItem *item) {
+    // Called for any change of an item, also when its text is set below; only edits by the user change a name
+    if(!m_project || !(item->flags() & Qt::ItemIsEditable)) {
+        return;
+    }
+    const QString text = item->text(0).trimmed();
+    QString *name = nullptr;
+    bool sort = false;
+    switch(nodeType(item)) {
+        case ProjectNode:
+            if(text == m_project->displayName()) {
+                return;
+            }
+            m_project->setName(text);
+            break;
+        case SettingsNode:
+            name = &settingsOf(item)->name;
+            break;
+        case DetectorNode:
+            name = &detectorOf(item)->name;
+            break;
+        case PhysicsNode:
+            name = &physicsOf(item)->name;
+            break;
+        case SampleNode:
+            name = &objectOf<Sample>(item)->name;
+            sort = true;
+            break;
+        case MeasurementNode:
+            name = &objectOf<Measurement>(item)->name;
+            sort = true;
+            break;
+        case SpectrumNode:
+            name = &objectOf<EnergySpectrum>(item)->name;
+            break;
+        case DepthProfileNode:
+            name = &objectOf<DepthProfile>(item)->name;
+            break;
+        case SplitNode:
+            name = &objectOf<SplitAnalysis>(item)->name;
+            break;
+        case ReportNode:
+            name = &objectOf<Report>(item)->name;
+            break;
+        default:
+            return;
+    }
+    if(name) {
+        if(text == *name || (text == displayName(QString()) && name->isEmpty())) {
+            return;
+        }
+        *name = text;
+    }
+    // Not in the handler of the tree: sorting rebuilds the items and the views are updated
+    const NodeType type = nodeType(item);
+    const void *renamed = objectOf(item);
+    const QString shown = displayName(name ? *name : text); // "(unnamed)" for an empty name
+    QTimer::singleShot(0, this, [this, type, object = renamed, sort, shown]() {
+        switch(type) {
+            case ProjectNode:
+                updateProjectName();
+                emit projectRenamed();
+                break;
+            case SettingsNode:
+            case DetectorNode:
+            case PhysicsNode:
+                settingsEdited(); // The names in the tree
+                emit settingsRenamed();
+                break;
+            case MeasurementNode:
+                emit measurementRenamed(const_cast<Measurement *>(static_cast<const Measurement *>(object)));
+                break;
+            case SpectrumNode:
+                emit spectrumRenamed(const_cast<EnergySpectrum *>(static_cast<const EnergySpectrum *>(object)));
+                break;
+            case DepthProfileNode:
+                emit depthProfileRenamed(const_cast<DepthProfile *>(static_cast<const DepthProfile *>(object)));
+                break;
+            case SplitNode:
+                emit splitRenamed(const_cast<SplitAnalysis *>(static_cast<const SplitAnalysis *>(object)));
+                break;
+            case ReportNode:
+                emit reportRenamed(const_cast<Report *>(static_cast<const Report *>(object)));
+                break;
+            default:
+                break;
+        }
+        if(sort) {
+            sortSamples();
+        } else if(object) {
+            for(QTreeWidgetItemIterator it(m_tree); *it; ++it) {
+                if(objectOf(*it) == object) {
+                    const QSignalBlocker blocker(m_tree);
+                    (*it)->setText(0, shown);
+                }
+            }
+        }
+        emit modified();
+    });
+}
+
 void ProjectPanel::addSample() {
     if(!m_project) {
         return;
     }
     const Sample *sample = m_project->addSample(m_project->uniqueSampleName(QString("Sample %1").arg(m_project->sampleCount() + 1)));
     rebuildSampleItems(sample);
-    m_sampleNameEdit->setFocus();
-    m_sampleNameEdit->selectAll();
+    m_tree->editItem(m_tree->currentItem()); // Named right away
     emit modified();
 }
 
@@ -1787,41 +1689,3 @@ void ProjectPanel::removeCurrentFile() {
     emit modified();
 }
 
-void ProjectPanel::appendMetadataRow(const MetadataEntry &entry) {
-    const QSignalBlocker blocker(m_metadataTable);
-    const int row = m_metadataTable->rowCount();
-    m_metadataTable->insertRow(row);
-    m_metadataTable->setItem(row, 0, new QTableWidgetItem(entry.key));
-    m_metadataTable->setItem(row, 1, new QTableWidgetItem(entry.value));
-}
-
-void ProjectPanel::addMetadata() {
-    Sample *sample = currentSample();
-    sample->metadata.append(MetadataEntry{});
-    appendMetadataRow(sample->metadata.last());
-    const int row = m_metadataTable->rowCount() - 1;
-    m_metadataTable->setCurrentCell(row, 0);
-    m_metadataTable->editItem(m_metadataTable->item(row, 0));
-    emit modified();
-}
-
-void ProjectPanel::removeMetadata() {
-    QList<int> rows;
-    for(const QModelIndex &index : m_metadataTable->selectionModel()->selectedRows()) {
-        rows.append(index.row());
-    }
-    std::sort(rows.begin(), rows.end(), std::greater<>());
-    for(int row : rows) {
-        currentSample()->metadata.removeAt(row);
-        m_metadataTable->removeRow(row);
-    }
-    if(!rows.isEmpty()) {
-        emit modified();
-    }
-}
-
-void ProjectPanel::metadataItemChanged(QTableWidgetItem *item) {
-    auto &entry = currentSample()->metadata[item->row()];
-    (item->column() == 0 ? entry.key : entry.value) = item->text();
-    emit modified();
-}

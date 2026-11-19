@@ -7,8 +7,8 @@ files, which are never copied or moved. Paths inside the project's folder are st
 so the folder can be moved as a whole.
 
 The project panel on the left shows the project information first, then the settings, the samples and the reports.
-Selecting an item shows its properties below the tree; double-clicking opens it in a tab. Tabs can be dragged out into
-windows of their own.
+Double-clicking an item opens it in a tab. Tabs can be dragged out into windows of their own. Items are renamed in place
+in the tree: choose **Rename** in their context menu or press F2.
 
 Double-click the project information to open it in a tab: the project's **name**, shown in the tree and in reports
 (the file name when empty), its file, when it was created and last saved, and **notes**.
@@ -23,8 +23,9 @@ Double-click the project information to open it in a tab: the project's **name**
 
 - **Sample → Add Sample**, then **Add Measurements...** to add ToF-E event files (`*.asc`) to it. Files can also be
   dropped on a sample in the tree.
-- **Add Files...** attaches any other files to a sample, e.g. notes or images. Samples also have a description and
-  metadata entries.
+- **Add Files...** attaches any other files to a sample, e.g. notes or images. Double-click a file to open it.
+- Double-click a sample to open its tab: its name, description, metadata entries (right-click the table to add or
+  remove them) and the descriptions of its attached files.
 - A measurement file has one event per line, ToF and energy in channels in the first two columns; further columns
   are ignored. The order of the lines is the order the events were measured in, which the
   [split analysis](split-analysis.md) relies on.
