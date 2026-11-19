@@ -203,6 +203,7 @@ struct DepthProfile {
     double averageMax = DefaultAverageMax;
     QList<int> cutIdsExcludedFromAverage; // Left out of the renormalized averages, e.g. the substrate
     double density = DefaultDensity; // kg/m³
+    bool separateIsotopes = false; // Selections of an element are summed into one unless this is set, see depthprofile.h
     // What the plot shows, the calculation is not affected
     QList<int> cutIdsHiddenFromPlot;
     bool showTotal = false;

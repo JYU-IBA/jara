@@ -85,6 +85,7 @@ QJsonObject depthProfileToJson(const DepthProfile &profile) {
             {"average", QJsonObject{{"min", profile.averageMin}, {"max", profile.averageMax},
                                     {"excludedCuts", idsToJson(profile.cutIdsExcludedFromAverage)}}},
             {"density", profile.density},
+            {"separateIsotopes", profile.separateIsotopes},
             {"autoMaxDepth", profile.autoMaxDepth},
             {"plot", QJsonObject{{"hiddenCuts", idsToJson(profile.cutIdsHiddenFromPlot)},
                                  {"total", profile.showTotal},
@@ -117,6 +118,7 @@ std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
     profile->averageMax = average["max"].toDouble(profile->averageMax);
     profile->cutIdsExcludedFromAverage = idsFromJson(average["excludedCuts"]);
     profile->autoMaxDepth = json["autoMaxDepth"].toBool(profile->autoMaxDepth);
+    profile->separateIsotopes = json["separateIsotopes"].toBool(profile->separateIsotopes);
     const QJsonObject plot = json["plot"].toObject();
     profile->cutIdsHiddenFromPlot = idsFromJson(plot["hiddenCuts"]);
     profile->showTotal = plot["total"].toBool(profile->showTotal);

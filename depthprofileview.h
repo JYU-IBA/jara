@@ -106,6 +106,7 @@ private:
     QActionGroup *m_legendGroup = nullptr; // Of the legend positions in the context menu of the plot
     QWidget *m_staleBar = nullptr;
     QLabel *m_errorLabel = nullptr;
+    QLabel *m_warningLabel = nullptr; // Elements counted more than once
     QLabel *m_statusLabel = nullptr;
     QLabel *m_iterationLabel = nullptr;
     QString m_hint;

@@ -8,6 +8,8 @@
 #include <limits>
 #include <random>
 
+#include <QStringList>
+
 extern "C" {
 #include <jibal_cross_section.h>
 }
@@ -68,6 +70,39 @@ DepthProfileInputs depthProfileInputs(const Measurement &measurement, const Dept
         }
     }
     return inputs;
+}
+
+QString elementOverlapWarning(const DepthProfileInputs &inputs) {
+    QStringList warnings;
+    for(qsizetype i = 0; i < inputs.cuts.size(); i++) {
+        const auto &first = inputs.cuts[i];
+        auto sameElement = [&first](const DepthProfileInputs::CutInput &cut) {
+            return cut.z == first.z && cut.type == first.type;
+        };
+        if(std::any_of(inputs.cuts.begin(), inputs.cuts.begin() + i, sameElement)) {
+            continue; // Already checked with the first selection of the element
+        }
+        QStringList representing; // Selections standing for the whole element
+        qsizetype count = 0;
+        for(qsizetype j = i; j < inputs.cuts.size(); j++) {
+            const auto &cut = inputs.cuts[j];
+            if(!sameElement(cut)) {
+                continue;
+            }
+            count++;
+            if(cut.a == 0) {
+                representing.append(QStringLiteral("the selection of the element"));
+            } else if(cut.representsElement) {
+                representing.append(cutLabel(cut.z, cut.a, cut.type) + QStringLiteral(" representing the element"));
+            }
+        }
+        if(count > 1 && !representing.isEmpty()) {
+            warnings.append(QString("%1 is counted more than once: %2 already includes all of its isotopes, but other "
+                                    "selections of it are included as well.")
+                                    .arg(cutLabel(first.z, 0, first.type), representing.join(QStringLiteral(" and "))));
+        }
+    }
+    return warnings.join(QLatin1Char(' '));
 }
 
 DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &events, const DepthProfileInputs &inputs)
@@ -539,6 +574,7 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     for(const auto &selection : calculation.selections()) {
         DepthProfileCurve curve;
         curve.cutId = selection.cutId;
+        curve.cutIds = {selection.cutId};
         curve.z = selection.z;
         curve.a = selection.a;
         curve.type = selection.type;
@@ -557,6 +593,38 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
             curve.events++;
         }
         result.curves.push_back(std::move(curve));
+    }
+    // Selections of the same element and type summed into a curve of the element. Their events are independent, so
+    // the variances add up as well.
+    if(!profile.separateIsotopes) {
+        std::vector<DepthProfileCurve> curves;
+        std::vector<std::vector<double>> curveWeights;
+        std::vector<std::vector<double>> curveVariances;
+        for(size_t c = 0; c < result.curves.size(); c++) {
+            DepthProfileCurve &curve = result.curves[c];
+            const auto same = std::find_if(curves.begin(), curves.end(), [&curve](const DepthProfileCurve &other) {
+                return other.z == curve.z && other.type == curve.type;
+            });
+            if(same == curves.end()) {
+                curves.push_back(std::move(curve));
+                curveWeights.push_back(std::move(weights[c]));
+                curveVariances.push_back(std::move(variances[c]));
+                continue;
+            }
+            const auto index = static_cast<size_t>(same - curves.begin());
+            same->a = 0;
+            same->representsElement = false;
+            same->cutIds.append(curve.cutId);
+            same->events += curve.events;
+            for(size_t i = 0; i < bins; i++) {
+                same->counts[i] += curve.counts[i];
+                curveWeights[index][i] += weights[c][i];
+                curveVariances[index][i] += variances[c][i];
+            }
+        }
+        result.curves = std::move(curves);
+        weights = std::move(curveWeights);
+        variances = std::move(curveVariances);
     }
     std::vector<double> totalWeights(bins, 0);
     std::vector<size_t> totalCounts(bins, 0);
@@ -721,7 +789,7 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     // selection and T the sum of them over the included selections. The scale cancels out.
     double includedSum = 0;
     for(size_t c = 0; c < result.curves.size(); c++) {
-        if(!profile.cutIdsExcludedFromAverage.contains(result.curves[c].cutId)) {
+        if(!result.curves[c].allIn(profile.cutIdsExcludedFromAverage)) {
             includedSum += result.averages[c].concentration * scale;
         }
     }
@@ -735,12 +803,12 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
         const double renormalized = average.concentration * scale / includedSum;
         double variance = 0;
         for(size_t j = 0; j < result.curves.size(); j++) {
-            const bool included = !profile.cutIdsExcludedFromAverage.contains(result.curves[j].cutId);
+            const bool included = !result.curves[j].allIn(profile.cutIdsExcludedFromAverage);
             const double derivative = (j == c ? 1.0 : 0.0) - (included ? renormalized : 0.0); // Times 1 / T
             variance += derivative * derivative * averageVariances[j];
         }
         // Left out selections have no renormalized value
-        const bool excluded = profile.cutIdsExcludedFromAverage.contains(result.curves[c].cutId);
+        const bool excluded = result.curves[c].allIn(profile.cutIdsExcludedFromAverage);
         average.renormalized = excluded ? NaN : renormalized;
         average.renormalizedUncertainty = excluded ? NaN : std::sqrt(variance) / includedSum;
     }

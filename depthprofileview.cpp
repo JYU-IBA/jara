@@ -40,6 +40,7 @@ const QString ThinFilmText = QStringLiteral("10¹⁵ at/cm²");
 constexpr double Nanometre = 1e-9;
 constexpr double GramPerCubicCentimetre = 1000; // kg/m³
 constexpr int CutIdRole = Qt::UserRole;
+constexpr int CutIdsRole = Qt::UserRole + 1; // Of the selections summed in a row of the averages
 constexpr int ConcentrationDecimals = 2; // at.%
 
 enum SelectionColumn { IncludedColumn, PlotColumn };
@@ -166,6 +167,10 @@ DepthProfileView::DepthProfileView(Measurement *measurement, DepthProfile *profi
     m_errorLabel->setStyleSheet("color: red");
     m_errorLabel->setWordWrap(true);
     m_errorLabel->hide();
+    m_warningLabel = new QLabel;
+    m_warningLabel->setStyleSheet("color: #b35900");
+    m_warningLabel->setWordWrap(true);
+    m_warningLabel->hide();
 
     auto *splitter = new QSplitter;
     splitter->addWidget(m_plot);
@@ -176,6 +181,7 @@ DepthProfileView::DepthProfileView(Measurement *measurement, DepthProfile *profi
     layout->addWidget(createToolBar());
     layout->addWidget(createStaleBar());
     layout->addWidget(m_errorLabel);
+    layout->addWidget(m_warningLabel);
     layout->addWidget(splitter, 1);
     auto *statusRow = new QHBoxLayout;
     statusRow->addWidget(m_statusLabel, 1);
@@ -244,6 +250,8 @@ QWidget *DepthProfileView::createToolBar() {
     };
     addToggle("Total", "Show the sum of the concentrations", &DepthProfile::showTotal);
     addToggle("Normalization", "Show the interval where the total is 100 % on average", &DepthProfile::showNormalization);
+    addToggle("Isotopes", "Show the isotopes of an element separately in the profile and the averages instead of "
+              "their sum", &DepthProfile::separateIsotopes);
     toolBar->addSeparator();
 
     auto *unitCombo = new QComboBox;
@@ -540,13 +548,15 @@ void DepthProfileView::selectionItemChanged(QTreeWidgetItem *item, int column) {
 }
 
 void DepthProfileView::averageItemChanged(QTreeWidgetItem *item, int column) {
-    if(column != AverageSelectionColumn || !item->data(AverageSelectionColumn, CutIdRole).isValid()) {
+    if(column != AverageSelectionColumn || !item->data(AverageSelectionColumn, CutIdsRole).isValid()) {
         return;
     }
-    const int id = item->data(AverageSelectionColumn, CutIdRole).toInt();
-    m_profile->cutIdsExcludedFromAverage.removeAll(id);
-    if(item->checkState(AverageSelectionColumn) != Qt::Checked) {
-        m_profile->cutIdsExcludedFromAverage.append(id);
+    // All of the selections summed in the row
+    for(const int id : item->data(AverageSelectionColumn, CutIdsRole).value<QList<int>>()) {
+        m_profile->cutIdsExcludedFromAverage.removeAll(id);
+        if(item->checkState(AverageSelectionColumn) != Qt::Checked) {
+            m_profile->cutIdsExcludedFromAverage.append(id);
+        }
     }
     emit modified();
     updateProfile(SpectrumPlotWidget::ViewChange::Keep);
@@ -562,6 +572,9 @@ void DepthProfileView::recalculate() {
     m_calculation = std::make_unique<DepthProfileCalculation>(m_events, m_calculatedInputs);
     QApplication::restoreOverrideCursor();
     setStale(false);
+    const QString warning = elementOverlapWarning(m_calculatedInputs);
+    m_warningLabel->setText(warning);
+    m_warningLabel->setVisible(!warning.isEmpty());
     if(!m_calculation->isValid()) {
         m_result = {};
         m_errorLabel->setText(m_calculation->errorMessage());
@@ -719,7 +732,7 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
     for(size_t c = 0; c < m_result.curves.size(); c++) {
         const DepthProfileCurve &curve = m_result.curves[c];
         events += curve.events;
-        if(m_profile->cutIdsHiddenFromPlot.contains(curve.cutId)) {
+        if(curve.allIn(m_profile->cutIdsHiddenFromPlot)) {
             continue;
         }
         const Cut *cut = m_measurement->cut(curve.cutId);
@@ -810,9 +823,9 @@ void DepthProfileView::updateAverages() {
         if(const Cut *cut = m_measurement->cut(curve.cutId)) {
             item->setIcon(AverageSelectionColumn, colorSwatch(cut->color));
         }
-        item->setData(AverageSelectionColumn, CutIdRole, curve.cutId);
+        item->setData(AverageSelectionColumn, CutIdsRole, QVariant::fromValue(curve.cutIds));
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-        const bool included = !m_profile->cutIdsExcludedFromAverage.contains(curve.cutId);
+        const bool included = !curve.allIn(m_profile->cutIdsExcludedFromAverage);
         item->setCheckState(AverageSelectionColumn, included ? Qt::Checked : Qt::Unchecked);
         item->setText(AverageColumn, percent(average.concentration));
         item->setText(UncertaintyColumn, percent(average.uncertainty));

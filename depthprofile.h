@@ -1,6 +1,7 @@
 #ifndef JARA_DEPTHPROFILE_H
 #define JARA_DEPTHPROFILE_H
 
+#include <algorithm>
 #include <vector>
 
 #include <QList>
@@ -69,6 +70,10 @@ struct DepthProfileInputs {
 };
 
 DepthProfileInputs depthProfileInputs(const Measurement &measurement, const DepthProfile &profile);
+
+// Tells when an element is counted more than once: a selection of the element, or an isotope representing it, is
+// included together with other selections of the same element and type. Empty when there is no such element.
+QString elementOverlapWarning(const DepthProfileInputs &inputs);
 
 // The iterations of a depth profile
 class DepthProfileCalculation {
@@ -147,9 +152,11 @@ private:
     double m_lastChange;
 };
 
-// The profile of a selection in depth bins
+// The profile of a selection in depth bins. Unless the profile separates isotopes, the selections of an element with
+// the same type are summed into one curve of the element.
 struct DepthProfileCurve {
-    int cutId = 0;
+    int cutId = 0; // The first of the selections, e.g. for the color
+    QList<int> cutIds; // All of the selections summed
     int z = 0;
     int a = 0;
     CutType type = CutType::Recoil;
@@ -160,6 +167,10 @@ struct DepthProfileCurve {
     std::vector<double> uncertainties; // Statistical, atomic fractions, including the normalization
     std::vector<size_t> counts; // Events
     size_t events = 0; // In the profile
+    // True when all of the selections are in the list, e.g. the ones left out of the averages
+    bool allIn(const QList<int> &ids) const {
+        return std::all_of(cutIds.begin(), cutIds.end(), [&ids](int id) { return ids.contains(id); });
+    }
 };
 
 struct DepthProfileResult {
