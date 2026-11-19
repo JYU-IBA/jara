@@ -74,21 +74,6 @@ QString percent(double fraction) {
     return std::isnan(fraction) ? QStringLiteral("—") : QString::number(fraction * 100, 'f', ConcentrationDecimals);
 }
 
-// In at.%, the uncertainty rounded to one significant digit, or two when they are 15 or less, and the value to the same
-// precision
-QString percentWithUncertainty(double fraction, double uncertainty) {
-    const double value = fraction * 100;
-    const double deviation = uncertainty * 100;
-    if(!std::isfinite(deviation) || deviation <= 0) {
-        return QString("%1 at.%").arg(percent(fraction));
-    }
-    const int exponent = static_cast<int>(std::floor(std::log10(deviation)));
-    const bool twoDigits = std::round(deviation / std::pow(10.0, exponent - 1)) <= 15;
-    const int decimals = (twoDigits ? 1 : 0) - exponent;
-    const double step = std::pow(10.0, -decimals);
-    const auto rounded = [&](double x) { return QString::number(std::round(x / step) * step, 'f', std::max(decimals, 0)); };
-    return QString("%1 ± %2 at.%").arg(rounded(value), rounded(deviation));
-}
 
 // Largest change of the latest iteration in at.%
 QString changeText(double change) {
@@ -792,6 +777,29 @@ void DepthProfileView::applyStoredView() {
     m_applyingView = false;
     // Kept until the iterations end, the last one scales the plot to the profile
     m_viewPending = m_iterating;
+}
+
+void DepthProfileView::calculateNow() {
+    if(!m_plot) {
+        return;
+    }
+    m_viewPending = m_profile->view.has_value();
+    recalculate();
+    while(m_iterating) {
+        iterationStep();
+    }
+    m_viewPending = m_profile->view.has_value();
+    applyStoredView();
+}
+
+QString DepthProfileView::errorMessage() const {
+    if(!m_plot) {
+        return QString("Could not load %1.").arg(m_measurement->path);
+    }
+    if(!m_calculation || !m_calculation->isValid()) {
+        return m_calculation ? m_calculation->errorMessage() : QStringLiteral("Not calculated.");
+    }
+    return m_result.errorMessage;
 }
 
 void DepthProfileView::stopIterating() {

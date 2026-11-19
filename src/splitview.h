@@ -26,6 +26,8 @@ public:
     Measurement *measurement() const { return m_measurement; }
     SplitAnalysis *split() const { return m_split; }
     QString title() const; // Measurement and analysis names
+    SpectrumPlotWidget *plot() const { return m_plot; } // nullptr when the data file could not be loaded
+    QString errorMessage() const { return m_result.errorMessage; }
 
 public slots:
     void refresh(); // Call after the project has changed, recalculates when the inputs have changed

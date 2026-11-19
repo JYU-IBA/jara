@@ -39,7 +39,7 @@ in the tree to add analyses to it:
 - **Add Split Analysis**, see [Split analysis](split-analysis.md)
 
 They appear under the measurement and are saved in the project. Depth profiles can be dragged to another measurement,
-which copies them.
+which copies them. [Reports](reports.md) collect depth profiles of several measurements into a PDF.
 
 ## Plots
 

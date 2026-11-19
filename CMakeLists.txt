@@ -70,6 +70,10 @@ add_executable(jara
         src/depthprofileview.cpp
         src/depthprofileview.h
         src/rangewidget.cpp
+        src/reportpdf.cpp
+        src/reportpdf.h
+        src/reportview.cpp
+        src/reportview.h
         src/rangewidget.h
         src/split.cpp
         src/tableexport.cpp

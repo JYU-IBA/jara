@@ -57,7 +57,8 @@ The table lists the average concentration of each curve with its uncertainty and
 
 ## Plot
 
-- The zoom of the plot is remembered in the project and restored when the tab is opened again.
+- The zoom of the plot is remembered in the project and restored when the tab is opened again. Reports can use it for
+  their plots, see [Reports](reports.md).
 - The dashed orange lines are the averaging interval and can be dragged; with Normalization checked they move the
   normalization interval. **Normalization** in the toolbar also shows the normalization interval, **Total** the sum of
   the concentrations.

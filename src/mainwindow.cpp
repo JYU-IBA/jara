@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "defaults.h"
 #include "depthprofileview.h"
+#include "reportview.h"
 #include "splitview.h"
 #include "energyspectrumview.h"
 #include "histogramwidget.h"
@@ -171,6 +172,13 @@ QWidget *MainWindow::createProjectView() {
     connect(m_projectPanel, &ProjectPanel::depthProfileRenamed, this, [this](DepthProfile *profile) {
         updateDepthProfileTitle(findView<DepthProfileView>([profile](DepthProfileView *view) { return view->profile() == profile; }));
     });
+    connect(m_projectPanel, &ProjectPanel::reportOpenRequested, this, &MainWindow::openReport);
+    connect(m_projectPanel, &ProjectPanel::reportAboutToBeRemoved, this, [this](Report *report) {
+        closeTab(findView<ReportView>([report](ReportView *view) { return view->report() == report; }));
+    });
+    connect(m_projectPanel, &ProjectPanel::reportRenamed, this, [this](Report *report) {
+        updateReportTitle(findView<ReportView>([report](ReportView *view) { return view->report() == report; }));
+    });
     connect(m_projectPanel, &ProjectPanel::splitOpenRequested, this, &MainWindow::openSplit);
     connect(m_projectPanel, &ProjectPanel::splitAboutToBeRemoved, this, [this](SplitAnalysis *split) {
         closeTab(findView<SplitView>([split](SplitView *view) { return view->split() == split; }));
@@ -279,6 +287,9 @@ void MainWindow::createActions() {
     m_addFilesAction = new QAction("Add &Files...", this);
     connect(m_addFilesAction, &QAction::triggered, m_projectPanel, &ProjectPanel::addFiles);
 
+    m_addReportAction = new QAction("Add Re&port", this);
+    connect(m_addReportAction, &QAction::triggered, m_projectPanel, &ProjectPanel::addReport);
+
     m_addMeasurementsAction = new QAction("Add &Measurements...", this);
     connect(m_addMeasurementsAction, &QAction::triggered, m_projectPanel, &ProjectPanel::addMeasurements);
 
@@ -323,6 +334,8 @@ void MainWindow::createMenus(QMenuBar *menuBar) {
     sampleMenu->addSeparator();
     sampleMenu->addAction(m_addMeasurementsAction);
     sampleMenu->addAction(m_addFilesAction);
+    sampleMenu->addSeparator();
+    sampleMenu->addAction(m_addReportAction);
 
     QMenu *experimentMenu = menuBar->addMenu("&Experiment");
     experimentMenu->addAction(m_addSettingsAction);
@@ -384,6 +397,7 @@ void MainWindow::updateWindowState() {
     m_exportArchiveAction->setEnabled(open);
     m_closeAction->setEnabled(open);
     m_addSampleAction->setEnabled(open);
+    m_addReportAction->setEnabled(open);
     m_removeSampleAction->setEnabled(hasSample);
     m_addFilesAction->setEnabled(hasSample);
     m_addMeasurementsAction->setEnabled(hasSample);
@@ -581,6 +595,8 @@ void MainWindow::projectModified() {
             profileView->checkStale();
         } else if(auto *splitView = qobject_cast<SplitView *>(page)) {
             splitView->refresh();
+        } else if(auto *reportView = qobject_cast<ReportView *>(page)) {
+            reportView->refresh();
         }
     }
     for(ToFCalibrationWindow *window : findChildren<ToFCalibrationWindow *>()) {
@@ -664,6 +680,22 @@ void MainWindow::openSplit(Measurement *measurement, SplitAnalysis *split) {
         connect(view, &SplitView::modified, this, &MainWindow::projectModified);
     }
     showTab(view, view->title(), measurement->path);
+}
+
+void MainWindow::openReport(Report *report) {
+    auto *view = findView<ReportView>([report](ReportView *view) { return view->report() == report; });
+    if(!view) {
+        view = new ReportView(m_project.get(), report);
+        connect(view, &ReportView::modified, this, &MainWindow::projectModified);
+        connect(view, &ReportView::titleChanged, this, [this, view]() { updateReportTitle(view); });
+    }
+    showTab(view, view->title(), "Report");
+}
+
+void MainWindow::updateReportTitle(ReportView *view) {
+    if(const auto [tabs, index] = findTab(view); tabs) {
+        tabs->setTabTitle(index, view->title());
+    }
 }
 
 void MainWindow::updateSplitTitle(SplitView *view) {

@@ -43,8 +43,9 @@ namespace {
 // measurements come first, followed by attached files. Energy spectra, depth profiles and then split analyses are
 // under their measurement.
 enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode, SpectrumNode, DepthProfileNode, PhysicsNode,
-                SplitNode };
-enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, SpectrumPage, DepthProfilePage, SplitPage };
+                SplitNode, ReportNode };
+enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, SpectrumPage, DepthProfilePage, SplitPage,
+            ReportPage };
 constexpr int TypeRole = Qt::UserRole;
 constexpr int IndexRole = Qt::UserRole + 1; // Index in the sample's measurements or files, or the measurement's spectra,
                                             // depth profiles or split analyses
@@ -116,6 +117,16 @@ QTreeWidgetItem *createSplitItem(const SplitAnalysis &split, int index) {
     item->setData(0, IndexRole, index);
     item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&split)));
     item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_FileDialogInfoView));
+    return item;
+}
+
+QTreeWidgetItem *createReportItem(const Report &report, int index) {
+    auto *item = new QTreeWidgetItem({displayName(report.name)});
+    item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
+    item->setData(0, TypeRole, ReportNode);
+    item->setData(0, IndexRole, index);
+    item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&report)));
+    item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_FileDialogContentsView));
     return item;
 }
 
@@ -417,6 +428,14 @@ QWidget *ProjectPanel::createPropertyPages() {
     splitLayout->addRow(splitHint);
     m_pages->insertWidget(SplitPage, createPage(splitLayout));
 
+    m_reportNameEdit = new QLineEdit;
+    auto *reportHint = new QLabel("Double-click to open the report in a tab.");
+    reportHint->setWordWrap(true);
+    auto *reportLayout = new QFormLayout;
+    reportLayout->addRow("Name:", m_reportNameEdit);
+    reportLayout->addRow(reportHint);
+    m_pages->insertWidget(ReportPage, createPage(reportLayout));
+
     connect(m_sampleNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         QTreeWidgetItem *item = topLevelOf(m_tree->currentItem());
         sampleOf(item)->name = text;
@@ -497,6 +516,13 @@ QWidget *ProjectPanel::createPropertyPages() {
         emit depthProfileRenamed(profile);
         emit modified();
     });
+    connect(m_reportNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
+        Report *report = currentReport();
+        report->name = text;
+        m_tree->currentItem()->setText(0, displayName(text));
+        emit reportRenamed(report);
+        emit modified();
+    });
     connect(m_splitNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         SplitAnalysis *split = currentSplit();
         split->name = text;
@@ -524,6 +550,9 @@ void ProjectPanel::setProject(Project *project) {
             }
             for(size_t i = 0; i < project->sampleCount(); i++) {
                 m_tree->addTopLevelItem(createSampleItem(*project->sample(i)));
+            }
+            for(size_t i = 0; i < project->reportCount(); i++) {
+                m_tree->addTopLevelItem(createReportItem(*project->report(i), static_cast<int>(i)));
             }
             m_tree->expandAll();
             m_tree->setCurrentItem(m_tree->topLevelItem(0));
@@ -584,6 +613,18 @@ int ProjectPanel::sampleIndexOf(QTreeWidgetItem *item) const {
 
 int ProjectPanel::firstSampleRow() const {
     return static_cast<int>(m_project->settingsCount() + m_project->detectorCount() + m_project->physicsCount());
+}
+
+int ProjectPanel::firstReportRow() const {
+    return firstSampleRow() + static_cast<int>(m_project->sampleCount());
+}
+
+Report *ProjectPanel::currentReport() const {
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(!m_project || !item || nodeType(item) != ReportNode) {
+        return nullptr;
+    }
+    return m_project->report(static_cast<size_t>(nodeIndex(item)));
 }
 
 Sample *ProjectPanel::sampleOf(QTreeWidgetItem *item) const {
@@ -761,6 +802,10 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
             m_splitNameEdit->setText(currentSplit()->name);
             m_pages->setCurrentIndex(SplitPage);
             break;
+        case ReportNode:
+            m_reportNameEdit->setText(currentReport()->name);
+            m_pages->setCurrentIndex(ReportPage);
+            break;
     }
 }
 
@@ -843,6 +888,9 @@ void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
         case SplitNode:
             emit splitOpenRequested(currentMeasurement(), currentSplit());
             break;
+        case ReportNode:
+            emit reportOpenRequested(currentReport());
+            break;
         default:
             break;
     }
@@ -869,6 +917,9 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
             } else {
                 menu.addAction("Remove Physics Settings", this, &ProjectPanel::removePhysics);
             }
+        } else if(nodeType(item) == ReportNode) {
+            menu.addAction("Open Report", this, [this]() { emit reportOpenRequested(currentReport()); });
+            menu.addAction("Remove Report", this, &ProjectPanel::removeCurrentReport);
         } else {
             if(nodeType(item) == MeasurementNode) {
                 menu.addAction("Open Measurement", this, [this]() { emit measurementOpenRequested(currentMeasurement()); });
@@ -910,6 +961,7 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
     menu.addAction("Add Experimental Settings", this, &ProjectPanel::addSettings);
     menu.addAction("Add Detector Settings", this, &ProjectPanel::addDetector);
     menu.addAction("Add Physics Settings", this, &ProjectPanel::addPhysics);
+    menu.addAction("Add Report", this, &ProjectPanel::addReport);
     menu.addSeparator();
     m_pasteSettingsAction->setEnabled(!settingsInClipboard().isEmpty());
     menu.addAction(m_pasteSettingsAction);
@@ -1443,8 +1495,12 @@ void ProjectPanel::rebuildSampleItems(const void *select) {
     const bool keepCurrent = current && nodeType(topLevelOf(current)) != SampleNode && !select;
     {
         const QSignalBlocker blocker(m_tree);
-        while(m_tree->topLevelItemCount() > firstSampleRow()) {
-            QTreeWidgetItem *item = m_tree->topLevelItem(firstSampleRow());
+        // Only the sample items, the reports after them stay
+        for(int row = m_tree->topLevelItemCount() - 1; row >= firstSampleRow(); row--) {
+            QTreeWidgetItem *item = m_tree->topLevelItem(row);
+            if(nodeType(item) != SampleNode) {
+                continue;
+            }
             for(QTreeWidgetItemIterator it(item); *it && topLevelOf(*it) == item; ++it) {
                 if((*it)->childCount() > 0 && !(*it)->isExpanded()) {
                     collapsed.insert(objectOf(*it));
@@ -1456,7 +1512,7 @@ void ProjectPanel::rebuildSampleItems(const void *select) {
         for(size_t i = 0; i < m_project->sampleCount(); i++) {
             const Sample *sample = m_project->sample(i);
             QTreeWidgetItem *item = createSampleItem(*sample);
-            m_tree->addTopLevelItem(item);
+            m_tree->insertTopLevelItem(firstSampleRow() + static_cast<int>(i), item);
             for(QTreeWidgetItemIterator it(item); *it && topLevelOf(*it) == item; ++it) {
                 (*it)->setExpanded((*it)->childCount() > 0 && !collapsed.contains(objectOf(*it)));
                 if(!selected && objectOf(*it) == select) {
@@ -1566,6 +1622,7 @@ void ProjectPanel::removeCurrentMeasurement() {
     auto &measurements = currentSample()->measurements;
     const int index = nodeIndex(item);
     emit measurementAboutToBeRemoved(measurements.at(index).get());
+    m_project->removeFromReports(measurements.at(index).get());
     {
         const QSignalBlocker blocker(m_tree);
         measurements.erase(measurements.begin() + index);
@@ -1662,6 +1719,7 @@ void ProjectPanel::removeCurrentDepthProfile() {
     auto &profiles = currentMeasurement()->depthProfiles;
     const int index = nodeIndex(item);
     emit depthProfileAboutToBeRemoved(profiles.at(index).get());
+    m_project->removeFromReports(profiles.at(index).get());
     {
         const QSignalBlocker blocker(m_tree);
         profiles.erase(profiles.begin() + index);
@@ -1710,6 +1768,7 @@ void ProjectPanel::removeCurrentSplit() {
     auto &splits = currentMeasurement()->splitAnalyses;
     const int index = nodeIndex(item);
     emit splitAboutToBeRemoved(splits.at(index).get());
+    m_project->removeFromReports(splits.at(index).get());
     {
         const QSignalBlocker blocker(m_tree);
         splits.erase(splits.begin() + index);
@@ -1718,6 +1777,39 @@ void ProjectPanel::removeCurrentSplit() {
         m_tree->setCurrentItem(parent);
     }
     currentItemChanged(parent);
+    emit modified();
+}
+
+void ProjectPanel::addReport() {
+    if(!m_project) {
+        return;
+    }
+    Report *report = m_project->addReport("Report");
+    QTreeWidgetItem *item = createReportItem(*report, static_cast<int>(m_project->reportCount() - 1));
+    m_tree->addTopLevelItem(item);
+    m_tree->setCurrentItem(item);
+    emit modified();
+    emit reportOpenRequested(report);
+}
+
+void ProjectPanel::removeCurrentReport() {
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(!item || nodeType(item) != ReportNode) {
+        return;
+    }
+    const int index = nodeIndex(item);
+    emit reportAboutToBeRemoved(m_project->report(static_cast<size_t>(index)));
+    {
+        const QSignalBlocker blocker(m_tree);
+        m_project->removeReport(static_cast<size_t>(index));
+        delete item;
+        // Renumbered, the reports are the last top-level items
+        for(int row = firstReportRow(); row < m_tree->topLevelItemCount(); row++) {
+            m_tree->topLevelItem(row)->setData(0, IndexRole, row - firstReportRow());
+        }
+        m_tree->setCurrentItem(nullptr);
+    }
+    currentItemChanged(nullptr);
     emit modified();
 }
 

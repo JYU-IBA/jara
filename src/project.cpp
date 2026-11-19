@@ -145,6 +145,33 @@ QJsonArray labelPositionsToJson(const QHash<int, QPointF> &positions) {
     return json;
 }
 
+const QString ReportNameModeIds[] = {QStringLiteral("auto"), QStringLiteral("on"), QStringLiteral("off")};
+const QString ReportRangeModeIds[] = {QStringLiteral("gui"), QStringLiteral("common"), QStringLiteral("perProfile")};
+
+QJsonObject reportSettingsToJson(const ReportSettings &settings) {
+    return QJsonObject{{"ion", settings.ion}, {"energy", settings.energy}, {"incidentAngle", settings.incidentAngle},
+                       {"scatteringAngle", settings.scatteringAngle}, {"tofLength", settings.tofLength},
+                       {"foil", settings.foil}, {"tofCalibration", settings.tofCalibration},
+                       {"efficiencies", settings.efficiencies}, {"physics", settings.physics},
+                       {"profileParameters", settings.profileParameters}};
+}
+
+ReportSettings reportSettingsFromJson(const QJsonObject &json) {
+    ReportSettings settings;
+    auto read = [&json](const char *key, bool &value) { value = json[key].toBool(value); };
+    read("ion", settings.ion);
+    read("energy", settings.energy);
+    read("incidentAngle", settings.incidentAngle);
+    read("scatteringAngle", settings.scatteringAngle);
+    read("tofLength", settings.tofLength);
+    read("foil", settings.foil);
+    read("tofCalibration", settings.tofCalibration);
+    read("efficiencies", settings.efficiencies);
+    read("physics", settings.physics);
+    read("profileParameters", settings.profileParameters);
+    return settings;
+}
+
 QJsonObject depthProfileToJson(const DepthProfile &profile) {
     QJsonObject normalization{{"auto", profile.autoNormalization},
                               {"min", profile.normalizationMin},
@@ -427,6 +454,77 @@ PlotView plotViewFromJson(const QJsonObject &json) {
         view.concentrationMax = view.concentrationMin + 1;
     }
     return view;
+}
+
+namespace {
+QString jsonFingerprint(const QJsonObject &json) {
+    // The keys of JSON objects are sorted, so the same contents give the same text
+    const QByteArray data = QJsonDocument(json).toJson(QJsonDocument::Compact);
+    return QString::fromLatin1(QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex());
+}
+}
+
+QString depthProfileFingerprint(const Measurement &measurement, const DepthProfile &profile, bool withView) {
+    DepthProfile copy = profile;
+    if(!withView) {
+        copy.view.reset();
+    }
+    QJsonObject json{{"profile", depthProfileToJson(copy)},
+                     {"cuts", cutsToJson(measurement.cuts)},
+                     {"physics", physicsToJson(measurement.physicsOrDefault())},
+                     {"referenceCut", measurement.referenceCutId},
+                     {"path", measurement.path},
+                     {"sha256", measurement.sha256}};
+    if(measurement.settings) {
+        json["settings"] = settingsToJson(*measurement.settings);
+    }
+    if(measurement.detector) {
+        json["detector"] = detectorToJson(*measurement.detector);
+    }
+    return jsonFingerprint(json);
+}
+
+QString reportOptionsFingerprint(const Report &report, const std::function<const Measurement *(const SplitAnalysis *)> &measurementOf) {
+    // The included profiles have fingerprints of their own, their order is that of the project
+    QJsonArray views;
+    for(const DepthProfile *profile : report.profiles) {
+        views.append(report.rangeMode == Report::RangeMode::PerProfile && report.profileViews.contains(profile)
+                             ? QJsonValue(plotViewToJson(report.profileViews.value(profile)))
+                             : QJsonValue());
+    }
+    // The split analyses and the parts of their measurements that they depend on
+    QJsonArray splits;
+    for(const SplitAnalysis *split : report.splits) {
+        const Measurement *measurement = measurementOf(split);
+        splits.append(QJsonObject{{"split", QJsonObject{{"name", split->name}, {"parts", split->parts},
+                                                        {"cuts", idsToJson(split->cutIds)}, {"relative", split->relative}}},
+                                  {"cuts", measurement ? cutsToJson(measurement->cuts) : QJsonArray()},
+                                  {"referenceCut", measurement ? measurement->referenceCutId : 0},
+                                  {"sha256", measurement ? measurement->sha256 : QString()}});
+    }
+    return jsonFingerprint(QJsonObject{{"title", report.title},
+                                       {"measurementNames", static_cast<int>(report.measurementNames)},
+                                       {"settings", reportSettingsToJson(report.settings)},
+                                       {"range", static_cast<int>(report.rangeMode)},
+                                       {"commonView", plotViewToJson(report.commonView)},
+                                       {"views", views},
+                                       {"splits", splits}});
+}
+
+bool isReportUpToDate(const Report &report, const std::function<const Measurement *(const DepthProfile *)> &measurementOf,
+                      const std::function<const Measurement *(const SplitAnalysis *)> &splitMeasurementOf) {
+    if(!report.generated.isValid() || report.fingerprints.size() != report.profiles.size()
+       || report.optionsFingerprint != reportOptionsFingerprint(report, splitMeasurementOf)) {
+        return false;
+    }
+    const bool withView = report.rangeMode == Report::RangeMode::Gui;
+    for(const DepthProfile *profile : report.profiles) {
+        const Measurement *measurement = measurementOf(profile);
+        if(!measurement || report.fingerprints.value(profile) != depthProfileFingerprint(*measurement, *profile, withView)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 QString cutLabel(int z, int a, CutType type, bool superscript) {
@@ -972,11 +1070,77 @@ std::unique_ptr<Project> Project::load(const QString &fileName, QString &errorMe
     for(const auto &value : root["samples"].toArray()) {
         project->m_samples.push_back(sampleFromJson(value.toObject(), baseDir, *project));
     }
+    // Before sorting, the indices are of the order in the file
+    for(const auto &value : root["reports"].toArray()) {
+        project->m_reports.push_back(project->reportFromJson(value.toObject()));
+    }
     project->m_created = timeFromJson(root["created"]);
     project->m_saved = timeFromJson(root["saved"]);
     project->m_fileName = fileInfo.absoluteFilePath();
     project->sortByName();
     return project;
+}
+
+std::unique_ptr<Report> Project::reportFromJson(const QJsonObject &json) const {
+    // [sample, measurement, item], nullptr for indices outside the project
+    auto measurementAt = [this](const QJsonArray &reference) -> const Measurement * {
+        const auto s = reference.at(0).toInteger(-1);
+        const auto m = reference.at(1).toInteger(-1);
+        if(reference.size() != 3 || s < 0 || s >= static_cast<qint64>(m_samples.size())) {
+            return nullptr;
+        }
+        const auto &measurements = m_samples[static_cast<size_t>(s)]->measurements;
+        return m >= 0 && m < static_cast<qint64>(measurements.size()) ? measurements[static_cast<size_t>(m)].get() : nullptr;
+    };
+    auto profileAt = [&measurementAt](const QJsonValue &value) -> const DepthProfile * {
+        const QJsonArray reference = value.toArray();
+        const Measurement *measurement = measurementAt(reference);
+        const auto i = reference.at(2).toInteger(-1);
+        return measurement && i >= 0 && i < static_cast<qint64>(measurement->depthProfiles.size())
+                       ? measurement->depthProfiles[static_cast<size_t>(i)].get()
+                       : nullptr;
+    };
+    auto report = std::make_unique<Report>();
+    report->name = json["name"].toString();
+    report->title = json["title"].toString(report->name);
+    for(const auto &value : json["profiles"].toArray()) {
+        if(const DepthProfile *profile = profileAt(value); profile && !report->profiles.contains(profile)) {
+            report->profiles.append(profile);
+        }
+    }
+    for(const auto &value : json["splits"].toArray()) {
+        const QJsonArray reference = value.toArray();
+        const Measurement *measurement = measurementAt(reference);
+        const auto i = reference.at(2).toInteger(-1);
+        if(measurement && i >= 0 && i < static_cast<qint64>(measurement->splitAnalyses.size())) {
+            report->splits.append(measurement->splitAnalyses[static_cast<size_t>(i)].get());
+        }
+    }
+    for(int mode = 0; mode < 3; mode++) {
+        if(json["measurementNames"].toString() == ReportNameModeIds[mode]) {
+            report->measurementNames = static_cast<Report::NameMode>(mode);
+        }
+        if(json["range"].toString() == ReportRangeModeIds[mode]) {
+            report->rangeMode = static_cast<Report::RangeMode>(mode);
+        }
+    }
+    report->settings = reportSettingsFromJson(json["settings"].toObject());
+    if(json.contains("commonView")) {
+        report->commonView = plotViewFromJson(json["commonView"].toObject());
+    }
+    for(const auto &value : json["profileViews"].toArray()) {
+        if(const DepthProfile *profile = profileAt(value.toObject()["profile"])) {
+            report->profileViews.insert(profile, plotViewFromJson(value.toObject()));
+        }
+    }
+    for(const auto &value : json["fingerprints"].toArray()) {
+        if(const DepthProfile *profile = profileAt(value.toObject()["profile"])) {
+            report->fingerprints.insert(profile, value.toObject()["sha256"].toString());
+        }
+    }
+    report->generated = timeFromJson(json["generated"]);
+    report->optionsFingerprint = json["optionsFingerprint"].toString();
+    return report;
 }
 
 QString fileChecksum(const QString &path) {
@@ -1107,13 +1271,65 @@ QByteArray Project::toJson(const std::function<QString(const QString &path)> &st
     for(const auto &sample : m_samples) {
         samples.append(sampleToJson(*sample, storedPath, *this));
     }
+    // Items of reports are referred to by their indices: [sample, measurement, item]
+    QHash<const void *, QJsonArray> references;
+    for(qsizetype s = 0; s < static_cast<qsizetype>(m_samples.size()); s++) {
+        const auto &measurements = m_samples[static_cast<size_t>(s)]->measurements;
+        for(qsizetype m = 0; m < static_cast<qsizetype>(measurements.size()); m++) {
+            const Measurement &measurement = *measurements[static_cast<size_t>(m)];
+            for(qsizetype i = 0; i < static_cast<qsizetype>(measurement.depthProfiles.size()); i++) {
+                references.insert(measurement.depthProfiles[static_cast<size_t>(i)].get(), QJsonArray{s, m, i});
+            }
+            for(qsizetype i = 0; i < static_cast<qsizetype>(measurement.splitAnalyses.size()); i++) {
+                references.insert(measurement.splitAnalyses[static_cast<size_t>(i)].get(), QJsonArray{s, m, i});
+            }
+        }
+    }
+    QJsonArray reports;
+    for(const auto &report : m_reports) {
+        QJsonArray profiles;
+        QJsonArray views;
+        QJsonArray fingerprints;
+        for(const DepthProfile *profile : report->profiles) {
+            const QJsonArray reference = references.value(profile);
+            profiles.append(reference);
+            if(report->profileViews.contains(profile)) {
+                QJsonObject view = plotViewToJson(report->profileViews.value(profile));
+                view["profile"] = reference;
+                views.append(view);
+            }
+            if(report->fingerprints.contains(profile)) {
+                fingerprints.append(QJsonObject{{"profile", reference}, {"sha256", report->fingerprints.value(profile)}});
+            }
+        }
+        QJsonArray splits;
+        for(const SplitAnalysis *split : report->splits) {
+            splits.append(references.value(split));
+        }
+        QJsonObject object{{"name", report->name},
+                           {"title", report->title},
+                           {"profiles", profiles},
+                           {"splits", splits},
+                           {"measurementNames", ReportNameModeIds[static_cast<int>(report->measurementNames)]},
+                           {"settings", reportSettingsToJson(report->settings)},
+                           {"range", ReportRangeModeIds[static_cast<int>(report->rangeMode)]},
+                           {"commonView", plotViewToJson(report->commonView)},
+                           {"profileViews", views},
+                           {"fingerprints", fingerprints}};
+        if(report->generated.isValid()) {
+            object["generated"] = timeToJson(report->generated);
+            object["optionsFingerprint"] = report->optionsFingerprint;
+        }
+        reports.append(object);
+    }
     QJsonObject root{
             {"format", FormatName},
             {"version", FormatVersion},
             {"experimentalSettings", settings},
             {"detectorSettings", detectors},
             {"physicsSettings", physics},
-            {"samples", samples}};
+            {"samples", samples},
+            {"reports", reports}};
     // Unknown for projects saved before the times were stored
     if(m_created.isValid()) {
         root["created"] = timeToJson(m_created);
@@ -1305,6 +1521,98 @@ void Project::sortByName() {
 }
 
 void Project::removeSample(size_t index) {
+    removeFromReports(m_samples.at(index).get());
     m_samples.erase(m_samples.begin() + static_cast<std::ptrdiff_t>(index));
     m_modified = true;
+}
+
+Report *Project::addReport(const QString &name) {
+    auto report = std::make_unique<Report>();
+    report->name = uniqueReportName(name);
+    report->title = report->name;
+    forEachMeasurement([&report](const Measurement *measurement) {
+        for(const auto &profile : measurement->depthProfiles) {
+            report->profiles.append(profile.get());
+        }
+    });
+    m_reports.push_back(std::move(report));
+    m_modified = true;
+    return m_reports.back().get();
+}
+
+void Project::removeReport(size_t index) {
+    m_reports.erase(m_reports.begin() + static_cast<std::ptrdiff_t>(index));
+    m_modified = true;
+}
+
+QString Project::uniqueReportName(const QString &name) const {
+    QStringList names;
+    for(const auto &report : m_reports) {
+        names.append(report->name);
+    }
+    return uniqueName(name, names);
+}
+
+const Measurement *Project::measurementOf(const DepthProfile *profile) const {
+    const Measurement *result = nullptr;
+    forEachMeasurement([&](const Measurement *measurement) {
+        for(const auto &candidate : measurement->depthProfiles) {
+            if(candidate.get() == profile) {
+                result = measurement;
+            }
+        }
+    });
+    return result;
+}
+
+const Measurement *Project::measurementOf(const SplitAnalysis *split) const {
+    const Measurement *result = nullptr;
+    forEachMeasurement([&](const Measurement *measurement) {
+        for(const auto &candidate : measurement->splitAnalyses) {
+            if(candidate.get() == split) {
+                result = measurement;
+            }
+        }
+    });
+    return result;
+}
+
+const Sample *Project::sampleOf(const Measurement *measurement) const {
+    for(const auto &sample : m_samples) {
+        for(const auto &candidate : sample->measurements) {
+            if(candidate.get() == measurement) {
+                return sample.get();
+            }
+        }
+    }
+    return nullptr;
+}
+
+void Project::removeFromReports(const Sample *sample) {
+    for(const auto &measurement : sample->measurements) {
+        removeFromReports(measurement.get());
+    }
+}
+
+void Project::removeFromReports(const Measurement *measurement) {
+    for(const auto &profile : measurement->depthProfiles) {
+        removeFromReports(profile.get());
+    }
+    for(const auto &split : measurement->splitAnalyses) {
+        removeFromReports(split.get());
+    }
+}
+
+void Project::removeFromReports(const DepthProfile *profile) {
+    for(const auto &report : m_reports) {
+        report->profiles.removeAll(profile);
+        report->profileViews.remove(profile);
+        report->fingerprints.remove(profile);
+    }
+}
+
+void Project::removeFromReports(const SplitAnalysis *split) {
+    for(const auto &report : m_reports) {
+        report->splits.removeAll(split);
+    }
 }

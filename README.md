@@ -20,6 +20,8 @@ spectra and depth profiles. Stopping, masses and isotopes come from [JIBAL](http
 - **Split analysis**: the measurement divided into parts with equal counts of a reference selection, to see whether
   counts are lost during the measurement, e.g. hydrogen released by the beam. Energy spectra and depth profiles can
   use only a part of the measurement. See [Split analysis](docs/split-analysis.md).
+- **Reports**: a PDF of depth profiles with a table of average concentrations by element, the settings, the plots and
+  split analyses in an appendix, marked out of date when the profiles change. See [Reports](docs/reports.md).
 - **Export** of spectra, profiles and split analyses as text files with a short header or as CSV.
 
 ## Quick start
@@ -43,6 +45,7 @@ spectra and depth profiles. Stopping, masses and isotopes come from [JIBAL](http
 - [Energy spectra](docs/energy-spectra.md)
 - [Depth profiles](docs/depth-profiles.md)
 - [Split analysis](docs/split-analysis.md)
+- [Reports](docs/reports.md)
 
 ## Versions
 

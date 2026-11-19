@@ -361,6 +361,52 @@ struct SettingsCollection {
 QByteArray settingsCollectionToJson(const SettingsCollection &collection);
 bool settingsCollectionFromJson(const QByteArray &data, SettingsCollection &collection, QString &errorMessage);
 
+// Items of a report's settings section, see Report
+struct ReportSettings {
+    bool ion = true;
+    bool energy = true;
+    bool incidentAngle = true;
+    bool scatteringAngle = true;
+    bool tofLength = false;
+    bool foil = false;
+    bool tofCalibration = false;
+    bool efficiencies = false;
+    bool physics = false;
+    bool profileParameters = false;
+};
+
+// A PDF of depth profiles of the project: their average concentrations in a table with one column per element, the
+// settings of their measurements, their plots and an appendix of split analyses, see reportpdf.h
+struct Report {
+    enum class NameMode { Auto, On, Off }; // Measurement names in the rows, Auto when a sample has several rows
+    enum class RangeMode { Gui, Common, PerProfile }; // Ranges of the plots: as in the tabs, one for all, each its own
+
+    QString name; // In the project tree
+    QString title; // Of the PDF
+    // Included items. They belong to the measurements of the project, which keep them while they exist; the project
+    // removes them from reports when they are removed.
+    QList<const DepthProfile *> profiles;
+    QList<const SplitAnalysis *> splits;
+    NameMode measurementNames = NameMode::Auto;
+    ReportSettings settings;
+    RangeMode rangeMode = RangeMode::Gui;
+    PlotView commonView;
+    QHash<const DepthProfile *, PlotView> profileViews; // With RangeMode::PerProfile, the GUI view when missing
+    // Of the included profiles and of the options when the PDF was last generated, see depthProfileFingerprint()
+    QHash<const DepthProfile *, QString> fingerprints;
+    QString optionsFingerprint;
+    QDateTime generated; // Invalid until generated
+};
+
+// Changes when anything the report shows of the profile changes: the profile, the measurement's selections, settings,
+// reference and data file. The zoom of the profile's tab only counts with the ranges of the tabs.
+QString depthProfileFingerprint(const Measurement &measurement, const DepthProfile &profile, bool withView);
+// Changes when the options of the report change, apart from its name in the project tree
+QString reportOptionsFingerprint(const Report &report, const std::function<const Measurement *(const SplitAnalysis *)> &measurementOf);
+// Generated, and no included profile has changed since
+bool isReportUpToDate(const Report &report, const std::function<const Measurement *(const DepthProfile *)> &measurementOf,
+                      const std::function<const Measurement *(const SplitAnalysis *)> &splitMeasurementOf);
+
 class Project {
 public:
     // Calls f for every measurement in the project
@@ -436,6 +482,21 @@ public:
     // Called after names change or items are added.
     void sortByName();
 
+    size_t reportCount() const { return m_reports.size(); }
+    Report *report(size_t index) { return m_reports.at(index).get(); }
+    Report *addReport(const QString &name); // Includes all depth profiles of the project
+    void removeReport(size_t index);
+    QString uniqueReportName(const QString &name) const;
+    // The measurement a depth profile or a split analysis belongs to, and its sample, nullptr when not in the project
+    const Measurement *measurementOf(const DepthProfile *profile) const;
+    const Measurement *measurementOf(const SplitAnalysis *split) const;
+    const Sample *sampleOf(const Measurement *measurement) const;
+    // Before these are removed, so that no report refers to them
+    void removeFromReports(const Sample *sample);
+    void removeFromReports(const Measurement *measurement);
+    void removeFromReports(const DepthProfile *profile);
+    void removeFromReports(const SplitAnalysis *split);
+
 private:
     QString m_fileName;
     bool m_modified = false;
@@ -445,6 +506,9 @@ private:
     std::vector<std::unique_ptr<DetectorSettings>> m_detectors; // Same as above
     std::vector<std::unique_ptr<PhysicsSettings>> m_physics; // Same as above
     std::vector<std::unique_ptr<Sample>> m_samples; // Pointers stay valid when samples are added or removed
+    std::vector<std::unique_ptr<Report>> m_reports; // Pointers stay valid, report views refer to them
+
+    std::unique_ptr<Report> reportFromJson(const QJsonObject &json) const; // After the samples are read
 };
 
 #endif // JARA_PROJECT_H

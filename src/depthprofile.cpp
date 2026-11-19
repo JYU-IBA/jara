@@ -845,3 +845,21 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     }
     return result;
 }
+
+QString percentWithUncertainty(double fraction, double uncertainty, bool unit) {
+    const QString suffix = unit ? QStringLiteral(" at.%") : QString();
+    if(std::isnan(fraction)) {
+        return QStringLiteral("—");
+    }
+    const double value = fraction * 100;
+    const double deviation = uncertainty * 100;
+    if(!std::isfinite(deviation) || deviation <= 0) {
+        return QString::number(value, 'f', 2) + suffix;
+    }
+    const int exponent = static_cast<int>(std::floor(std::log10(deviation)));
+    const bool twoDigits = std::round(deviation / std::pow(10.0, exponent - 1)) <= 15;
+    const int decimals = (twoDigits ? 1 : 0) - exponent;
+    const double step = std::pow(10.0, -decimals);
+    const auto rounded = [&](double x) { return QString::number(std::round(x / step) * step, 'f', std::max(decimals, 0)); };
+    return QString("%1 ± %2").arg(rounded(value), rounded(deviation)) + suffix;
+}

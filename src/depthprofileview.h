@@ -39,6 +39,12 @@ public:
     DepthProfile *profile() const { return m_profile; }
     QString title() const; // Measurement and profile names, marked when out of date
     bool isStale() const { return m_stale; }
+    // For reports: calculates the profile from the beginning until it converges or the iterations run out, without
+    // returning to the event loop. The plot then shows it, with the zoom stored in the profile.
+    void calculateNow();
+    SpectrumPlotWidget *plot() const { return m_plot; } // nullptr when the data file could not be loaded
+    const DepthProfileResult &result() const { return m_result; }
+    QString errorMessage() const; // Empty when the profile was calculated
 
 public slots:
     void recalculate(); // Iterates from the beginning

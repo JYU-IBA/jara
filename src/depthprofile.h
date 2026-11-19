@@ -217,4 +217,8 @@ void snapToBins(double &min, double &max, double binWidth);
 
 DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, const DepthProfile &profile);
 
+// "12.3 ± 0.4 at.%": the uncertainty rounded to one significant digit, or two when they are 15 or less, and the value
+// to the same precision. Without an uncertainty, the value to 0.01 at.%; "—" for NaN. Optionally without the unit.
+QString percentWithUncertainty(double fraction, double uncertainty, bool unit = true);
+
 #endif // JARA_DEPTHPROFILE_H
