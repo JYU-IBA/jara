@@ -4,8 +4,8 @@ Settings are shared: several measurements can be assigned the same experimental,
 changing them affects all of those measurements. Add them from the **Experiment** menu or by right-clicking the tree,
 and double-click them to edit them in a tab. The tab also lists the measurements they are assigned to.
 
-Settings can be copied and pasted between projects, exported as JSON files and imported from JSON files or from other
-projects (Experiment → Import...).
+Settings can be duplicated (context menu), copied and pasted between projects, exported as JSON files and imported
+from JSON files or from other projects (Experiment → Import...).
 
 Angles are measured from the sample surface. The geometry is IBM: the exit angle is the scattering angle minus the
 incident angle.

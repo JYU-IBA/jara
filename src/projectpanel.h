@@ -120,6 +120,7 @@ private slots:
     void removeCurrentDepthProfile();
     void removeCurrentSplit();
     void duplicateCurrentAnalysis(); // An energy spectrum, depth profile or split analysis
+    void duplicateCurrentSettings(); // Experimental, detector or physics settings
     void removeCurrentReport();
 
 private:

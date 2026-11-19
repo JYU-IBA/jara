@@ -654,6 +654,7 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
         }
         if(nodeType(item) == SettingsNode || nodeType(item) == DetectorNode || nodeType(item) == PhysicsNode) {
             menu.addAction("Edit", this, [this, item]() { itemDoubleClicked(item); });
+            menu.addAction("Duplicate", this, &ProjectPanel::duplicateCurrentSettings);
             menu.addSeparator();
             menu.addAction(m_copySettingsAction);
             menu.addAction("Export...", this, &ProjectPanel::exportSettings);
@@ -821,6 +822,11 @@ SettingsCollection ProjectPanel::currentSettingsCollection() const {
         collection.physics.append(*physics);
     }
     return collection;
+}
+
+void ProjectPanel::duplicateCurrentSettings() {
+    // Copies of the settings, added as pasted ones are: the name is made unique
+    addSettingsCollection(currentSettingsCollection());
 }
 
 void ProjectPanel::copySettings() {
