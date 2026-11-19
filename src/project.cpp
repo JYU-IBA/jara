@@ -484,7 +484,8 @@ QString depthProfileFingerprint(const Measurement &measurement, const DepthProfi
     return jsonFingerprint(json);
 }
 
-QString reportOptionsFingerprint(const Report &report, const std::function<const Measurement *(const SplitAnalysis *)> &measurementOf) {
+QString reportOptionsFingerprint(const Report &report, const QString &projectName,
+                                 const std::function<const Measurement *(const SplitAnalysis *)> &measurementOf) {
     // The included profiles have fingerprints of their own, their order is that of the project
     QJsonArray views;
     for(const DepthProfile *profile : report.profiles) {
@@ -502,7 +503,8 @@ QString reportOptionsFingerprint(const Report &report, const std::function<const
                                   {"referenceCut", measurement ? measurement->referenceCutId : 0},
                                   {"sha256", measurement ? measurement->sha256 : QString()}});
     }
-    return jsonFingerprint(QJsonObject{{"title", report.title},
+    return jsonFingerprint(QJsonObject{{"project", projectName},
+                                       {"title", report.title},
                                        {"measurementNames", static_cast<int>(report.measurementNames)},
                                        {"settings", reportSettingsToJson(report.settings)},
                                        {"range", static_cast<int>(report.rangeMode)},
@@ -511,10 +513,11 @@ QString reportOptionsFingerprint(const Report &report, const std::function<const
                                        {"splits", splits}});
 }
 
-bool isReportUpToDate(const Report &report, const std::function<const Measurement *(const DepthProfile *)> &measurementOf,
+bool isReportUpToDate(const Report &report, const QString &projectName,
+                      const std::function<const Measurement *(const DepthProfile *)> &measurementOf,
                       const std::function<const Measurement *(const SplitAnalysis *)> &splitMeasurementOf) {
     if(!report.generated.isValid() || report.fingerprints.size() != report.profiles.size()
-       || report.optionsFingerprint != reportOptionsFingerprint(report, splitMeasurementOf)) {
+       || report.optionsFingerprint != reportOptionsFingerprint(report, projectName, splitMeasurementOf)) {
         return false;
     }
     const bool withView = report.rangeMode == Report::RangeMode::Gui;
@@ -1074,6 +1077,8 @@ std::unique_ptr<Project> Project::load(const QString &fileName, QString &errorMe
     for(const auto &value : root["reports"].toArray()) {
         project->m_reports.push_back(project->reportFromJson(value.toObject()));
     }
+    project->m_name = root["name"].toString();
+    project->m_notes = root["notes"].toString();
     project->m_created = timeFromJson(root["created"]);
     project->m_saved = timeFromJson(root["saved"]);
     project->m_fileName = fileInfo.absoluteFilePath();
@@ -1331,6 +1336,12 @@ QByteArray Project::toJson(const std::function<QString(const QString &path)> &st
             {"samples", samples},
             {"reports", reports}};
     // Unknown for projects saved before the times were stored
+    if(!m_name.isEmpty()) {
+        root["name"] = m_name;
+    }
+    if(!m_notes.isEmpty()) {
+        root["notes"] = m_notes;
+    }
     if(m_created.isValid()) {
         root["created"] = timeToJson(m_created);
     }
@@ -1524,6 +1535,13 @@ void Project::removeSample(size_t index) {
     removeFromReports(m_samples.at(index).get());
     m_samples.erase(m_samples.begin() + static_cast<std::ptrdiff_t>(index));
     m_modified = true;
+}
+
+QString Project::displayName() const {
+    if(!m_name.isEmpty()) {
+        return m_name;
+    }
+    return m_fileName.isEmpty() ? QStringLiteral("Untitled") : QFileInfo(m_fileName).completeBaseName();
 }
 
 Report *Project::addReport(const QString &name) {

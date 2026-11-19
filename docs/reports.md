@@ -29,7 +29,7 @@ includes all depth profiles and no split analyses.
 **Generate PDF...** calculates every included depth profile and split analysis from its data file, as their tabs do,
 and writes the PDF:
 
-1. The title, the project and when the report was generated.
+1. The title, the project's name and file, and when the report was generated.
 2. The settings.
 3. The average concentrations in at.%, one row per depth profile and one column per element in order of atomic number.
    Recoils, scattered ions and isotopes of an element are summed, and their uncertainties added in quadrature. The
@@ -42,5 +42,5 @@ and writes the PDF:
 ## Out of date
 
 The report remembers what it showed when its PDF was generated. When an included depth profile, its measurement's
-selections, settings or data file, or the report's options change, the report is marked out of date (• in its tab) until
+selections, settings or data file, the report's options or the project's name change, the report is marked out of date (• in its tab) until
 the PDF is generated again. Zooming a depth profile only counts when the plot ranges are taken from the tabs.

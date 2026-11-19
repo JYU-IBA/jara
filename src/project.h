@@ -401,10 +401,12 @@ struct Report {
 // Changes when anything the report shows of the profile changes: the profile, the measurement's selections, settings,
 // reference and data file. The zoom of the profile's tab only counts with the ranges of the tabs.
 QString depthProfileFingerprint(const Measurement &measurement, const DepthProfile &profile, bool withView);
-// Changes when the options of the report change, apart from its name in the project tree
-QString reportOptionsFingerprint(const Report &report, const std::function<const Measurement *(const SplitAnalysis *)> &measurementOf);
+// Changes when the options of the report or the name of the project change, apart from its name in the project tree
+QString reportOptionsFingerprint(const Report &report, const QString &projectName,
+                                 const std::function<const Measurement *(const SplitAnalysis *)> &measurementOf);
 // Generated, and no included profile has changed since
-bool isReportUpToDate(const Report &report, const std::function<const Measurement *(const DepthProfile *)> &measurementOf,
+bool isReportUpToDate(const Report &report, const QString &projectName,
+                      const std::function<const Measurement *(const DepthProfile *)> &measurementOf,
                       const std::function<const Measurement *(const SplitAnalysis *)> &splitMeasurementOf);
 
 class Project {
@@ -444,6 +446,12 @@ public:
     const QDateTime &saved() const { return m_saved; } // Invalid until saved
 
     const QString &fileName() const { return m_fileName; }
+    // Shown in the project tree and in reports, the file name is used when empty
+    const QString &name() const { return m_name; }
+    void setName(const QString &name) { m_name = name; }
+    QString displayName() const;
+    const QString &notes() const { return m_notes; }
+    void setNotes(const QString &notes) { m_notes = notes; }
     bool isModified() const { return m_modified; }
     void setModified(bool modified) { m_modified = modified; }
 
@@ -499,6 +507,8 @@ public:
 
 private:
     QString m_fileName;
+    QString m_name;
+    QString m_notes;
     bool m_modified = false;
     QDateTime m_created = QDateTime::currentDateTime();
     QDateTime m_saved;

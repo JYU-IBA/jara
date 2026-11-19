@@ -29,7 +29,7 @@ class QTableWidgetItem;
 class QTreeWidget;
 class QTreeWidgetItem;
 
-// Project tree and a properties editor for the selected node. Experimental, detector and physics settings are edited
+// Project tree and a properties editor for the selected node. The first item is the project's information. Experimental, detector and physics settings are edited
 // in tabs of the work area, opened with settingsOpenRequested(), detectorOpenRequested() and physicsOpenRequested().
 // The tree has experimental settings as the first top-level items, followed by detector settings, physics settings and
 // then the samples with their measurements and files, and the reports. Energy spectra, depth profiles and split
@@ -48,6 +48,7 @@ public:
     void settingsEdited(); // Updates the shown names and values after settings were edited elsewhere
 
 public slots:
+    void updateProjectTimes(); // Call after the project was saved, also shows the name, which may follow the file name
     void addSample();
     void removeSample();
     void addFiles();
@@ -173,6 +174,10 @@ private:
     QLineEdit *m_depthProfileNameEdit;
     QLineEdit *m_splitNameEdit;
     QLineEdit *m_reportNameEdit;
+    QLineEdit *m_projectNameEdit;
+    QPlainTextEdit *m_projectNotesEdit;
+    QLabel *m_projectCreatedLabel;
+    QLabel *m_projectSavedLabel;
     QAction *m_copySettingsAction;
     QAction *m_pasteSettingsAction;
 };

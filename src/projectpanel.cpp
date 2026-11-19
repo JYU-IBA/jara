@@ -43,9 +43,10 @@ namespace {
 // measurements come first, followed by attached files. Energy spectra, depth profiles and then split analyses are
 // under their measurement.
 enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode, SpectrumNode, DepthProfileNode, PhysicsNode,
-                SplitNode, ReportNode };
+                SplitNode, ReportNode, ProjectNode };
 enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, SpectrumPage, DepthProfilePage, SplitPage,
-            ReportPage };
+            ReportPage, ProjectPage };
+constexpr int FirstSettingsRow = 1; // After the project information
 constexpr int TypeRole = Qt::UserRole;
 constexpr int IndexRole = Qt::UserRole + 1; // Index in the sample's measurements or files, or the measurement's spectra,
                                             // depth profiles or split analyses
@@ -117,6 +118,15 @@ QTreeWidgetItem *createSplitItem(const SplitAnalysis &split, int index) {
     item->setData(0, IndexRole, index);
     item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&split)));
     item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_FileDialogInfoView));
+    return item;
+}
+
+QTreeWidgetItem *createProjectItem(const Project &project) {
+    auto *item = new QTreeWidgetItem({project.displayName()});
+    item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
+    item->setData(0, TypeRole, ProjectNode);
+    item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_FileDialogInfoView));
+    item->setToolTip(0, "Project information");
     return item;
 }
 
@@ -428,6 +438,30 @@ QWidget *ProjectPanel::createPropertyPages() {
     splitLayout->addRow(splitHint);
     m_pages->insertWidget(SplitPage, createPage(splitLayout));
 
+    m_projectNameEdit = new QLineEdit;
+    m_projectNameEdit->setToolTip("Shown in reports. The file name is used when empty.");
+    m_projectNotesEdit = new QPlainTextEdit;
+    m_projectNotesEdit->setPlaceholderText("Notes");
+    m_projectCreatedLabel = new QLabel;
+    m_projectSavedLabel = new QLabel;
+    auto *projectLayout = new QFormLayout;
+    projectLayout->addRow("Name:", m_projectNameEdit);
+    projectLayout->addRow("Created:", m_projectCreatedLabel);
+    projectLayout->addRow("Saved:", m_projectSavedLabel);
+    projectLayout->addRow(m_projectNotesEdit);
+    m_pages->insertWidget(ProjectPage, createPage(projectLayout));
+    connect(m_projectNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
+        m_project->setName(text.trimmed());
+        m_tree->topLevelItem(0)->setText(0, m_project->displayName());
+        emit modified();
+    });
+    connect(m_projectNotesEdit, &QPlainTextEdit::textChanged, this, [this]() {
+        if(m_project && m_projectNotesEdit->toPlainText() != m_project->notes()) {
+            m_project->setNotes(m_projectNotesEdit->toPlainText());
+            emit modified();
+        }
+    });
+
     m_reportNameEdit = new QLineEdit;
     auto *reportHint = new QLabel("Double-click to open the report in a tab.");
     reportHint->setWordWrap(true);
@@ -539,6 +573,7 @@ void ProjectPanel::setProject(Project *project) {
         const QSignalBlocker blocker(m_tree);
         m_tree->clear();
         if(project) {
+            m_tree->addTopLevelItem(createProjectItem(*project));
             for(size_t i = 0; i < project->settingsCount(); i++) {
                 m_tree->addTopLevelItem(createSettingsItem(*project->settings(i)));
             }
@@ -612,7 +647,21 @@ int ProjectPanel::sampleIndexOf(QTreeWidgetItem *item) const {
 }
 
 int ProjectPanel::firstSampleRow() const {
-    return static_cast<int>(m_project->settingsCount() + m_project->detectorCount() + m_project->physicsCount());
+    return FirstSettingsRow + static_cast<int>(m_project->settingsCount() + m_project->detectorCount() + m_project->physicsCount());
+}
+
+void ProjectPanel::updateProjectTimes() {
+    if(!m_project) {
+        return;
+    }
+    const QString format = QStringLiteral("yyyy-MM-dd HH:mm:ss");
+    m_projectCreatedLabel->setText(m_project->created().isValid() ? m_project->created().toString(format)
+                                                                  : QStringLiteral("Unknown"));
+    m_projectSavedLabel->setText(m_project->saved().isValid() ? m_project->saved().toString(format)
+                                                              : QStringLiteral("Not saved yet"));
+    // The file name is used when the project has no name of its own
+    m_tree->topLevelItem(0)->setText(0, m_project->displayName());
+    m_projectNameEdit->setPlaceholderText(m_project->displayName());
 }
 
 int ProjectPanel::firstReportRow() const {
@@ -636,14 +685,14 @@ ExperimentalSettings *ProjectPanel::settingsOf(QTreeWidgetItem *item) const {
     if(!m_project || !item || nodeType(item) != SettingsNode) {
         return nullptr;
     }
-    return m_project->settings(m_tree->indexOfTopLevelItem(item));
+    return m_project->settings(m_tree->indexOfTopLevelItem(item) - FirstSettingsRow);
 }
 
 DetectorSettings *ProjectPanel::detectorOf(QTreeWidgetItem *item) const {
     if(!m_project || !item || nodeType(item) != DetectorNode) {
         return nullptr;
     }
-    return m_project->detector(m_tree->indexOfTopLevelItem(item) - m_project->settingsCount());
+    return m_project->detector(m_tree->indexOfTopLevelItem(item) - FirstSettingsRow - m_project->settingsCount());
 }
 
 DetectorSettings *ProjectPanel::currentDetector() const {
@@ -654,7 +703,8 @@ PhysicsSettings *ProjectPanel::physicsOf(QTreeWidgetItem *item) const {
     if(!m_project || !item || nodeType(item) != PhysicsNode) {
         return nullptr;
     }
-    return m_project->physics(m_tree->indexOfTopLevelItem(item) - m_project->settingsCount() - m_project->detectorCount());
+    return m_project->physics(m_tree->indexOfTopLevelItem(item) - FirstSettingsRow - m_project->settingsCount()
+                              - m_project->detectorCount());
 }
 
 PhysicsSettings *ProjectPanel::currentPhysics() const {
@@ -806,6 +856,15 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
             m_reportNameEdit->setText(currentReport()->name);
             m_pages->setCurrentIndex(ReportPage);
             break;
+        case ProjectNode:
+            m_projectNameEdit->setText(m_project->name());
+            m_projectNameEdit->setPlaceholderText(m_project->displayName());
+            if(m_projectNotesEdit->toPlainText() != m_project->notes()) {
+                m_projectNotesEdit->setPlainText(m_project->notes());
+            }
+            updateProjectTimes();
+            m_pages->setCurrentIndex(ProjectPage);
+            break;
     }
 }
 
@@ -917,6 +976,8 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
             } else {
                 menu.addAction("Remove Physics Settings", this, &ProjectPanel::removePhysics);
             }
+        } else if(nodeType(item) == ProjectNode) {
+            // Only the actions for the whole project below
         } else if(nodeType(item) == ReportNode) {
             menu.addAction("Open Report", this, [this]() { emit reportOpenRequested(currentReport()); });
             menu.addAction("Remove Report", this, &ProjectPanel::removeCurrentReport);
@@ -997,7 +1058,7 @@ void ProjectPanel::removeSettings() {
     {
         const QSignalBlocker blocker(m_tree);
         QTreeWidgetItem *item = m_tree->currentItem();
-        m_project->removeSettings(m_tree->indexOfTopLevelItem(item));
+        m_project->removeSettings(m_tree->indexOfTopLevelItem(item) - FirstSettingsRow);
         delete item;
     }
     currentItemChanged(m_tree->currentItem());
@@ -1030,13 +1091,13 @@ void ProjectPanel::addSettingsCollection(const SettingsCollection &collection) {
     for(ExperimentalSettings settings : collection.experimental) {
         settings.name = m_project->uniqueSettingsName(settings.name);
         last = createSettingsItem(*m_project->addSettings(settings));
-        m_tree->insertTopLevelItem(static_cast<int>(m_project->settingsCount()) - 1, last); // After the other settings
+        m_tree->insertTopLevelItem(FirstSettingsRow + static_cast<int>(m_project->settingsCount()) - 1, last); // After the other settings
     }
     for(DetectorSettings detector : collection.detectors) {
         detector.name = m_project->uniqueDetectorName(detector.name);
         last = createDetectorItem(*m_project->addDetector(detector));
         // After the other detectors, before the physics settings
-        m_tree->insertTopLevelItem(static_cast<int>(m_project->settingsCount() + m_project->detectorCount()) - 1, last);
+        m_tree->insertTopLevelItem(FirstSettingsRow + static_cast<int>(m_project->settingsCount() + m_project->detectorCount()) - 1, last);
     }
     for(PhysicsSettings physics : collection.physics) {
         physics.name = m_project->uniquePhysicsName(physics.name);
@@ -1433,7 +1494,7 @@ void ProjectPanel::removeDetector() {
     {
         const QSignalBlocker blocker(m_tree);
         QTreeWidgetItem *item = m_tree->currentItem();
-        m_project->removeDetector(m_tree->indexOfTopLevelItem(item) - m_project->settingsCount());
+        m_project->removeDetector(m_tree->indexOfTopLevelItem(item) - FirstSettingsRow - m_project->settingsCount());
         delete item;
     }
     currentItemChanged(m_tree->currentItem());
@@ -1457,7 +1518,8 @@ void ProjectPanel::removePhysics() {
     {
         const QSignalBlocker blocker(m_tree);
         QTreeWidgetItem *item = m_tree->currentItem();
-        m_project->removePhysics(m_tree->indexOfTopLevelItem(item) - m_project->settingsCount() - m_project->detectorCount());
+        m_project->removePhysics(m_tree->indexOfTopLevelItem(item) - FirstSettingsRow - m_project->settingsCount()
+                                 - m_project->detectorCount());
         delete item;
     }
     currentItemChanged(m_tree->currentItem());

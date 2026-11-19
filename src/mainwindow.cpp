@@ -506,6 +506,7 @@ bool MainWindow::saveProject() {
         return false;
     }
     updateWindowState();
+    m_projectPanel->updateProjectTimes();
     statusBar()->showMessage(QString("Saved %1").arg(m_project->fileName()), 5000);
     return true;
 }
@@ -527,6 +528,7 @@ bool MainWindow::saveProjectAs() {
         return false;
     }
     updateWindowState();
+    m_projectPanel->updateProjectTimes();
     addRecentFile(fileName);
     statusBar()->showMessage(QString("Saved %1").arg(fileName), 5000);
     return true;

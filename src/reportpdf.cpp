@@ -258,8 +258,8 @@ bool writeReportPdf(Project &project, Report &report, const QString &fileName, Q
 
     QString html;
     html += QString("<h1>%1</h1>").arg(escaped(report.title));
-    html += QString("<p>Project %1<br>Generated %2 with JaRA %3</p>")
-                    .arg(escaped(QFileInfo(project.fileName()).fileName()),
+    html += QString("<p>Project %1 (%2)<br>Generated %3 with JaRA %4</p>")
+                    .arg(escaped(project.displayName()), escaped(QFileInfo(project.fileName()).fileName()),
                          QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm"), escaped(Version::version()));
     const QString tableStyle = QString("<div style='font-size: %1pt'>").arg(TableFontSize);
 
@@ -423,7 +423,7 @@ bool writeReportPdf(Project &project, Report &report, const QString &fileName, Q
         report.fingerprints.insert(row.profile, depthProfileFingerprint(*row.measurement, *row.profile,
                                                                         report.rangeMode == Report::RangeMode::Gui));
     }
-    report.optionsFingerprint = reportOptionsFingerprint(report, [&project](const SplitAnalysis *split) {
+    report.optionsFingerprint = reportOptionsFingerprint(report, project.displayName(), [&project](const SplitAnalysis *split) {
         return project.measurementOf(split);
     });
     report.generated = QDateTime::currentDateTime();

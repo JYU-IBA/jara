@@ -6,8 +6,12 @@ A project (`*.json`) holds samples, their measurements and the settings of the e
 files, which are never copied or moved. Paths inside the project's folder are stored relative to the project file,
 so the folder can be moved as a whole.
 
-The project panel on the left shows the settings first, then the samples. Selecting an item shows its properties
-below the tree; double-clicking opens it in a tab. Tabs can be dragged out into windows of their own.
+The project panel on the left shows the project information first, then the settings, the samples and the reports.
+Selecting an item shows its properties below the tree; double-clicking opens it in a tab. Tabs can be dragged out into
+windows of their own.
+
+The project information has the project's **name**, shown in the tree and in reports (the file name when empty),
+**notes**, and when the project was created and last saved.
 
 - **File → New / Open / Save**. Recent projects are under File → Open Recent.
 - **File → Export Archive** writes the project and copies of its data files into a `.tar.gz` or `.zip`, so that it

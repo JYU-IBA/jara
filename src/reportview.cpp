@@ -377,7 +377,8 @@ void ReportView::updateViewTable() {
 
 void ReportView::updateStale() {
     const bool stale = m_report->generated.isValid()
-                       && !isReportUpToDate(*m_report, [this](const DepthProfile *profile) { return m_project->measurementOf(profile); },
+                       && !isReportUpToDate(*m_report, m_project->displayName(),
+                                            [this](const DepthProfile *profile) { return m_project->measurementOf(profile); },
                                             [this](const SplitAnalysis *split) { return m_project->measurementOf(split); });
     m_staleBar->setVisible(stale);
     m_statusLabel->setText(m_report->generated.isValid()
