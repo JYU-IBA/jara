@@ -1,0 +1,31 @@
+#include "version.h"
+
+namespace Version {
+QString version() {
+    return gitPopulated() ? QStringLiteral("@GIT_DESCRIBE@") : versionSimple();
+}
+
+QString versionSimple() {
+    return QStringLiteral(JARA_VERSION);
+}
+
+bool gitPopulated() {
+    return @GIT_RETRIEVED_STATE@;
+}
+
+bool gitDirty() {
+    return @GIT_IS_DIRTY@;
+}
+
+QString gitBranch() {
+    return QStringLiteral("@GIT_BRANCH@");
+}
+
+QString gitCommitSha1() {
+    return QStringLiteral("@GIT_HEAD_SHA1@");
+}
+
+QString gitCommitDate() {
+    return QStringLiteral("@GIT_COMMIT_DATE_ISO8601@");
+}
+}

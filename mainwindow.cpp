@@ -9,6 +9,7 @@
 #include "settingsview.h"
 #include "tabwidget.h"
 #include "tofcalibrationwindow.h"
+#include "version.h"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -72,8 +73,21 @@ QWidget *MainWindow::createStartPage() {
     titleFont.setPointSizeF(titleFont.pointSizeF() * 2.5);
     titleFont.setBold(true);
     title->setFont(titleFont);
-    auto *subtitle = new QLabel(QString("Analysis of ToF-ERDA data, version %1").arg(JARA_VERSION));
+    auto *subtitle = new QLabel(QString("Analysis of ToF-ERDA data, version %1").arg(Version::version()));
     subtitle->setForegroundRole(QPalette::PlaceholderText);
+    // Development builds tell where they came from. A detached HEAD (e.g. a checked out tag) is not a branch.
+    QStringList buildNotes;
+    if(Version::gitPopulated()) {
+        if(Version::gitBranch() != "main" && Version::gitBranch() != "HEAD") {
+            buildNotes << QString("branch %1").arg(Version::gitBranch());
+        }
+        if(Version::gitDirty()) {
+            buildNotes << "uncommitted changes";
+        }
+    }
+    auto *buildNote = new QLabel(QString("Development build from git: %1").arg(buildNotes.join(", ")));
+    buildNote->setForegroundRole(QPalette::PlaceholderText);
+    buildNote->setVisible(!buildNotes.isEmpty());
 
     auto *newButton = new QPushButton("New Project");
     auto *openButton = new QPushButton("Open Project...");
@@ -104,6 +118,7 @@ QWidget *MainWindow::createStartPage() {
     auto *columnLayout = new QVBoxLayout(column);
     columnLayout->addWidget(title);
     columnLayout->addWidget(subtitle);
+    columnLayout->addWidget(buildNote);
     columnLayout->addSpacing(20);
     columnLayout->addLayout(buttonRow);
     columnLayout->addSpacing(20);
@@ -762,8 +777,14 @@ void MainWindow::openRecentFile(const QString &fileName) {
 }
 
 void MainWindow::about() {
+    QString gitInfo;
+    if(Version::gitPopulated()) {
+        gitInfo = QString("<p>Built from git commit %1 dated %2 on branch %3%4.</p>")
+                          .arg(Version::gitCommitSha1(), Version::gitCommitDate(), Version::gitBranch(),
+                               Version::gitDirty() ? " with uncommitted changes" : "");
+    }
     QMessageBox::about(this, "About JaRA",
                        QString("<b>JaRA %1</b><p>Analysis of ToF-ERDA data.</p>"
-                               "<p>JIBAL %2<br>GSL %3<br>Qt %4</p>")
-                               .arg(JARA_VERSION, jibal_version(), GSL_VERSION, qVersion()));
+                               "%2<p>JIBAL %3<br>GSL %4<br>Qt %5</p>")
+                               .arg(Version::version(), gitInfo, jibal_version(), GSL_VERSION, qVersion()));
 }

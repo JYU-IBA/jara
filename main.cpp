@@ -3,13 +3,14 @@
 
 #include "elements.h"
 #include "mainwindow.h"
+#include "version.h"
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     QApplication::setApplicationName("JaRA");
     QApplication::setOrganizationName("JYU");
     QApplication::setOrganizationDomain("jyu.fi"); // Settings are stored as fi.jyu.JaRA on macOS
-    QApplication::setApplicationVersion(JARA_VERSION);
+    QApplication::setApplicationVersion(Version::version());
     QString errorMessage;
     if(!Elements::init(errorMessage)) {
         QMessageBox::warning(nullptr, "JaRA", QString("Element data could not be loaded from JIBAL:\n%1").arg(errorMessage));
