@@ -138,6 +138,40 @@ struct EnergySpectrum {
     QList<int> cutIds; // Included selections
 };
 
+// Screening of the Rutherford cross sections of depth profiles
+enum class ScreeningModel { None, Andersen };
+constexpr ScreeningModel ScreeningModels[] = {ScreeningModel::None, ScreeningModel::Andersen};
+QString screeningModelName(ScreeningModel model); // As shown to the user
+
+constexpr int AnyElement = -1; // As the target of a stopping correction, any element. The same as JIBAL_ANY_Z.
+
+// Stopping of incident ions of one element (Z1) in atoms of another (Z2), or of any element, different from that of
+// all elements
+struct StoppingCorrection {
+    int z1 = 1; // Zero while being edited, such corrections are not used or saved
+    int z2 = 1; // AnyElement for all targets without a correction of their own
+    double electronicFactor = 1; // Multiplies the factor of all elements
+    double nuclearFactor = 1; // Same as above
+    QString stoppingFile; // Name of the GSTO file of electronic stopping, empty for the one of all elements
+    bool operator==(const StoppingCorrection &) const = default;
+};
+
+// How stopping and cross sections are calculated, shared by the measurements assigned to them. Measurements without
+// physics settings use the defaults of this struct.
+struct PhysicsSettings {
+    QString name;
+    ScreeningModel screening = ScreeningModel::Andersen;
+    double electronicFactor = 1; // Electronic stopping of all elements is multiplied by this
+    double nuclearFactor = 1; // Same for nuclear stopping
+    QString stoppingFile; // Name of the GSTO file of electronic stopping of all elements, empty for JIBAL's choice
+    QList<StoppingCorrection> corrections; // At most one for each Z1, Z2 pair
+    bool operator==(const PhysicsSettings &) const = default;
+    const StoppingCorrection *correction(int z1, int z2) const; // nullptr when the pair has none, exactly as listed
+    // The correction that applies to the pair: its own, or that of the incident element in any target. nullptr when
+    // neither is listed.
+    const StoppingCorrection *correctionFor(int z1, int z2) const;
+};
+
 // Built-in defaults of new depth profiles, see also the preferences in defaults.h. Depths are areal densities in atoms/m², 1e15 at/cm² = Units::ThinFilmUnit.
 constexpr double DefaultDepthBinWidth = 20 * Units::ThinFilmUnit;
 constexpr double DefaultStoppingBinWidth = 20 * Units::ThinFilmUnit;
@@ -176,12 +210,15 @@ struct Measurement {
     QList<Cut> cuts;
     ExperimentalSettings *settings = nullptr; // Not owned, belong to the project. nullptr when not assigned.
     DetectorSettings *detector = nullptr; // Same as above
+    PhysicsSettings *physics = nullptr; // Same as above, without them the default physics settings are used
     std::vector<std::unique_ptr<EnergySpectrum>> spectra; // Pointers stay valid, spectrum views refer to them
     std::vector<std::unique_ptr<DepthProfile>> depthProfiles; // Same as above
 
     // Exit angle from the surface, available when both experimental and detector settings are assigned
     bool hasExitAngle() const { return settings && detector; }
     double exitAngle() const { return detector->scatteringAngle - settings->incidentAngle; }
+    // The assigned physics settings, or the defaults
+    const PhysicsSettings &physicsOrDefault() const;
     int newCutId() const; // Not used by any cut of this measurement
     void assignCutIds(); // Gives cuts without an id, or with an id already used by an earlier cut, a new one
     const Cut *cut(int id) const; // nullptr when there is no such cut
@@ -214,15 +251,19 @@ QJsonObject settingsToJson(const ExperimentalSettings &settings);
 ExperimentalSettings settingsFromJson(const QJsonObject &json);
 QJsonObject detectorToJson(const DetectorSettings &detector);
 DetectorSettings detectorFromJson(const QJsonObject &json);
+QJsonObject physicsToJson(const PhysicsSettings &physics);
+PhysicsSettings physicsFromJson(const QJsonObject &json);
 
-// Settings copied through the clipboard or exported to a file:
-// {"format": "jara-settings", "version": 4, "experimentalSettings": [...], "detectorSettings": [...]}.
-// Project files have the same lists, so settings can be imported from them too.
+// Settings copied through the clipboard or exported to a file: {"format": "jara-settings", "version": 4,
+// "experimentalSettings": [...], "detectorSettings": [...], "physicsSettings": [...]}. Project files have the same
+// lists, so settings can be imported from them too.
 struct SettingsCollection {
     QList<ExperimentalSettings> experimental;
     QList<DetectorSettings> detectors;
+    QList<PhysicsSettings> physics;
     bool fromProject = false; // Read from a project file, which has much more than these settings
-    bool isEmpty() const { return experimental.isEmpty() && detectors.isEmpty(); }
+    bool isEmpty() const { return experimental.isEmpty() && detectors.isEmpty() && physics.isEmpty(); }
+    qsizetype size() const { return experimental.size() + detectors.size() + physics.size(); }
 };
 QByteArray settingsCollectionToJson(const SettingsCollection &collection);
 bool settingsCollectionFromJson(const QByteArray &data, SettingsCollection &collection, QString &errorMessage);
@@ -261,6 +302,14 @@ public:
     int detectorIndex(const DetectorSettings *detector) const; // -1 when not in this project
     QList<Measurement *> measurementsUsing(const DetectorSettings *detector) const;
 
+    size_t physicsCount() const { return m_physics.size(); }
+    PhysicsSettings *physics(size_t index) { return m_physics.at(index).get(); }
+    PhysicsSettings *addPhysics(const PhysicsSettings &physics); // Copied
+    QString uniquePhysicsName(const QString &name) const;
+    void removePhysics(size_t index); // Measurements assigned to them are left without physics settings
+    int physicsIndex(const PhysicsSettings *physics) const; // -1 when not in this project
+    QList<Measurement *> measurementsUsing(const PhysicsSettings *physics) const;
+
     size_t sampleCount() const { return m_samples.size(); }
     Sample *sample(size_t index) { return m_samples.at(index).get(); }
     Sample *addSample(const QString &name);
@@ -277,6 +326,7 @@ private:
     bool m_modified = false;
     std::vector<std::unique_ptr<ExperimentalSettings>> m_settings; // Pointers stay valid, measurements refer to them
     std::vector<std::unique_ptr<DetectorSettings>> m_detectors; // Same as above
+    std::vector<std::unique_ptr<PhysicsSettings>> m_physics; // Same as above
     std::vector<std::unique_ptr<Sample>> m_samples; // Pointers stay valid when samples are added or removed
 };
 

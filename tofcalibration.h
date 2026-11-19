@@ -35,7 +35,8 @@ struct ExpectedTof {
     bool isValid() const { return errorMessage.isEmpty(); }
 };
 
-ExpectedTof expectedSurfaceTof(const ExperimentalSettings *settings, const DetectorSettings &detector, const Cut &cut);
+ExpectedTof expectedSurfaceTof(const ExperimentalSettings *settings, const DetectorSettings &detector,
+                               const PhysicsSettings &physics, const Cut &cut);
 
 // Fit of counts = background + amplitude * Phi((channel - mu) / sigma) to the leading edge, Phi being the cumulative
 // distribution function of the standard normal distribution. The fit uses the channels from windowMin to windowMax,

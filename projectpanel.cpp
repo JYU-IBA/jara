@@ -39,10 +39,10 @@
 #include <QVBoxLayout>
 
 namespace {
-// Experimental settings are the first top-level nodes, then detector settings and samples. Under a sample node,
+// Experimental settings are the first top-level nodes, then detector settings, physics settings and samples. Under a sample node,
 // measurements come first, followed by attached files. Energy spectra and then depth profiles are under their
 // measurement.
-enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode, SpectrumNode, DepthProfileNode };
+enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode, SpectrumNode, DepthProfileNode, PhysicsNode };
 enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, SpectrumPage, DepthProfilePage };
 constexpr int TypeRole = Qt::UserRole;
 constexpr int IndexRole = Qt::UserRole + 1; // Index in the sample's measurements or files, or the measurement's spectra
@@ -230,15 +230,19 @@ bool chooseSettings(QWidget *parent, SettingsCollection &collection, const QStri
             list->addItem(item);
         }
     };
-    QStringList experimentalNames, detectorNames;
+    QStringList experimentalNames, detectorNames, physicsNames;
     for(const auto &settings : collection.experimental) {
         experimentalNames.append(settings.name);
     }
     for(const auto &detector : collection.detectors) {
         detectorNames.append(detector.name);
     }
+    for(const auto &physics : collection.physics) {
+        physicsNames.append(physics.name);
+    }
     addItems("Experimental settings", experimentalNames);
     addItems("Detector settings", detectorNames);
+    addItems("Physics settings", physicsNames);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     auto *layout = new QVBoxLayout(&dialog);
     layout->addWidget(new QLabel("Settings to import:"));
@@ -254,10 +258,15 @@ bool chooseSettings(QWidget *parent, SettingsCollection &collection, const QStri
         if(list->item(i)->checkState() != Qt::Checked) {
             continue;
         }
-        if(i < collection.experimental.size()) {
+        // The list has the experimental, detector and physics settings in this order
+        const qsizetype detectorsStart = collection.experimental.size();
+        const qsizetype physicsStart = detectorsStart + collection.detectors.size();
+        if(i < detectorsStart) {
             chosen.experimental.append(collection.experimental.at(i));
+        } else if(i < physicsStart) {
+            chosen.detectors.append(collection.detectors.at(i - detectorsStart));
         } else {
-            chosen.detectors.append(collection.detectors.at(i - collection.experimental.size()));
+            chosen.physics.append(collection.physics.at(i - physicsStart));
         }
     }
     collection = chosen;
@@ -341,6 +350,9 @@ QWidget *ProjectPanel::createPropertyPages() {
     measurementLayout->addRow("Data file:", m_measurementPathLabel);
     measurementLayout->addRow("Experimental settings:", m_measurementSettingsCombo);
     measurementLayout->addRow("Detector settings:", m_measurementDetectorCombo);
+    m_measurementPhysicsCombo = new QComboBox;
+    m_measurementPhysicsCombo->setToolTip("Without physics settings, the default ones are used");
+    measurementLayout->addRow("Physics settings:", m_measurementPhysicsCombo);
     measurementLayout->addRow("Incident ion:", m_beamIonLabel);
     measurementLayout->addRow("Beam energy:", m_beamEnergyLabel);
     measurementLayout->addRow("Incident angle:", m_incidentAngleLabel);
@@ -435,6 +447,11 @@ QWidget *ProjectPanel::createPropertyPages() {
         showGeometry(*measurement);
         emit modified();
     });
+    connect(m_measurementPhysicsCombo, &QComboBox::activated, this, [this]() {
+        const int index = m_measurementPhysicsCombo->currentData().toInt();
+        currentMeasurement()->physics = index >= 0 ? m_project->physics(index) : nullptr;
+        emit modified();
+    });
     connect(m_fileDescriptionEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         currentFile().description = text;
         emit modified();
@@ -468,6 +485,9 @@ void ProjectPanel::setProject(Project *project) {
             for(size_t i = 0; i < project->detectorCount(); i++) {
                 m_tree->addTopLevelItem(createDetectorItem(*project->detector(i)));
             }
+            for(size_t i = 0; i < project->physicsCount(); i++) {
+                m_tree->addTopLevelItem(createPhysicsItem(*project->physics(i)));
+            }
             for(size_t i = 0; i < project->sampleCount(); i++) {
                 m_tree->addTopLevelItem(createSampleItem(*project->sample(i)));
             }
@@ -491,6 +511,14 @@ QTreeWidgetItem *ProjectPanel::createDetectorItem(const DetectorSettings &detect
     item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
     item->setData(0, TypeRole, DetectorNode);
     item->setIcon(0, style()->standardIcon(QStyle::SP_DriveHDIcon));
+    return item;
+}
+
+QTreeWidgetItem *ProjectPanel::createPhysicsItem(const PhysicsSettings &physics) {
+    auto *item = new QTreeWidgetItem({displayName(physics.name)});
+    item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
+    item->setData(0, TypeRole, PhysicsNode);
+    item->setIcon(0, style()->standardIcon(QStyle::SP_FileDialogDetailedView));
     return item;
 }
 
@@ -521,7 +549,7 @@ int ProjectPanel::sampleIndexOf(QTreeWidgetItem *item) const {
 }
 
 int ProjectPanel::firstSampleRow() const {
-    return static_cast<int>(m_project->settingsCount() + m_project->detectorCount());
+    return static_cast<int>(m_project->settingsCount() + m_project->detectorCount() + m_project->physicsCount());
 }
 
 Sample *ProjectPanel::sampleOf(QTreeWidgetItem *item) const {
@@ -545,6 +573,17 @@ DetectorSettings *ProjectPanel::detectorOf(QTreeWidgetItem *item) const {
 
 DetectorSettings *ProjectPanel::currentDetector() const {
     return detectorOf(m_tree->currentItem());
+}
+
+PhysicsSettings *ProjectPanel::physicsOf(QTreeWidgetItem *item) const {
+    if(!m_project || !item || nodeType(item) != PhysicsNode) {
+        return nullptr;
+    }
+    return m_project->physics(m_tree->indexOfTopLevelItem(item) - m_project->settingsCount() - m_project->detectorCount());
+}
+
+PhysicsSettings *ProjectPanel::currentPhysics() const {
+    return physicsOf(m_tree->currentItem());
 }
 
 Sample *ProjectPanel::currentSample() const {
@@ -603,6 +642,7 @@ void ProjectPanel::currentItemChanged(QTreeWidgetItem *item) {
     emit currentSampleChanged(sampleOf(item));
     emit currentSettingsChanged(settingsOf(item));
     emit currentDetectorChanged(detectorOf(item));
+    emit currentPhysicsChanged(physicsOf(item));
 }
 
 void ProjectPanel::showProperties(QTreeWidgetItem *item) {
@@ -644,6 +684,13 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
             }
             m_measurementDetectorCombo->setCurrentIndex(
                     m_measurementDetectorCombo->findData(m_project->detectorIndex(measurement->detector)));
+            m_measurementPhysicsCombo->clear();
+            m_measurementPhysicsCombo->addItem("Default", -1);
+            for(size_t i = 0; i < m_project->physicsCount(); i++) {
+                m_measurementPhysicsCombo->addItem(displayName(m_project->physics(i)->name), static_cast<int>(i));
+            }
+            m_measurementPhysicsCombo->setCurrentIndex(
+                    m_measurementPhysicsCombo->findData(m_project->physicsIndex(measurement->physics)));
             showGeometry(*measurement);
             m_pages->setCurrentIndex(MeasurementPage);
             break;
@@ -657,6 +704,7 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
         }
         case SettingsNode:
         case DetectorNode:
+        case PhysicsNode:
             m_pages->setCurrentIndex(SettingsPage);
             break;
         case SpectrumNode:
@@ -711,6 +759,8 @@ void ProjectPanel::settingsEdited() {
             item->setText(0, displayName(settings->name));
         } else if(const DetectorSettings *detector = detectorOf(item)) {
             item->setText(0, displayName(detector->name));
+        } else if(const PhysicsSettings *physics = physicsOf(item)) {
+            item->setText(0, displayName(physics->name));
         }
     }
     // The measurement page shows the names and values of the assigned settings
@@ -735,6 +785,9 @@ void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
         case DetectorNode:
             emit detectorOpenRequested(currentDetector());
             break;
+        case PhysicsNode:
+            emit physicsOpenRequested(currentPhysics());
+            break;
         case SpectrumNode:
             emit spectrumOpenRequested(currentMeasurement(), currentSpectrum());
             break;
@@ -754,7 +807,7 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
     QTreeWidgetItem *item = m_tree->itemAt(pos);
     if(item) {
         m_tree->setCurrentItem(item);
-        if(nodeType(item) == SettingsNode || nodeType(item) == DetectorNode) {
+        if(nodeType(item) == SettingsNode || nodeType(item) == DetectorNode || nodeType(item) == PhysicsNode) {
             menu.addAction("Edit", this, [this, item]() { itemDoubleClicked(item); });
             menu.addSeparator();
             menu.addAction(m_copySettingsAction);
@@ -762,8 +815,10 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
             menu.addSeparator();
             if(nodeType(item) == SettingsNode) {
                 menu.addAction("Remove Experimental Settings", this, &ProjectPanel::removeSettings);
-            } else {
+            } else if(nodeType(item) == DetectorNode) {
                 menu.addAction("Remove Detector Settings", this, &ProjectPanel::removeDetector);
+            } else {
+                menu.addAction("Remove Physics Settings", this, &ProjectPanel::removePhysics);
             }
         } else {
             if(nodeType(item) == MeasurementNode) {
@@ -798,6 +853,7 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
     menu.addAction("Add Sample", this, &ProjectPanel::addSample);
     menu.addAction("Add Experimental Settings", this, &ProjectPanel::addSettings);
     menu.addAction("Add Detector Settings", this, &ProjectPanel::addDetector);
+    menu.addAction("Add Physics Settings", this, &ProjectPanel::addPhysics);
     menu.addSeparator();
     m_pasteSettingsAction->setEnabled(!settingsInClipboard().isEmpty());
     menu.addAction(m_pasteSettingsAction);
@@ -850,6 +906,16 @@ void ProjectPanel::addDetector() {
     emit detectorOpenRequested(currentDetector());
 }
 
+void ProjectPanel::addPhysics() {
+    if(!m_project) {
+        return;
+    }
+    SettingsCollection collection;
+    collection.physics.append(Defaults::physicsSettings());
+    addSettingsCollection(collection);
+    emit physicsOpenRequested(currentPhysics());
+}
+
 void ProjectPanel::addSettingsCollection(const SettingsCollection &collection) {
     // Names are made unique, the last added set becomes current
     QTreeWidgetItem *last = nullptr;
@@ -861,7 +927,13 @@ void ProjectPanel::addSettingsCollection(const SettingsCollection &collection) {
     for(DetectorSettings detector : collection.detectors) {
         detector.name = m_project->uniqueDetectorName(detector.name);
         last = createDetectorItem(*m_project->addDetector(detector));
-        m_tree->insertTopLevelItem(firstSampleRow() - 1, last); // After the other detectors
+        // After the other detectors, before the physics settings
+        m_tree->insertTopLevelItem(static_cast<int>(m_project->settingsCount() + m_project->detectorCount()) - 1, last);
+    }
+    for(PhysicsSettings physics : collection.physics) {
+        physics.name = m_project->uniquePhysicsName(physics.name);
+        last = createPhysicsItem(*m_project->addPhysics(physics));
+        m_tree->insertTopLevelItem(firstSampleRow() - 1, last); // After the other physics settings
     }
     if(last) {
         m_tree->setCurrentItem(last);
@@ -876,6 +948,9 @@ SettingsCollection ProjectPanel::currentSettingsCollection() const {
     }
     if(const DetectorSettings *detector = currentDetector()) {
         collection.detectors.append(*detector);
+    }
+    if(const PhysicsSettings *physics = currentPhysics()) {
+        collection.physics.append(*physics);
     }
     return collection;
 }
@@ -914,7 +989,9 @@ void ProjectPanel::exportSettings() {
     if(collection.isEmpty()) {
         return;
     }
-    const QString name = collection.experimental.isEmpty() ? collection.detectors.first().name : collection.experimental.first().name;
+    const QString name = !collection.experimental.isEmpty() ? collection.experimental.first().name
+                         : !collection.detectors.isEmpty()  ? collection.detectors.first().name
+                                                            : collection.physics.first().name;
     const QString fileName = QFileDialog::getSaveFileName(this, "Export Settings", name + ".json", SettingsFileFilter);
     if(fileName.isEmpty()) {
         return;
@@ -959,12 +1036,12 @@ void ProjectPanel::importFile(const QString &fileName, int targetSample) {
     }
     if(!errorMessage.isEmpty() || collection.isEmpty()) {
         QMessageBox::warning(this, "Import",
-                             errorMessage.isEmpty() ? QString("%1 has no experimental or detector settings.").arg(fileName)
+                             errorMessage.isEmpty() ? QString("%1 has no experimental, detector or physics settings.").arg(fileName)
                                                     : QString("Could not import %1:\n%2").arg(fileName, errorMessage));
         return;
     }
     // Choose which settings to import from a file with several sets
-    if(collection.experimental.size() + collection.detectors.size() > 1 && !chooseSettings(this, collection, fileName)) {
+    if(collection.size() > 1 && !chooseSettings(this, collection, fileName)) {
         return;
     }
     addSettingsCollection(collection);
@@ -978,6 +1055,7 @@ void ProjectPanel::importProject(Project &source, const QString &fileName, int t
     // Imported measurements keep their settings when the settings are imported too
     QHash<const ExperimentalSettings *, ExperimentalSettings *> settingsCopies;
     QHash<const DetectorSettings *, DetectorSettings *> detectorCopies;
+    QHash<const PhysicsSettings *, PhysicsSettings *> physicsCopies;
     SettingsCollection collection;
     for(size_t i = 0; i < source.settingsCount(); i++) {
         if(dialog.isSelected(source.settings(i))) {
@@ -989,8 +1067,14 @@ void ProjectPanel::importProject(Project &source, const QString &fileName, int t
             collection.detectors.append(*source.detector(i));
         }
     }
+    for(size_t i = 0; i < source.physicsCount(); i++) {
+        if(dialog.isSelected(source.physics(i))) {
+            collection.physics.append(*source.physics(i));
+        }
+    }
     const size_t settingsBefore = m_project->settingsCount();
     const size_t detectorsBefore = m_project->detectorCount();
+    const size_t physicsBefore = m_project->physicsCount();
     addSettingsCollection(collection);
     for(size_t i = 0, added = 0; i < source.settingsCount(); i++) {
         if(dialog.isSelected(source.settings(i))) {
@@ -1002,16 +1086,25 @@ void ProjectPanel::importProject(Project &source, const QString &fileName, int t
             detectorCopies.insert(source.detector(i), m_project->detector(detectorsBefore + added++));
         }
     }
+    for(size_t i = 0, added = 0; i < source.physicsCount(); i++) {
+        if(dialog.isSelected(source.physics(i))) {
+            physicsCopies.insert(source.physics(i), m_project->physics(physicsBefore + added++));
+        }
+    }
     auto importMeasurement = [&](const Measurement &measurement) {
         auto copy = copyMeasurement(measurement);
         copy->settings = settingsCopies.value(measurement.settings);
         copy->detector = detectorCopies.value(measurement.detector);
+        copy->physics = physicsCopies.value(measurement.physics);
         // As with new measurements, settings are assigned when there is no choice to make
         if(!copy->settings && m_project->settingsCount() == 1) {
             copy->settings = m_project->settings(0);
         }
         if(!copy->detector && m_project->detectorCount() == 1) {
             copy->detector = m_project->detector(0);
+        }
+        if(!copy->physics && m_project->physicsCount() == 1) {
+            copy->physics = m_project->physics(0);
         }
         return copy;
     };
@@ -1220,6 +1313,30 @@ void ProjectPanel::removeDetector() {
     emit modified();
 }
 
+void ProjectPanel::removePhysics() {
+    const PhysicsSettings *physics = currentPhysics();
+    if(!physics) {
+        return;
+    }
+    const qsizetype users = m_project->measurementsUsing(physics).size();
+    QString question = QString("Remove physics settings \"%1\"?").arg(displayName(physics->name));
+    if(users > 0) {
+        question += QString(" %1 measurement(s) use them and will use the default physics settings.").arg(users);
+    }
+    if(QMessageBox::question(this, "Remove Physics Settings", question) != QMessageBox::Yes) {
+        return;
+    }
+    emit physicsAboutToBeRemoved(currentPhysics());
+    {
+        const QSignalBlocker blocker(m_tree);
+        QTreeWidgetItem *item = m_tree->currentItem();
+        m_project->removePhysics(m_tree->indexOfTopLevelItem(item) - m_project->settingsCount() - m_project->detectorCount());
+        delete item;
+    }
+    currentItemChanged(m_tree->currentItem());
+    emit modified();
+}
+
 void ProjectPanel::addSample() {
     if(!m_project) {
         return;
@@ -1330,6 +1447,9 @@ void ProjectPanel::addMeasurementFiles(int sampleIndex, const QStringList &fileN
         }
         if(m_project->detectorCount() == 1) {
             measurement->detector = m_project->detector(0);
+        }
+        if(m_project->physicsCount() == 1) {
+            measurement->physics = m_project->physics(0);
         }
         last = measurement.get();
         sample->measurements.push_back(std::move(measurement));

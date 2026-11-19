@@ -1,32 +1,51 @@
 #ifndef JARA_STOPPING_H
 #define JARA_STOPPING_H
 
-#include <memory>
 #include <vector>
 
 #include <QList>
 #include <QString>
+#include <QStringList>
 
 #include "project.h"
 
-// Loads the stopping of a particle (atomic number z) in the target elements when it is not loaded yet. False with an
-// error message when JIBAL has no stopping data for some of them.
-bool loadStopping(int z, const QList<int> &targets, QString &errorMessage);
+// Names of JIBAL's GSTO files of electronic stopping, which physics settings can choose from
+QStringList stoppingFileNames();
+QStringList stoppingFileNames(int z1, int z2); // Of the files with stopping of Z1 in Z2, or in some elements if AnyElement
 
-// Stopping cross section in J m² of a particle (atomic number z, mass in kg) with the energy in J in an element,
-// electronic and nuclear. The stopping must have been loaded.
-double stoppingCrossSection(int z, double mass, int target, double energy);
+// Stopping cross sections of a particle in elements, tabulated with the physics settings: electronic stopping from the
+// GSTO file chosen for each pair of elements, or by JIBAL, and universal nuclear stopping, each multiplied by its
+// correction factors. The table covers energies from 1 keV to 2 GeV evenly on a logarithmic scale and is
+// interpolated linearly. Below it electronic stopping is taken proportional to the velocity, above it the last values
+// are used.
+class StoppingTable {
+public:
+    StoppingTable() = default; // Empty, not valid
+    StoppingTable(int z, double mass, const QList<int> &elements, const PhysicsSettings &physics);
 
-// Energy loss of a particle in a foil, with stopping from JIBAL. Stopping data is loaded when a combination of the
-// particle and an element of the foil is first needed.
+    bool isValid() const { return m_errorMessage.isEmpty() && !m_values.empty(); }
+    const QString &errorMessage() const { return m_errorMessage; } // Why it is not valid
+    const QList<int> &elements() const { return m_elements; }
+    // Stopping cross section in J m² in a mixture of the elements, atomic fractions in the order of elements()
+    double stopping(const std::vector<double> &fractions, double energy) const;
+
+private:
+    QString m_errorMessage;
+    QList<int> m_elements;
+    std::vector<std::vector<double>> m_values; // [element][point]
+};
+
+// Energy in J after slowing down along a path, as atoms/m², in a mixture of the table's elements. Zero when the
+// particle stops. At most maxSteps Runge-Kutta steps are taken, particles that would need more stop or nearly.
+double slowDown(const StoppingTable &table, const std::vector<double> &fractions, double energy, double pathLength,
+                int maxSteps = 1000);
+
+// Energy loss of a particle in a foil, with stopping from the physics settings
 class FoilEnergyLoss {
 public:
     // Particle with atomic number z and mass in kg, foil thickness as areal density in kg/m². A foil without thickness
     // causes no loss.
-    FoilEnergyLoss(int z, double mass, const Material &material, double thickness);
-    ~FoilEnergyLoss();
-    FoilEnergyLoss(const FoilEnergyLoss &) = delete;
-    FoilEnergyLoss &operator=(const FoilEnergyLoss &) = delete;
+    FoilEnergyLoss(int z, double mass, const Material &material, double thickness, const PhysicsSettings &physics);
 
     bool isValid() const { return m_errorMessage.isEmpty(); }
     const QString &errorMessage() const { return m_errorMessage; } // Why it is not valid
@@ -39,9 +58,11 @@ public:
     double energyBefore(double energyAfter) const;
 
 private:
-    struct Layer; // JIBAL layer and the particle
     QString m_errorMessage;
-    std::unique_ptr<Layer> m_layer; // nullptr when there is no loss
+    bool m_loss = false; // The foil has a thickness
+    StoppingTable m_table;
+    std::vector<double> m_fractions; // Of the foil's elements
+    double m_pathLength = 0; // atoms/m²
     std::vector<double> m_before; // Energies before the foil, increasing
     std::vector<double> m_after; // Energies after the foil of the above, increasing
 };

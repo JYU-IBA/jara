@@ -23,10 +23,7 @@ constexpr double AutoDepthCutLevel = 0.8; // The bins are cut when fewer than th
 constexpr int MaxBinsAboveSurface = 100; // Events higher above the surface are left out of the profile
 constexpr int GridPoints = 250; // Of the energy grid of the exit energy tables, evenly spaced on a logarithmic scale
 constexpr double GridRange = 100; // Highest energy of the grid divided by the lowest
-constexpr int StoppingPoints = 400; // Of the stopping tables, evenly spaced on a logarithmic scale
-constexpr double StoppingRange = 1e4; // Highest energy of the stopping tables divided by the lowest
-constexpr double MaxRelativeLossPerStep = 0.02; // In the integration of the energy loss
-constexpr int MaxSteps = 50; // Particles losing more stop, or nearly, the exact energy hardly matters
+constexpr int MaxSteps = 50; // Of slowing down, particles losing more stop or nearly, the exact energy hardly matters
 constexpr int AutoNormalizationSmoothing = 2; // Bins on each side in the moving average of the total
 constexpr double AutoNormalizationTolerance = 0.1; // Relative difference of the total from its typical level allowed
 constexpr double AutoNormalizationDeviations = 3; // Statistical deviations allowed, when more than the above
@@ -59,6 +56,8 @@ DepthProfileInputs depthProfileInputs(const Measurement &measurement, const Dept
         inputs.foilThickness = detector->foilThickness;
         inputs.efficiencies = detector->efficiencies;
     }
+    inputs.physics = measurement.physicsOrDefault();
+    inputs.physics.name.clear();
     inputs.stoppingBinWidth = profile.stoppingBinWidth;
     inputs.maxDepth = profile.maxDepth;
     inputs.autoMaxDepth = profile.autoMaxDepth;
@@ -156,11 +155,15 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         physics.particle = static_cast<size_t>(found - m_particles.begin());
         m_physics.push_back(physics);
     }
-    if(!loadStopping(m_beam.z, m_elements, m_errorMessage)) {
+    m_beam.stopping = StoppingTable(m_beam.z, m_beam.mass, m_elements, inputs.physics);
+    if(!m_beam.stopping.isValid()) {
+        m_errorMessage = m_beam.stopping.errorMessage();
         return;
     }
-    for(const Particle &particle : m_particles) {
-        if(!loadStopping(particle.z, m_elements, m_errorMessage)) {
+    for(Particle &particle : m_particles) {
+        particle.stopping = StoppingTable(particle.z, particle.mass, m_elements, inputs.physics);
+        if(!particle.stopping.isValid()) {
+            m_errorMessage = particle.stopping.errorMessage();
             return;
         }
     }
@@ -180,9 +183,7 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         for(int k = 0; k < GridPoints; k++, energy *= ratio) {
             particle.grid.push_back(energy);
         }
-        tabulateStopping(particle, maxEnergy);
     }
-    tabulateStopping(m_beam, inputs.beamEnergy * 1.01);
 
     // Detected energies and efficiencies of the events. The time of flight is spread within its channel, as in energy
     // spectra.
@@ -220,7 +221,7 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         const bool scattered = cut.type == CutType::Scattered;
         const EfficiencyCurve *curve = findEfficiency(inputs.efficiencies, scattered ? inputs.beamZ : cut.z,
                                                       scattered ? inputs.beamA : cut.a);
-        FoilEnergyLoss foil(particle.z, particle.mass, inputs.foilMaterial, inputs.foilThickness);
+        FoilEnergyLoss foil(particle.z, particle.mass, inputs.foilMaterial, inputs.foilThickness, inputs.physics);
         if(!foil.isValid()) {
             m_errorMessage = QString("Energy loss of %1 in the timing detector foil: %2")
                                      .arg(cutLabel(cut.z, cut.a, cut.type, false), foil.errorMessage());
@@ -248,10 +249,12 @@ double DepthProfileCalculation::crossSection(const Selection &selection, double 
     const SelectionPhysics &physics = m_physics[static_cast<size_t>(&selection - m_selections.data())];
     const jibal_isotope beam = isotope(m_inputs.beamZ, m_inputs.beamA, m_beamMass);
     const jibal_isotope target = isotope(selection.z, selection.a, physics.targetMass);
+    const jibal_cross_section_type type = m_inputs.physics.screening == ScreeningModel::Andersen ? JIBAL_CS_ANDERSEN
+                                                                                                : JIBAL_CS_RUTHERFORD;
     if(selection.type == CutType::Scattered) {
-        return jibal_cross_section_rbs(&beam, &target, m_inputs.scatteringAngle, beamEnergy, JIBAL_CS_ANDERSEN);
+        return jibal_cross_section_rbs(&beam, &target, m_inputs.scatteringAngle, beamEnergy, type);
     }
-    return jibal_cross_section_erd(&beam, &target, m_inputs.scatteringAngle, beamEnergy, JIBAL_CS_ANDERSEN);
+    return jibal_cross_section_erd(&beam, &target, m_inputs.scatteringAngle, beamEnergy, type);
 }
 
 void DepthProfileCalculation::initialComposition() {
@@ -279,78 +282,8 @@ void DepthProfileCalculation::initialComposition() {
     m_composition.assign(m_bins, weights);
 }
 
-void DepthProfileCalculation::tabulateStopping(Particle &particle, double maxEnergy) const {
-    particle.stoppingMinEnergy = maxEnergy / StoppingRange;
-    particle.stoppingLogStep = std::log(StoppingRange) / (StoppingPoints - 1);
-    particle.stopping.clear();
-    for(const int element : m_elements) {
-        std::vector<double> &values = particle.stopping.emplace_back(StoppingPoints);
-        for(int k = 0; k < StoppingPoints; k++) {
-            const double energy = particle.stoppingMinEnergy * std::exp(k * particle.stoppingLogStep);
-            values[static_cast<size_t>(k)] = stoppingCrossSection(particle.z, particle.mass, element, energy);
-        }
-    }
-}
-
-double DepthProfileCalculation::stopping(const Particle &particle, size_t bin, double energy) const {
-    // Linear interpolation in the tables of the elements. Below them, electronic stopping is proportional to the
-    // velocity. Above them, the last values are used.
-    const double position = std::log(energy / particle.stoppingMinEnergy) / particle.stoppingLogStep;
-    size_t i = 0;
-    double t = 0;
-    double scale = 1;
-    if(position < 0) {
-        scale = std::sqrt(energy / particle.stoppingMinEnergy);
-    } else if(position >= StoppingPoints - 1) {
-        i = StoppingPoints - 2;
-        t = 1;
-    } else {
-        i = static_cast<size_t>(position);
-        t = position - static_cast<double>(i);
-    }
-    double sum = 0;
-    const std::vector<double> &fractions = m_composition[bin];
-    for(size_t e = 0; e < fractions.size(); e++) {
-        if(fractions[e] > 0) {
-            const std::vector<double> &values = particle.stopping[e];
-            sum += fractions[e] * (values[i] + t * (values[i + 1] - values[i]));
-        }
-    }
-    return sum * scale;
-}
-
 double DepthProfileCalculation::traverse(const Particle &particle, size_t bin, double energy, double pathLength) const {
-    // Runge-Kutta, with steps short enough that the particle loses at most a few per cent of its energy in each
-    if(!(energy > 0)) {
-        return 0;
-    }
-    const double initialLoss = stopping(particle, bin, energy) * pathLength;
-    const int steps = std::clamp(static_cast<int>(std::ceil(initialLoss / (MaxRelativeLossPerStep * energy))), 1, MaxSteps);
-    const double h = pathLength / steps;
-    double e = energy;
-    for(int i = 0; i < steps; i++) {
-        const double k1 = -stopping(particle, bin, e);
-        const double e2 = e + h / 2 * k1;
-        if(!(e2 > 0)) {
-            return 0;
-        }
-        const double k2 = -stopping(particle, bin, e2);
-        const double e3 = e + h / 2 * k2;
-        if(!(e3 > 0)) {
-            return 0;
-        }
-        const double k3 = -stopping(particle, bin, e3);
-        const double e4 = e + h * k3;
-        if(!(e4 > 0)) {
-            return 0;
-        }
-        const double k4 = -stopping(particle, bin, e4);
-        e += h / 6 * (k1 + 2 * k2 + 2 * k3 + k4);
-        if(!(e > 0)) {
-            return 0;
-        }
-    }
-    return e;
+    return slowDown(particle.stopping, m_composition[bin], energy, pathLength, MaxSteps);
 }
 
 double DepthProfileCalculation::exitEnergy(const Particle &particle, size_t boundary, double energy) const {

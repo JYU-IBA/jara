@@ -38,6 +38,7 @@ struct EnergySpectrumInputs {
     double tofOffset = 0; // s
     Material foilMaterial;
     double foilThickness = 0; // kg/m²
+    PhysicsSettings physics; // Of the foil's stopping, without the name, which does not matter
     double binWidth = 0; // J
     QList<CutInput> cuts; // Included cuts in the order of the measurement's cuts
     bool operator==(const EnergySpectrumInputs &) const = default;

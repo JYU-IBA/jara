@@ -144,7 +144,7 @@ QWidget *EnergySpectrumView::createStaleBar() {
     palette.setColor(QPalette::Window, QColor(0xff, 0xe0, 0x82));
     palette.setColor(QPalette::WindowText, Qt::black);
     m_staleBar->setPalette(palette);
-    auto *label = new QLabel("The spectrum is out of date: the selections, the ToF calibration, the timing detector foil or the incident ion have changed since it was calculated.");
+    auto *label = new QLabel("The spectrum is out of date: the selections, the ToF calibration, the timing detector foil, the incident ion or the physics settings have changed since it was calculated.");
     label->setWordWrap(true);
     auto *refresh = new QPushButton("Refresh");
     auto *layout = new QHBoxLayout(m_staleBar);

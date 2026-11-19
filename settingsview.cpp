@@ -32,9 +32,20 @@ SettingsView::SettingsView(Project *project, DetectorSettings *detector, QWidget
     createLayout(editor);
 }
 
+SettingsView::SettingsView(Project *project, PhysicsSettings *physics, QWidget *parent)
+    : QWidget(parent), m_project(project), m_physics(physics) {
+    auto *editor = new PhysicsSettingsEditor;
+    editor->setPhysics(physics);
+    m_physicsEditor = editor;
+    connect(editor, &PhysicsSettingsEditor::changed, this, &SettingsView::modified);
+    connect(editor, &PhysicsSettingsEditor::nameChanged, this, &SettingsView::nameChanged);
+    connect(editor, &PhysicsSettingsEditor::editingFinished, this, &SettingsView::editingFinished);
+    createLayout(editor);
+}
+
 void SettingsView::createLayout(QWidget *editor) {
     m_assignedList = new QListWidget;
-    auto *title = new QLabel(m_settings ? "Experimental settings" : "Detector settings");
+    auto *title = new QLabel(m_settings ? "Experimental settings" : m_detector ? "Detector settings" : "Physics settings");
     QFont font = title->font();
     font.setBold(true);
     title->setFont(font);
@@ -56,19 +67,23 @@ void SettingsView::createLayout(QWidget *editor) {
 }
 
 void SettingsView::refresh() {
+    if(m_physicsEditor) {
+        m_physicsEditor->refresh();
+    }
     if(m_detectorEditor) {
         m_detectorEditor->refresh();
     }
 }
 
 QString SettingsView::name() const {
-    const QString &name = m_settings ? m_settings->name : m_detector->name;
+    const QString &name = m_settings ? m_settings->name : m_detector ? m_detector->name : m_physics->name;
     return name.isEmpty() ? QStringLiteral("(unnamed)") : name;
 }
 
 void SettingsView::updateAssigned() {
-    const QList<Measurement *> measurements = m_settings ? m_project->measurementsUsing(m_settings)
-                                                         : m_project->measurementsUsing(m_detector);
+    const QList<Measurement *> measurements = m_settings   ? m_project->measurementsUsing(m_settings)
+                                              : m_detector ? m_project->measurementsUsing(m_detector)
+                                                           : m_project->measurementsUsing(m_physics);
     m_assignedList->clear();
     for(size_t i = 0; i < m_project->sampleCount(); i++) {
         const Sample *sample = m_project->sample(i);

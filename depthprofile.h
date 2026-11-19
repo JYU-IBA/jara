@@ -8,6 +8,7 @@
 #include <QString>
 
 #include "project.h"
+#include "stopping.h"
 #include "tofedata.h"
 
 // Depth profiles from single scattering (slab analysis). Each event is assumed to come from one recoil or scattering
@@ -58,6 +59,7 @@ struct DepthProfileInputs {
     Material foilMaterial;
     double foilThickness = 0; // kg/m²
     QList<EfficiencyCurve> efficiencies;
+    PhysicsSettings physics; // Without the name, which does not matter
     double stoppingBinWidth = 0; // atoms/m²
     double maxDepth = 0; // atoms/m², where an automatic one starts
     bool autoMaxDepth = false;
@@ -110,13 +112,9 @@ private:
     struct Particle {
         int z = 0;
         double mass = 0; // kg
+        StoppingTable stopping; // In the elements of the composition
         std::vector<std::vector<double>> exitEnergies; // [boundary][energy grid point], see iterate()
         std::vector<double> grid; // Energies, J
-        // Stopping cross sections in each element of the composition on energies evenly spaced on a logarithmic
-        // scale, [element][point]
-        std::vector<std::vector<double>> stopping;
-        double stoppingMinEnergy = 0; // J, of the first point
-        double stoppingLogStep = 0; // Natural logarithm of the ratio of consecutive energies
     };
     struct SelectionPhysics {
         size_t particle; // Index in m_particles
@@ -124,7 +122,6 @@ private:
         double targetMass; // kg
     };
 
-    double stopping(const Particle &particle, size_t bin, double energy) const; // Bragg's rule in the bin, J m²
     double traverse(const Particle &particle, size_t bin, double energy, double pathLength) const;
     double exitEnergy(const Particle &particle, size_t boundary, double energy) const; // Interpolated in the table
     double crossSection(const Selection &selection, double beamEnergy) const; // m²/sr
@@ -132,7 +129,6 @@ private:
     void calculateBeamEnergies();
     void calculateExitEnergies(Particle &particle);
     void initialComposition();
-    void tabulateStopping(Particle &particle, double maxEnergy) const;
     bool adjustMaxDepth(); // True when the stopping bins were changed
 
     QString m_errorMessage;

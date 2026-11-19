@@ -26,6 +26,8 @@ EnergySpectrumInputs energySpectrumInputs(const Measurement &measurement, const 
         inputs.foilMaterial = detector->foilMaterial;
         inputs.foilThickness = detector->foilThickness;
     }
+    inputs.physics = measurement.physicsOrDefault();
+    inputs.physics.name.clear();
     inputs.binWidth = spectrum.binWidth;
     for(const Cut &cut : measurement.cuts) {
         if(spectrum.cutIds.contains(cut.id)) {
@@ -88,7 +90,7 @@ EnergySpectrumResult calculateEnergySpectrum(const std::vector<ToFEEvent> &event
             return result;
         }
         const int particleZ = scattered ? inputs.beamZ : cut.z;
-        FoilEnergyLoss foil(particleZ, mass, inputs.foilMaterial, inputs.foilThickness);
+        FoilEnergyLoss foil(particleZ, mass, inputs.foilMaterial, inputs.foilThickness, inputs.physics);
         if(!foil.isValid()) {
             result.errorMessage = QString("Energy loss of %1 in the timing detector foil: %2")
                                           .arg(cutLabel(cut.z, cut.a, cut.type, false), foil.errorMessage());

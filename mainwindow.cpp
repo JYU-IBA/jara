@@ -79,6 +79,7 @@ QWidget *MainWindow::createProjectView() {
     connect(m_projectPanel, &ProjectPanel::currentSampleChanged, this, &MainWindow::updateWindowState);
     connect(m_projectPanel, &ProjectPanel::currentSettingsChanged, this, &MainWindow::updateWindowState);
     connect(m_projectPanel, &ProjectPanel::currentDetectorChanged, this, &MainWindow::updateWindowState);
+    connect(m_projectPanel, &ProjectPanel::currentPhysicsChanged, this, &MainWindow::updateWindowState);
     connect(m_projectPanel, &ProjectPanel::sampleAboutToBeRemoved, this, &MainWindow::closeSampleTabs);
     connect(m_projectPanel, &ProjectPanel::measurementAboutToBeRemoved, this, &MainWindow::closeMeasurementTab);
     connect(m_projectPanel, &ProjectPanel::measurementOpenRequested, this, &MainWindow::openMeasurement);
@@ -99,6 +100,10 @@ QWidget *MainWindow::createProjectView() {
     });
     connect(m_projectPanel, &ProjectPanel::settingsOpenRequested, this, &MainWindow::openSettings);
     connect(m_projectPanel, &ProjectPanel::detectorOpenRequested, this, &MainWindow::openDetector);
+    connect(m_projectPanel, &ProjectPanel::physicsOpenRequested, this, &MainWindow::openPhysics);
+    connect(m_projectPanel, &ProjectPanel::physicsAboutToBeRemoved, this, [this](PhysicsSettings *physics) {
+        closeTab(findView<SettingsView>([physics](SettingsView *view) { return view->physics() == physics; }));
+    });
     connect(m_projectPanel, &ProjectPanel::settingsAboutToBeRemoved, this, [this](ExperimentalSettings *settings) {
         closeTab(findView<SettingsView>([settings](SettingsView *view) { return view->settings() == settings; }));
     });
@@ -201,6 +206,10 @@ void MainWindow::createActions() {
 
     m_removeDetectorAction = new QAction("Remove D&etector Settings", this);
     connect(m_removeDetectorAction, &QAction::triggered, m_projectPanel, &ProjectPanel::removeDetector);
+    m_addPhysicsAction = new QAction("Add &Physics Settings", this);
+    connect(m_addPhysicsAction, &QAction::triggered, m_projectPanel, &ProjectPanel::addPhysics);
+    m_removePhysicsAction = new QAction("Remove P&hysics Settings", this);
+    connect(m_removePhysicsAction, &QAction::triggered, m_projectPanel, &ProjectPanel::removePhysics);
 }
 
 void MainWindow::createMenus(QMenuBar *menuBar) {
@@ -233,6 +242,8 @@ void MainWindow::createMenus(QMenuBar *menuBar) {
     experimentMenu->addSeparator();
     experimentMenu->addAction(m_addDetectorAction);
     experimentMenu->addAction(m_removeDetectorAction);
+    experimentMenu->addAction(m_addPhysicsAction);
+    experimentMenu->addAction(m_removePhysicsAction);
     experimentMenu->addSeparator();
     experimentMenu->addAction(m_importSettingsAction);
 
@@ -291,6 +302,8 @@ void MainWindow::updateWindowState() {
     m_removeSettingsAction->setEnabled(open && m_projectPanel->currentSettings());
     m_addDetectorAction->setEnabled(open);
     m_removeDetectorAction->setEnabled(open && m_projectPanel->currentDetector());
+    m_addPhysicsAction->setEnabled(open);
+    m_removePhysicsAction->setEnabled(open && m_projectPanel->currentPhysics());
     m_importSettingsAction->setEnabled(open);
     if(!open) {
         setWindowTitle("JaRA");
@@ -310,6 +323,7 @@ void MainWindow::newProject() {
     auto project = std::make_unique<Project>();
     project->addSettings(Defaults::experimentalSettings());
     project->addDetector(Defaults::detectorSettings());
+    project->addPhysics(Defaults::physicsSettings());
     project->setModified(false); // Nothing to save until something is changed
     setProject(std::move(project));
 }
@@ -515,19 +529,28 @@ void MainWindow::connectSettingsView(SettingsView *view) {
         m_projectPanel->selectMeasurement(measurement);
         openMeasurement(measurement);
     });
-    // Spectra of measurements using the detector follow its ToF calibration once an edit is finished
-    connect(view, &SettingsView::editingFinished, this, [this, view]() { recalculateStaleSpectra(view->detector()); });
+    // Spectra and depth profiles follow the ToF calibration, the foil or the physics settings once an edit is finished
+    connect(view, &SettingsView::editingFinished, this, &MainWindow::recalculateStaleSpectra);
     connect(view, &SettingsView::calibrationRequested, this, [this, view]() { openToFCalibration(view->detector()); });
 }
 
-void MainWindow::recalculateStaleSpectra(const DetectorSettings *detector) {
+void MainWindow::openPhysics(PhysicsSettings *physics) {
+    auto *view = findView<SettingsView>([physics](SettingsView *view) { return view->physics() == physics; });
+    if(!view) {
+        view = new SettingsView(m_project.get(), physics);
+        connectSettingsView(view);
+    }
+    showTab(view, view->name(), "Physics settings");
+}
+
+void MainWindow::recalculateStaleSpectra() {
     for(QWidget *page : tabPages()) {
         auto *spectrumView = qobject_cast<EnergySpectrumView *>(page);
-        if(spectrumView && spectrumView->measurement()->detector == detector && spectrumView->isStale()) {
+        if(spectrumView && spectrumView->isStale()) {
             spectrumView->recalculate();
         }
         auto *profileView = qobject_cast<DepthProfileView *>(page);
-        if(profileView && profileView->measurement()->detector == detector && profileView->isStale()) {
+        if(profileView && profileView->isStale()) {
             profileView->recalculate();
         }
     }
@@ -550,7 +573,7 @@ void MainWindow::openToFCalibration(DetectorSettings *detector) {
             }
             m_projectPanel->settingsEdited();
             projectModified();
-            recalculateStaleSpectra(detector);
+            recalculateStaleSpectra();
         });
     }
     window->show();

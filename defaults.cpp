@@ -11,6 +11,7 @@ namespace {
 // Stored as JSON in the same format as in project files, in SI units. Keys used by earlier versions are not read.
 const QString ExperimentalKey = QStringLiteral("defaults/experimentalSettings");
 const QString DetectorKey = QStringLiteral("defaults/detector");
+const QString PhysicsKey = QStringLiteral("defaults/physics");
 const QString HistogramKey = QStringLiteral("defaults/histogram");
 const QString DepthProfileKey = QStringLiteral("defaults/depthProfile");
 const QString ElementColorsKey = QStringLiteral("defaults/elementColors"); // {"14": "#rrggbb", ...}
@@ -74,6 +75,20 @@ DetectorSettings Defaults::detectorSettings() {
 
 void Defaults::setDetectorSettings(const DetectorSettings &detector) {
     store(DetectorKey, detectorToJson(detector));
+}
+
+PhysicsSettings Defaults::physicsSettings() {
+    const QJsonObject json = load(PhysicsKey);
+    if(json.isEmpty()) {
+        PhysicsSettings physics;
+        physics.name = QStringLiteral("Physics");
+        return physics;
+    }
+    return physicsFromJson(json);
+}
+
+void Defaults::setPhysicsSettings(const PhysicsSettings &physics) {
+    store(PhysicsKey, physicsToJson(physics));
 }
 
 QColor Defaults::elementColor(int z) {

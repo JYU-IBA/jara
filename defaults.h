@@ -36,6 +36,8 @@ ExperimentalSettings experimentalSettings();
 void setExperimentalSettings(const ExperimentalSettings &settings);
 DetectorSettings detectorSettings();
 void setDetectorSettings(const DetectorSettings &detector);
+PhysicsSettings physicsSettings();
+void setPhysicsSettings(const PhysicsSettings &physics);
 
 // Colors of new selections by element. Only colors changed by the user are stored, the others are built in.
 QColor elementColor(int z);

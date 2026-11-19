@@ -23,6 +23,7 @@
 
 PreferencesDialog::PreferencesDialog(QWidget *parent)
     : QDialog(parent), m_experimental(Defaults::experimentalSettings()), m_detector(Defaults::detectorSettings()),
+      m_physics(Defaults::physicsSettings()),
       m_histogram(Defaults::histogramPreferences()), m_depthProfile(Defaults::depthProfilePreferences()), m_elementColors(Defaults::customElementColors()) {
     setWindowTitle("Preferences");
 
@@ -54,6 +55,12 @@ QWidget *PreferencesDialog::createSettingsPage() {
     auto *detectorLayout = new QVBoxLayout(detectorGroup);
     detectorLayout->addWidget(detectorEditor);
 
+    auto *physicsEditor = new PhysicsSettingsEditor;
+    physicsEditor->setPhysics(&m_physics);
+    auto *physicsGroup = new QGroupBox("Default physics settings");
+    auto *physicsLayout = new QVBoxLayout(physicsGroup);
+    physicsLayout->addWidget(physicsEditor);
+
     auto *note = new QLabel("New projects start with these settings, and new settings sets are created from them.");
     note->setWordWrap(true);
 
@@ -62,6 +69,7 @@ QWidget *PreferencesDialog::createSettingsPage() {
     layout->addWidget(note);
     layout->addWidget(experimentalGroup);
     layout->addWidget(detectorGroup);
+    layout->addWidget(physicsGroup);
     layout->addStretch();
     return page;
 }
@@ -275,6 +283,7 @@ void PreferencesDialog::updateElementButton(int z) {
 void PreferencesDialog::accept() {
     Defaults::setExperimentalSettings(m_experimental);
     Defaults::setDetectorSettings(m_detector);
+    Defaults::setPhysicsSettings(m_physics);
     Defaults::setHistogramPreferences(m_histogram);
     Defaults::setDepthProfilePreferences(m_depthProfile);
     Defaults::setCustomElementColors(m_elementColors);

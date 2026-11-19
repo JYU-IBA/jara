@@ -166,7 +166,8 @@ double surfaceEnergy(const ExperimentalSettings *settings, const DetectorSetting
     return settings->beamEnergy * k * k;
 }
 
-ExpectedTof expectedSurfaceTof(const ExperimentalSettings *settings, const DetectorSettings &detector, const Cut &cut) {
+ExpectedTof expectedSurfaceTof(const ExperimentalSettings *settings, const DetectorSettings &detector,
+                               const PhysicsSettings &physics, const Cut &cut) {
     ExpectedTof expected;
     if(detector.tofLength <= 0) {
         expected.errorMessage = QStringLiteral("The ToF length of the detector is not set.");
@@ -182,7 +183,7 @@ ExpectedTof expectedSurfaceTof(const ExperimentalSettings *settings, const Detec
     }
     const double mass = particleMass(cut.type, cut.z, cut.a, settings->beamZ, settings->beamA);
     const int particleZ = cut.type == CutType::Scattered ? settings->beamZ : cut.z;
-    const FoilEnergyLoss foil(particleZ, mass, detector.foilMaterial, detector.foilThickness);
+    const FoilEnergyLoss foil(particleZ, mass, detector.foilMaterial, detector.foilThickness, physics);
     if(!foil.isValid()) {
         expected.errorMessage = foil.errorMessage();
         return expected;

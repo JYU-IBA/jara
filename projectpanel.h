@@ -8,6 +8,7 @@ class QAction;
 struct SettingsCollection;
 struct AttachedFile;
 struct DetectorSettings;
+struct PhysicsSettings;
 struct DepthProfile;
 struct EnergySpectrum;
 struct ExperimentalSettings;
@@ -26,10 +27,10 @@ class QTableWidgetItem;
 class QTreeWidget;
 class QTreeWidgetItem;
 
-// Project tree and a properties editor for the selected node. Experimental and detector settings are edited in tabs
-// of the work area, opened with settingsOpenRequested() and detectorOpenRequested(). Experimental settings are the first top-level
-// The tree has experimental settings as the first top-level items, followed by detector settings and then the samples
-// with their measurements and files. Energy spectra are under their measurements.
+// Project tree and a properties editor for the selected node. Experimental, detector and physics settings are edited
+// in tabs of the work area, opened with settingsOpenRequested(), detectorOpenRequested() and physicsOpenRequested().
+// The tree has experimental settings as the first top-level items, followed by detector settings, physics settings and
+// then the samples with their measurements and files. Energy spectra and depth profiles are under their measurements.
 class ProjectPanel : public QWidget {
     Q_OBJECT
 
@@ -39,6 +40,7 @@ public:
     Sample *currentSample() const;
     ExperimentalSettings *currentSettings() const;
     DetectorSettings *currentDetector() const;
+    PhysicsSettings *currentPhysics() const;
     void selectMeasurement(const Measurement *measurement);
     void settingsEdited(); // Updates the shown names and values after settings were edited elsewhere
 
@@ -54,6 +56,8 @@ public slots:
     void removeSettings();
     void addDetector();
     void removeDetector();
+    void addPhysics();
+    void removePhysics();
     void copySettings(); // The current experimental or detector settings
     void pasteSettings();
     void exportSettings();
@@ -68,13 +72,16 @@ signals:
     void currentSampleChanged(Sample *sample);
     void currentSettingsChanged(ExperimentalSettings *settings);
     void currentDetectorChanged(DetectorSettings *detector);
+    void currentPhysicsChanged(PhysicsSettings *physics);
     void sampleAboutToBeRemoved(Sample *sample);
     void measurementAboutToBeRemoved(Measurement *measurement);
     void measurementOpenRequested(Measurement *measurement);
     void settingsOpenRequested(ExperimentalSettings *settings);
     void detectorOpenRequested(DetectorSettings *detector);
+    void physicsOpenRequested(PhysicsSettings *physics);
     void settingsAboutToBeRemoved(ExperimentalSettings *settings);
     void detectorAboutToBeRemoved(DetectorSettings *detector);
+    void physicsAboutToBeRemoved(PhysicsSettings *physics);
     void measurementRenamed(Measurement *measurement);
     void spectrumOpenRequested(Measurement *measurement, EnergySpectrum *spectrum);
     void spectrumAboutToBeRemoved(EnergySpectrum *spectrum);
@@ -100,11 +107,13 @@ private:
     QWidget *createPropertyPages();
     QTreeWidgetItem *createSettingsItem(const ExperimentalSettings &settings);
     QTreeWidgetItem *createDetectorItem(const DetectorSettings &detector);
+    QTreeWidgetItem *createPhysicsItem(const PhysicsSettings &physics);
     QTreeWidgetItem *createSampleItem(const Sample &sample);
     int sampleIndexOf(QTreeWidgetItem *item) const; // -1 when the item is not part of a sample
     Sample *sampleOf(QTreeWidgetItem *item) const;
     ExperimentalSettings *settingsOf(QTreeWidgetItem *item) const;
     DetectorSettings *detectorOf(QTreeWidgetItem *item) const;
+    PhysicsSettings *physicsOf(QTreeWidgetItem *item) const;
     int firstSampleRow() const; // Row of the first sample among the top-level items
     AttachedFile &currentFile() const;
     Measurement *currentMeasurement() const; // Also of the current spectrum or depth profile
@@ -138,6 +147,7 @@ private:
     QLineEdit *m_measurementDescriptionEdit;
     QComboBox *m_measurementSettingsCombo;
     QComboBox *m_measurementDetectorCombo;
+    QComboBox *m_measurementPhysicsCombo;
     QLabel *m_beamIonLabel;
     QLabel *m_beamEnergyLabel;
     QLabel *m_incidentAngleLabel;

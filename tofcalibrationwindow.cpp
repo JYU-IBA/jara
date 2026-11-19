@@ -302,7 +302,7 @@ void ToFCalibrationWindow::updateTree() {
                 if(cut.tofEdge) {
                     item->setText(EdgeColumn, edgeText(*cut.tofEdge));
                 }
-                const ExpectedTof expected = expectedSurfaceTof(measurement->settings, *m_detector, cut);
+                const ExpectedTof expected = expectedSurfaceTof(measurement->settings, *m_detector, measurement->physicsOrDefault(), cut);
                 if(!expected.isValid()) {
                     item->setText(ExpectedColumn, QStringLiteral("—"));
                     item->setToolTip(ExpectedColumn, expected.errorMessage);
@@ -477,7 +477,7 @@ void ToFCalibrationWindow::updateInfo() {
     }
 
     const ExperimentalSettings *settings = m_measurement->settings;
-    const ExpectedTof expected = expectedSurfaceTof(settings, *m_detector, *cut);
+    const ExpectedTof expected = expectedSurfaceTof(settings, *m_detector, m_measurement->physicsOrDefault(), *cut);
     if(!expected.isValid()) {
         lines.append(QString("<span style='color: red'>Expected ToF: %1</span>").arg(expected.errorMessage.toHtmlEscaped()));
     } else {
@@ -506,7 +506,7 @@ void ToFCalibrationWindow::updateCalibration() {
             }
             CalibrationPoint point{measurement, cut.id, QString("%1 / %2").arg(nameOrUnnamed(measurement->name), cutLabel(cut)),
                                    cut.tofEdge->channel};
-            const ExpectedTof expected = expectedSurfaceTof(measurement->settings, *m_detector, cut);
+            const ExpectedTof expected = expectedSurfaceTof(measurement->settings, *m_detector, measurement->physicsOrDefault(), cut);
             point.tof = expected.isValid() ? expected.tof : std::numeric_limits<double>::quiet_NaN();
             point.errorMessage = expected.errorMessage;
             if(expected.isValid()) {

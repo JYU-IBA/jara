@@ -4,14 +4,22 @@
 #include "elements.h"
 #include "foildialog.h"
 #include "project.h"
+#include "stopping.h"
 
+#include <algorithm>
+
+#include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QHeaderView>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPushButton>
+#include <QTableWidget>
 #include <QToolButton>
+#include <QVBoxLayout>
 
 namespace {
 constexpr auto FromSurface = "Measured from the sample surface";
@@ -229,4 +237,260 @@ void DetectorSettingsEditor::refresh() {
 
 void DetectorSettingsEditor::setCalibrationAvailable(bool available) {
     m_calibrateButton->setVisible(available);
+}
+
+namespace {
+constexpr int UnavailableRole = Qt::UserRole + 1; // Of combo box items of files that are not available
+
+enum CorrectionColumn { IncidentColumn, TargetColumn, ElectronicColumn, NuclearColumn, FileColumn };
+constexpr double MinElectronicFactor = 0.01;
+constexpr double MinNuclearFactor = 0; // Nuclear stopping can be left out
+constexpr double MaxFactor = 10;
+
+// Electronic stopping files to choose from, the first item stands for the empty name
+void addStoppingFiles(QComboBox *combo, const QString &emptyText, const QString &current, const QStringList &names) {
+    combo->addItem(emptyText, QString());
+    for(const QString &name : names) {
+        combo->addItem(name, name);
+    }
+    if(!current.isEmpty() && combo->findData(current) < 0) {
+        // From another computer or another pair, kept until something else is chosen
+        combo->addItem(QString("%1 (not available)").arg(current), current);
+        combo->setItemData(combo->count() - 1, true, UnavailableRole);
+    }
+    combo->setCurrentIndex(combo->findData(current));
+}
+
+// After another choice, the file that was not available is not offered any more
+void removeUnavailable(QComboBox *combo) {
+    for(int i = combo->count() - 1; i >= 0; i--) {
+        if(i != combo->currentIndex() && combo->itemData(i, UnavailableRole).toBool()) {
+            combo->removeItem(i);
+        }
+    }
+}
+
+QDoubleSpinBox *factorSpinBox(double minimum) {
+    auto *spinBox = new QDoubleSpinBox;
+    spinBox->setDecimals(4);
+    spinBox->setRange(minimum, MaxFactor);
+    spinBox->setSingleStep(0.01);
+    return spinBox;
+}
+}
+
+PhysicsSettingsEditor::PhysicsSettingsEditor(QWidget *parent) : QWidget(parent) {
+    m_nameEdit = new QLineEdit;
+    m_screeningCombo = new QComboBox;
+    for(const ScreeningModel model : ScreeningModels) {
+        m_screeningCombo->addItem(screeningModelName(model), static_cast<int>(model));
+    }
+    m_screeningCombo->setToolTip("Screening correction of the Rutherford cross sections of depth profiles");
+    m_electronicSpin = factorSpinBox(MinElectronicFactor);
+    m_electronicSpin->setToolTip("Electronic stopping of all elements is multiplied by this");
+    m_nuclearSpin = factorSpinBox(MinNuclearFactor);
+    m_nuclearSpin->setToolTip("Nuclear stopping of all elements is multiplied by this");
+    m_stoppingFileCombo = new QComboBox;
+    m_stoppingFileCombo->setToolTip("GSTO file of electronic stopping of all elements, or the one JIBAL chooses for each pair");
+
+    m_correctionTable = new QTableWidget(0, 5);
+    m_correctionTable->setHorizontalHeaderLabels({"Incident", "Target", "Electronic", "Nuclear", "Stopping file"});
+    m_correctionTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_correctionTable->horizontalHeader()->setStretchLastSection(true);
+    m_correctionTable->verticalHeader()->hide();
+    m_correctionTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_correctionTable->setMinimumWidth(480); // All columns fit, the stopping file names too
+    m_correctionTable->setToolTip("Stopping of incident ions of one element in another, or in any element without a "
+                                  "pair of its own. The factors multiply those of all elements. Right-click to add or "
+                                  "remove pairs.");
+    m_correctionTable->setContextMenuPolicy(Qt::CustomContextMenu);
+
+    auto *layout = new QFormLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addRow("Name:", m_nameEdit);
+    layout->addRow("Screening:", m_screeningCombo);
+    layout->addRow("Electronic stopping factor:", m_electronicSpin);
+    layout->addRow("Nuclear stopping factor:", m_nuclearSpin);
+    layout->addRow("Stopping file:", m_stoppingFileCombo);
+    layout->addRow("Element pairs:", m_correctionTable);
+
+    connect(m_nameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
+        m_physics->name = text;
+        emit nameChanged(text);
+        emit changed();
+    });
+    connect(m_nameEdit, &QLineEdit::editingFinished, this, [this]() {
+        if(m_edited) {
+            m_edited = false;
+            emit editingFinished();
+        }
+    });
+    connect(m_screeningCombo, &QComboBox::activated, this, [this]() {
+        m_physics->screening = static_cast<ScreeningModel>(m_screeningCombo->currentData().toInt());
+        finishEdit();
+    });
+    for(QDoubleSpinBox *spinBox : {m_electronicSpin, m_nuclearSpin}) {
+        connect(spinBox, &QDoubleSpinBox::valueChanged, this, [this, spinBox](double value) {
+            (spinBox == m_electronicSpin ? m_physics->electronicFactor : m_physics->nuclearFactor) = value;
+            m_edited = true;
+            emit changed();
+        });
+        connect(spinBox, &QDoubleSpinBox::editingFinished, this, [this]() {
+            if(m_edited) {
+                m_edited = false;
+                emit editingFinished();
+            }
+        });
+    }
+    connect(m_stoppingFileCombo, &QComboBox::activated, this, [this]() {
+        m_physics->stoppingFile = m_stoppingFileCombo->currentData().toString();
+        removeUnavailable(m_stoppingFileCombo);
+        finishEdit();
+    });
+    connect(m_correctionTable, &QTableWidget::itemChanged, this, &PhysicsSettingsEditor::correctionItemChanged);
+    connect(m_correctionTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        // Right-clicking an unselected pair selects only it
+        if(QTableWidgetItem *item = m_correctionTable->itemAt(pos); item && !item->isSelected()) {
+            m_correctionTable->selectRow(item->row());
+        }
+        QMenu menu;
+        menu.addAction("Add Pair", this, &PhysicsSettingsEditor::addCorrection);
+        menu.addAction("Remove", this, &PhysicsSettingsEditor::removeCorrections)
+                ->setEnabled(m_correctionTable->selectionModel()->hasSelection());
+        menu.addAction("Remove All", this, &PhysicsSettingsEditor::removeAllCorrections)
+                ->setEnabled(m_correctionTable->rowCount() > 0);
+        menu.exec(m_correctionTable->viewport()->mapToGlobal(pos));
+    });
+}
+
+void PhysicsSettingsEditor::setPhysics(PhysicsSettings *physics) {
+    m_physics = physics;
+    setEnabled(physics != nullptr);
+    if(!physics) {
+        return;
+    }
+    m_nameEdit->setText(physics->name);
+    m_screeningCombo->setCurrentIndex(m_screeningCombo->findData(static_cast<int>(physics->screening)));
+    {
+        const QSignalBlocker electronic(m_electronicSpin);
+        const QSignalBlocker nuclear(m_nuclearSpin);
+        m_electronicSpin->setValue(physics->electronicFactor);
+        m_nuclearSpin->setValue(physics->nuclearFactor);
+    }
+    m_stoppingFileCombo->clear();
+    addStoppingFiles(m_stoppingFileCombo, "Automatic (JIBAL)", physics->stoppingFile, stoppingFileNames());
+    showCorrections();
+}
+
+void PhysicsSettingsEditor::refresh() {
+    setPhysics(m_physics);
+}
+
+void PhysicsSettingsEditor::finishEdit() {
+    emit changed();
+    m_edited = false;
+    emit editingFinished();
+}
+
+void PhysicsSettingsEditor::showCorrections() {
+    const QSignalBlocker blocker(m_correctionTable);
+    m_correctionTable->setRowCount(static_cast<int>(m_physics->corrections.size()));
+    for(int row = 0; row < m_physics->corrections.size(); row++) {
+        const StoppingCorrection &correction = m_physics->corrections[row];
+        auto element = [](int z) {
+            // Edited as a symbol or an atomic number
+            return new QTableWidgetItem(z == AnyElement ? QStringLiteral("Any") : z > 0 ? Elements::symbol(z) : QString());
+        };
+        auto factor = [](double value) {
+            auto *item = new QTableWidgetItem;
+            item->setData(Qt::EditRole, value);
+            return item;
+        };
+        m_correctionTable->setItem(row, IncidentColumn, element(correction.z1));
+        m_correctionTable->setItem(row, TargetColumn, element(correction.z2));
+        m_correctionTable->setItem(row, ElectronicColumn, factor(correction.electronicFactor));
+        m_correctionTable->setItem(row, NuclearColumn, factor(correction.nuclearFactor));
+        auto *fileCombo = new QComboBox;
+        // Only the files with this pair, a file chosen earlier for another pair is shown as not available
+        addStoppingFiles(fileCombo, "Same as all", correction.stoppingFile,
+                         stoppingFileNames(correction.z1, correction.z2));
+        connect(fileCombo, &QComboBox::activated, this, [this, fileCombo, row]() {
+            m_physics->corrections[row].stoppingFile = fileCombo->currentData().toString();
+            removeUnavailable(fileCombo);
+            finishEdit();
+        });
+        m_correctionTable->setCellWidget(row, FileColumn, fileCombo);
+    }
+}
+
+void PhysicsSettingsEditor::correctionItemChanged(QTableWidgetItem *item) {
+    if(item->column() == IncidentColumn || item->column() == TargetColumn) {
+        // A symbol or an atomic number, shown as the symbol, or "Any" (-1) for the target. Invalid elements and pairs
+        // already in the table are not taken.
+        const int row = item->row(); // The item is replaced below
+        StoppingCorrection &correction = m_physics->corrections[row];
+        const QString text = item->text().trimmed();
+        const bool incident = item->column() == IncidentColumn;
+        int z = 0;
+        int a = 0;
+        if(!incident && (text.compare("any", Qt::CaseInsensitive) == 0 || text == QString::number(AnyElement))) {
+            z = AnyElement;
+        } else if(!Elements::parse(text, z, a) || !Elements::isKnown(z)) {
+            z = 0;
+        }
+        // Rows with an element still missing (zero) are not checked for duplicates
+        const int z1 = incident ? z : correction.z1;
+        const int z2 = incident ? correction.z2 : z;
+        const bool valid = z != 0 && (z1 == 0 || z2 == 0 || !m_physics->correction(z1, z2));
+        if(valid) {
+            (incident ? correction.z1 : correction.z2) = z;
+        }
+        showCorrections(); // The symbol, and the files with the pair
+        m_correctionTable->selectRow(row);
+        if(valid) {
+            finishEdit();
+        }
+        return;
+    }
+    if(item->column() != ElectronicColumn && item->column() != NuclearColumn) {
+        return;
+    }
+    StoppingCorrection &correction = m_physics->corrections[item->row()];
+    double &factor = item->column() == ElectronicColumn ? correction.electronicFactor : correction.nuclearFactor;
+    const double minimum = item->column() == ElectronicColumn ? MinElectronicFactor : MinNuclearFactor;
+    factor = std::clamp(item->data(Qt::EditRole).toDouble(), minimum, MaxFactor);
+    const QSignalBlocker blocker(m_correctionTable);
+    item->setData(Qt::EditRole, factor); // Out of range values are not kept
+    finishEdit();
+}
+
+void PhysicsSettingsEditor::addCorrection() {
+    // An empty row, its elements are typed in. One is enough, a second is not added.
+    if(!m_physics->correction(0, 0)) {
+        m_physics->corrections.append({0, 0});
+        showCorrections();
+        emit changed();
+    }
+    const int row = static_cast<int>(m_physics->corrections.indexOf(*m_physics->correction(0, 0)));
+    m_correctionTable->setCurrentCell(row, IncidentColumn);
+    m_correctionTable->editItem(m_correctionTable->item(row, IncidentColumn));
+}
+
+void PhysicsSettingsEditor::removeAllCorrections() {
+    m_physics->corrections.clear();
+    showCorrections();
+    finishEdit();
+}
+
+void PhysicsSettingsEditor::removeCorrections() {
+    QList<int> rows;
+    for(const QModelIndex &index : m_correctionTable->selectionModel()->selectedRows()) {
+        rows.append(index.row());
+    }
+    std::sort(rows.begin(), rows.end(), std::greater<>());
+    for(const int row : rows) {
+        m_physics->corrections.removeAt(row);
+    }
+    showCorrections();
+    finishEdit();
 }

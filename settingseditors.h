@@ -5,12 +5,17 @@
 
 struct DetectorSettings;
 struct ExperimentalSettings;
+struct PhysicsSettings;
+class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QTableWidget;
+class QTableWidgetItem;
 
-// Forms for editing experimental and detector settings, used both in the project tree and for the program defaults.
+// Forms for editing experimental, detector and physics settings, used both in the project tree and for the program
+// defaults.
 // The settings are edited directly, changed() is emitted after each edit.
 
 class ExperimentalSettingsEditor : public QWidget {
@@ -68,6 +73,40 @@ private:
     QLabel *m_foilLabel;
     QLabel *m_efficiencyLabel;
     QPushButton *m_calibrateButton;
+};
+
+// Stopping of all elements and corrections for pairs of incident and target elements, shown in a table
+class PhysicsSettingsEditor : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit PhysicsSettingsEditor(QWidget *parent = nullptr);
+    void setPhysics(PhysicsSettings *physics); // Not owned
+    void refresh(); // Shows the values again after the physics settings were changed elsewhere
+
+signals:
+    void changed();
+    void nameChanged(const QString &name);
+    void editingFinished(); // A field was left or Enter was pressed after changed() was emitted
+
+private slots:
+    void addCorrection();
+    void removeCorrections(); // The selected ones
+    void removeAllCorrections();
+    void correctionItemChanged(QTableWidgetItem *item);
+
+private:
+    void showCorrections();
+    void finishEdit(); // After an edit that is finished at once, e.g. a choice from a combo box or a dialog
+
+    PhysicsSettings *m_physics = nullptr;
+    bool m_edited = false; // Since editingFinished() was emitted
+    QLineEdit *m_nameEdit;
+    QComboBox *m_screeningCombo;
+    QDoubleSpinBox *m_electronicSpin;
+    QDoubleSpinBox *m_nuclearSpin;
+    QComboBox *m_stoppingFileCombo;
+    QTableWidget *m_correctionTable; // Pairs are added and removed from its context menu
 };
 
 #endif // JARA_SETTINGSEDITORS_H

@@ -28,6 +28,7 @@ private:
 
     ExperimentalSettings m_experimental;
     DetectorSettings m_detector;
+    PhysicsSettings m_physics;
     HistogramPreferences m_histogram;
     DepthProfilePreferences m_depthProfile;
     QMap<int, QColor> m_elementColors; // Colors changed by the user, by Z

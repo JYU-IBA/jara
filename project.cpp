@@ -21,6 +21,10 @@ const QString FormatName = QStringLiteral("jara-project");
 const QString SettingsFormatName = QStringLiteral("jara-settings");
 const QString RecoilTypeName = QStringLiteral("recoil");
 const QString ScatteredTypeName = QStringLiteral("scattered");
+
+QString screeningModelId(ScreeningModel model) { // In files
+    return model == ScreeningModel::None ? QStringLiteral("none") : QStringLiteral("andersen");
+}
 // Only files of this version are read, older versions are not converted
 constexpr int FormatVersion = 4;
 
@@ -155,6 +159,9 @@ QJsonObject sampleToJson(const Sample &sample, const QDir &baseDir, const Projec
         if(const int index = project.detectorIndex(measurement->detector); index >= 0) {
             object["detector"] = index;
         }
+        if(const int index = project.physicsIndex(measurement->physics); index >= 0) {
+            object["physics"] = index;
+        }
         measurements.append(object);
     }
     return QJsonObject{
@@ -208,6 +215,10 @@ std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &base
         const int detectorIndex = measurement["detector"].toInt(-1);
         if(detectorIndex >= 0 && detectorIndex < static_cast<int>(project.detectorCount())) {
             sample->measurements.back()->detector = project.detector(detectorIndex);
+        }
+        const int physicsIndex = measurement["physics"].toInt(-1);
+        if(physicsIndex >= 0 && physicsIndex < static_cast<int>(project.physicsCount())) {
+            sample->measurements.back()->physics = project.physics(physicsIndex);
         }
     }
     return sample;
@@ -297,7 +308,7 @@ QString Measurement::uniqueSpectrumName(const QString &name) const {
 
 std::unique_ptr<Measurement> copyMeasurement(const Measurement &measurement) {
     auto copy = std::make_unique<Measurement>(measurement.name, measurement.description, measurement.path, measurement.cuts,
-                                              measurement.settings, measurement.detector);
+                                              measurement.settings, measurement.detector, measurement.physics);
     for(const auto &spectrum : measurement.spectra) {
         copy->spectra.push_back(std::make_unique<EnergySpectrum>(*spectrum));
     }
@@ -485,6 +496,66 @@ DetectorSettings detectorFromJson(const QJsonObject &json) {
     return detector;
 }
 
+QString screeningModelName(ScreeningModel model) {
+    return model == ScreeningModel::None ? QStringLiteral("None (Rutherford)") : QStringLiteral("Andersen");
+}
+
+const StoppingCorrection *PhysicsSettings::correction(int z1, int z2) const {
+    for(const StoppingCorrection &c : corrections) {
+        if(c.z1 == z1 && c.z2 == z2) {
+            return &c;
+        }
+    }
+    return nullptr;
+}
+
+const StoppingCorrection *PhysicsSettings::correctionFor(int z1, int z2) const {
+    const StoppingCorrection *own = correction(z1, z2);
+    return own ? own : correction(z1, AnyElement);
+}
+
+const PhysicsSettings &Measurement::physicsOrDefault() const {
+    static const PhysicsSettings defaults;
+    return physics ? *physics : defaults;
+}
+
+QJsonObject physicsToJson(const PhysicsSettings &physics) {
+    QJsonArray corrections;
+    for(const StoppingCorrection &c : physics.corrections) {
+        if(c.z1 <= 0 || c.z2 == 0) {
+            continue; // Still being edited
+        }
+        corrections.append(QJsonObject{{"z1", c.z1}, {"z2", c.z2}, {"electronicFactor", c.electronicFactor},
+                                       {"nuclearFactor", c.nuclearFactor}, {"stoppingFile", c.stoppingFile}});
+    }
+    return QJsonObject{
+            {"name", physics.name},
+            {"screening", screeningModelId(physics.screening)},
+            {"electronicFactor", physics.electronicFactor},
+            {"nuclearFactor", physics.nuclearFactor},
+            {"stoppingFile", physics.stoppingFile},
+            {"corrections", corrections}};
+}
+
+PhysicsSettings physicsFromJson(const QJsonObject &json) {
+    PhysicsSettings physics;
+    physics.name = json["name"].toString();
+    physics.screening = json["screening"].toString() == screeningModelId(ScreeningModel::None) ? ScreeningModel::None
+                                                                                               : ScreeningModel::Andersen;
+    physics.electronicFactor = std::max(0.0, json["electronicFactor"].toDouble(1));
+    physics.nuclearFactor = std::max(0.0, json["nuclearFactor"].toDouble(1));
+    physics.stoppingFile = json["stoppingFile"].toString();
+    for(const auto &value : json["corrections"].toArray()) {
+        const QJsonObject object = value.toObject();
+        StoppingCorrection c{object["z1"].toInt(), object["z2"].toInt(), std::max(0.0, object["electronicFactor"].toDouble(1)),
+                             std::max(0.0, object["nuclearFactor"].toDouble(1)), object["stoppingFile"].toString()};
+        if(Elements::isKnown(c.z1) && (Elements::isKnown(c.z2) || c.z2 == AnyElement) && !physics.correction(c.z1, c.z2)) {
+            physics.corrections.append(c);
+        }
+    }
+    return physics;
+}
+
 ExperimentalSettings settingsFromJson(const QJsonObject &json) {
     ExperimentalSettings settings;
     settings.name = json["name"].toString();
@@ -504,11 +575,16 @@ QByteArray settingsCollectionToJson(const SettingsCollection &collection) {
     for(const auto &detector : collection.detectors) {
         detectors.append(detectorToJson(detector));
     }
+    QJsonArray physics;
+    for(const auto &p : collection.physics) {
+        physics.append(physicsToJson(p));
+    }
     const QJsonObject root{
             {"format", SettingsFormatName},
             {"version", FormatVersion},
             {"experimentalSettings", settings},
-            {"detectorSettings", detectors}};
+            {"detectorSettings", detectors},
+            {"physicsSettings", physics}};
     return QJsonDocument(root).toJson();
 }
 
@@ -537,6 +613,9 @@ bool settingsCollectionFromJson(const QByteArray &data, SettingsCollection &coll
     }
     for(const auto &value : root["detectorSettings"].toArray()) {
         collection.detectors.append(detectorFromJson(value.toObject()));
+    }
+    for(const auto &value : root["physicsSettings"].toArray()) {
+        collection.physics.append(physicsFromJson(value.toObject()));
     }
     return true;
 }
@@ -573,6 +652,9 @@ std::unique_ptr<Project> Project::load(const QString &fileName, QString &errorMe
     for(const auto &value : root["detectorSettings"].toArray()) {
         project->m_detectors.push_back(std::make_unique<DetectorSettings>(detectorFromJson(value.toObject())));
     }
+    for(const auto &value : root["physicsSettings"].toArray()) {
+        project->m_physics.push_back(std::make_unique<PhysicsSettings>(physicsFromJson(value.toObject())));
+    }
     for(const auto &value : root["samples"].toArray()) {
         project->m_samples.push_back(sampleFromJson(value.toObject(), baseDir, *project));
     }
@@ -592,6 +674,10 @@ bool Project::save(const QString &fileName, QString &errorMessage) {
     for(const auto &detector : m_detectors) {
         detectors.append(detectorToJson(*detector));
     }
+    QJsonArray physics;
+    for(const auto &p : m_physics) {
+        physics.append(physicsToJson(*p));
+    }
     QJsonArray samples;
     for(const auto &sample : m_samples) {
         samples.append(sampleToJson(*sample, baseDir, *this));
@@ -601,6 +687,7 @@ bool Project::save(const QString &fileName, QString &errorMessage) {
             {"version", FormatVersion},
             {"experimentalSettings", settings},
             {"detectorSettings", detectors},
+            {"physicsSettings", physics},
             {"samples", samples}};
 
     QSaveFile file(fileName);
@@ -685,6 +772,42 @@ QList<Measurement *> Project::measurementsUsing(const DetectorSettings *detector
     QList<Measurement *> result;
     forEachMeasurement([&](Measurement *measurement) {
         if(detector && measurement->detector == detector) {
+            result.append(measurement);
+        }
+    });
+    return result;
+}
+
+PhysicsSettings *Project::addPhysics(const PhysicsSettings &physics) {
+    m_physics.push_back(std::make_unique<PhysicsSettings>(physics));
+    m_modified = true;
+    return m_physics.back().get();
+}
+
+QString Project::uniquePhysicsName(const QString &name) const {
+    QStringList names;
+    for(const auto &physics : m_physics) {
+        names.append(physics->name);
+    }
+    return uniqueName(name, names);
+}
+
+void Project::removePhysics(size_t index) {
+    for(Measurement *measurement : measurementsUsing(m_physics.at(index).get())) {
+        measurement->physics = nullptr;
+    }
+    m_physics.erase(m_physics.begin() + static_cast<std::ptrdiff_t>(index));
+    m_modified = true;
+}
+
+int Project::physicsIndex(const PhysicsSettings *physics) const {
+    return indexOf(m_physics, physics);
+}
+
+QList<Measurement *> Project::measurementsUsing(const PhysicsSettings *physics) const {
+    QList<Measurement *> result;
+    forEachMeasurement([&](Measurement *measurement) {
+        if(physics && measurement->physics == physics) {
             result.append(measurement);
         }
     });

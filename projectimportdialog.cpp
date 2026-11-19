@@ -36,6 +36,12 @@ ProjectImportDialog::ProjectImportDialog(Project &source, const QString &fileNam
                 addItem(group, displayName(source.detector(i)->name), source.detector(i));
             }
         }
+        if(source.physicsCount() > 0) {
+            QTreeWidgetItem *group = addItem(nullptr, "Physics settings", nullptr);
+            for(size_t i = 0; i < source.physicsCount(); i++) {
+                addItem(group, displayName(source.physics(i)->name), source.physics(i));
+            }
+        }
     }
     if(source.sampleCount() > 0) {
         QTreeWidgetItem *group = addItem(nullptr, measurementsOnly ? "Measurements" : "Samples", nullptr);

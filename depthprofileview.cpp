@@ -238,8 +238,8 @@ QWidget *DepthProfileView::createStaleBar() {
     palette.setColor(QPalette::Window, QColor(0xff, 0xe0, 0x82));
     palette.setColor(QPalette::WindowText, Qt::black);
     m_staleBar->setPalette(palette);
-    auto *label = new QLabel("The profile is out of date: the selections or the experimental or detector settings have "
-                             "changed since it was calculated.");
+    auto *label = new QLabel("The profile is out of date: the selections or the experimental, detector or physics "
+                             "settings have changed since it was calculated.");
     label->setWordWrap(true);
     auto *recalculate = new QPushButton("Recalculate");
     auto *layout = new QHBoxLayout(m_staleBar);
