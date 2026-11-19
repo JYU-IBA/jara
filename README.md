@@ -1,0 +1,50 @@
+# JaRA
+
+JaRA is a desktop program for analysing time-of-flight elastic recoil detection analysis (ToF-ERDA) data. It reads
+list-mode ToF-E event files, lets you select particles from the ToF-E histogram, and turns the selections into energy
+spectra and depth profiles. Stopping, masses and isotopes come from [JIBAL](https://github.com/JYU-IBA/jibal).
+
+## Features
+
+- **Projects** of samples and measurements, with the experimental, detector and physics settings shared between
+  measurements. Referenced files are checked for changes when a project is opened, and a project can be exported as an
+  archive together with its data files. See [Getting started](docs/getting-started.md) and [Settings](docs/settings.md).
+- **ToF-E histograms with polygon selections** of recoils (ERD), scattered ions (RBS) and reference selections. An
+  isotope can stand for its natural element, and the events of a selection can be given an extra weight. See
+  [Selections](docs/selections.md).
+- **ToF calibration** from the leading edges of the selections' ToF spectra. See [ToF calibration](docs/tof-calibration.md).
+- **Energy spectra** of selections, with the energy lost in the timing detector foil added back. See
+  [Energy spectra](docs/energy-spectra.md).
+- **Depth profiles** from single scattering (slab analysis), iterated until the composition converges, with
+  normalization, averages, uncertainties and labels in the plot. See [Depth profiles](docs/depth-profiles.md).
+- **Split analysis**: the measurement divided into parts with equal counts of a reference selection, to see whether
+  counts are lost during the measurement, e.g. hydrogen released by the beam. Energy spectra and depth profiles can
+  use only a part of the measurement. See [Split analysis](docs/split-analysis.md).
+- **Export** of spectra, profiles and split analyses as text files with a short header or as CSV.
+
+## Quick start
+
+1. Build JaRA, see [Building](docs/building.md).
+2. Create a project (File → New), add a sample and its measurement files (`*.asc`).
+3. Add experimental and detector settings and assign them to the measurements.
+4. Open a measurement, draw selections around the particles in the ToF-E histogram.
+5. Calibrate the ToF with a few selections, then add energy spectra or depth profiles to the measurement.
+
+[Getting started](docs/getting-started.md) goes through these steps in more detail.
+
+## Documentation
+
+- [Building](docs/building.md): requirements and compiling
+- [Getting started](docs/getting-started.md): projects, samples, measurements, files and exporting
+- [Settings](docs/settings.md): experimental, detector and physics settings, efficiencies, the timing detector foil,
+  preferences
+- [Selections](docs/selections.md): the ToF-E histogram and selections
+- [ToF calibration](docs/tof-calibration.md)
+- [Energy spectra](docs/energy-spectra.md)
+- [Depth profiles](docs/depth-profiles.md)
+- [Split analysis](docs/split-analysis.md)
+
+## Versions
+
+Releases are tagged `vX.Y.Z` and the same number is kept in `version.txt` for builds without git.
+`release_scripts/bump_version.sh` changes the version, commits it and tags the commit.
