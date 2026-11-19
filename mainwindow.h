@@ -14,6 +14,7 @@ class ProjectPanel;
 class QMenu;
 class QMenuBar;
 class QStackedWidget;
+class QTreeWidget;
 class SettingsView;
 class ToFCalibrationWindow;
 
@@ -51,6 +52,7 @@ private slots:
 private:
     void createActions();
     void createMenus(QMenuBar *menuBar); // Also for the tab windows, the actions are shared
+    QWidget *createStartPage(); // Shown when no project is open
     QWidget *createProjectView();
     void connectTabs(DetachableTabWidget *tabs);
     void detachTab(DetachableTabWidget *tabs, int index, const QPoint &globalPos);
@@ -80,6 +82,7 @@ private:
     QAction *m_newAction;
     QAction *m_openAction;
     QList<QMenu *> m_recentFilesMenus; // One in each window
+    QTreeWidget *m_recentList; // On the start page
     QAction *m_saveAction;
     QAction *m_saveAsAction;
     QAction *m_closeAction;

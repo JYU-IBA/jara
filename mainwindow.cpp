@@ -16,12 +16,16 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QLabel>
+#include <QHBoxLayout>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QSettings>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QTreeWidget>
+#include <QVBoxLayout>
 
 #include <gsl/gsl_version.h>
 extern "C" {
@@ -41,10 +45,10 @@ void setRecentFiles(const QStringList &files) {
     QSettings().setValue(RecentFilesKey, files);
 }
 
-QLabel *centeredLabel(const QString &text) {
-    auto *label = new QLabel(text);
-    label->setAlignment(Qt::AlignCenter);
-    return label;
+// With ~ for the home directory
+QString displayPath(const QString &path) {
+    const QString home = QDir::homePath();
+    return QDir::toNativeSeparators(path.startsWith(home + "/") ? "~" + path.mid(home.size()) : path);
 }
 }
 
@@ -52,7 +56,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     resize(1280, 800);
 
     m_stack = new QStackedWidget(this);
-    m_stack->addWidget(centeredLabel("No project open.\nCreate a new project or open an existing one from the File menu."));
+    m_stack->addWidget(createStartPage());
     m_stack->addWidget(createProjectView());
     setCentralWidget(m_stack);
 
@@ -60,6 +64,59 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     createMenus(menuBar());
     statusBar()->showMessage(QString("JIBAL %1, GSL %2").arg(jibal_version(), GSL_VERSION));
     updateWindowState();
+}
+
+QWidget *MainWindow::createStartPage() {
+    auto *title = new QLabel("JaRA");
+    QFont titleFont = title->font();
+    titleFont.setPointSizeF(titleFont.pointSizeF() * 2.5);
+    titleFont.setBold(true);
+    title->setFont(titleFont);
+    auto *subtitle = new QLabel(QString("Analysis of ToF-ERDA data, version %1").arg(JARA_VERSION));
+    subtitle->setForegroundRole(QPalette::PlaceholderText);
+
+    auto *newButton = new QPushButton("New Project");
+    auto *openButton = new QPushButton("Open Project...");
+    connect(newButton, &QPushButton::clicked, this, &MainWindow::newProject);
+    connect(openButton, &QPushButton::clicked, this, &MainWindow::openProject);
+    auto *buttonRow = new QHBoxLayout;
+    buttonRow->addWidget(newButton);
+    buttonRow->addWidget(openButton);
+    buttonRow->addStretch();
+
+    auto *recentTitle = new QLabel("Recent projects");
+    QFont recentFont = recentTitle->font();
+    recentFont.setBold(true);
+    recentTitle->setFont(recentFont);
+    m_recentList = new QTreeWidget;
+    m_recentList->setHeaderLabels({"Project", "Folder"});
+    m_recentList->setRootIsDecorated(false);
+    m_recentList->setToolTip("Double-click a project to open it");
+    connect(m_recentList, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem *item) {
+        if(const QString file = item->data(0, Qt::UserRole).toString(); !file.isEmpty()) {
+            openRecentFile(file);
+        }
+    });
+
+    // A column of limited width in the middle of the window
+    auto *column = new QWidget;
+    column->setMaximumWidth(720);
+    auto *columnLayout = new QVBoxLayout(column);
+    columnLayout->addWidget(title);
+    columnLayout->addWidget(subtitle);
+    columnLayout->addSpacing(20);
+    columnLayout->addLayout(buttonRow);
+    columnLayout->addSpacing(20);
+    columnLayout->addWidget(recentTitle);
+    columnLayout->addWidget(m_recentList, 1);
+
+    auto *page = new QWidget;
+    auto *layout = new QHBoxLayout(page);
+    layout->setContentsMargins(20, 40, 20, 40);
+    layout->addStretch();
+    layout->addWidget(column, 3);
+    layout->addStretch();
+    return page;
 }
 
 QWidget *MainWindow::createProjectView() {
@@ -660,12 +717,11 @@ void MainWindow::clearRecentFiles() {
 
 void MainWindow::updateRecentFilesMenu() {
     const QStringList files = recentFiles();
-    const QString home = QDir::homePath();
     for(QMenu *menu : m_recentFilesMenus) {
         menu->clear();
         for(int i = 0; i < files.size(); i++) {
             const QString &file = files.at(i);
-            QString shown = QDir::toNativeSeparators(file.startsWith(home + "/") ? "~" + file.mid(home.size()) : file);
+            QString shown = displayPath(file);
             shown.replace("&", "&&"); // Not a mnemonic
             QAction *action = menu->addAction(QString("&%1 %2").arg(i + 1).arg(shown));
             connect(action, &QAction::triggered, this, [this, file]() { openRecentFile(file); });
@@ -677,6 +733,20 @@ void MainWindow::updateRecentFilesMenu() {
             menu->addAction("Clear Recent Projects", this, &MainWindow::clearRecentFiles);
         }
     }
+
+    m_recentList->clear();
+    for(const QString &file : files) {
+        const QFileInfo info(file);
+        auto *item = new QTreeWidgetItem(m_recentList, {info.completeBaseName(), displayPath(info.absolutePath())});
+        item->setData(0, Qt::UserRole, file);
+        item->setToolTip(0, displayPath(file));
+        item->setToolTip(1, displayPath(file));
+    }
+    if(files.isEmpty()) {
+        auto *item = new QTreeWidgetItem(m_recentList, {"No recent projects"});
+        item->setFlags(Qt::NoItemFlags);
+    }
+    m_recentList->resizeColumnToContents(0);
 }
 
 void MainWindow::openRecentFile(const QString &fileName) {
