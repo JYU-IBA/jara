@@ -1320,6 +1320,18 @@ void ProjectPanel::copyDepthProfile(const DepthProfile *profile, Measurement *ta
     }
     copy->cutIdsExcludedFromAverage = correspondingCutIds(profile->cutIdsExcludedFromAverage, *source, *target);
     copy->cutIdsHiddenFromPlot = correspondingCutIds(profile->cutIdsHiddenFromPlot, *source, *target);
+    copy->cutIdsWithoutLabel = correspondingCutIds(profile->cutIdsWithoutLabel, *source, *target);
+    // Entries by cut id go to the corresponding cuts, the others are dropped
+    auto corresponding = [source, target](int id) {
+        const QList<int> ids = correspondingCutIds({id}, *source, *target);
+        return ids.isEmpty() ? 0 : ids.first();
+    };
+    copy->labelPositions.clear();
+    for(auto i = profile->labelPositions.begin(); i != profile->labelPositions.end(); ++i) {
+        if(const int id = corresponding(i.key()); id > 0) {
+            copy->labelPositions.insert(id, i.value());
+        }
+    }
     target->depthProfiles.push_back(std::move(copy));
     QTreeWidgetItem *profileItem = createDepthProfileItem(*target->depthProfiles.back(),
                                                           static_cast<int>(target->depthProfiles.size() - 1));
