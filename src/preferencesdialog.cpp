@@ -194,13 +194,13 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
     newForm->addRow("Maximum depth:", maxDepthRow);
 
     auto *legend = new QComboBox;
-    for(const LegendPosition position : {LegendPosition::TopRight, LegendPosition::TopLeft}) {
+    for(const LegendPosition position : LegendCorners) {
         legend->addItem(legendPositionName(position), static_cast<int>(position));
     }
     legend->setCurrentIndex(legend->findData(static_cast<int>(m_depthProfile.legendPosition)));
     auto *plotGroup = new QGroupBox("Plot");
     auto *plotForm = new QFormLayout(plotGroup);
-    legend->setToolTip("Each depth profile can also have its own position");
+    legend->setToolTip("Dragging the legend of a depth profile to another corner gives it its own position");
     plotForm->addRow("Legend:", legend);
     auto *legendConcentrations = new QCheckBox("Renormalized concentrations in the legend of new depth profiles");
     legendConcentrations->setChecked(m_depthProfile.showLegendConcentrations);

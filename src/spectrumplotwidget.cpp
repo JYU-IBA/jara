@@ -20,6 +20,46 @@ constexpr int MarginTop = 30;
 constexpr int MarginBottom = 50;
 constexpr double ZeroOnLogScale = 0.2; // Zero values on a log scale, relative to the floor of the y axis
 constexpr int MarkerGrabDistance = 4; // Pixels
+constexpr int LabelPadding = 3; // Pixels around the text of a label
+
+// Positions closest to the desired ones, minimizing the sum of the squared distances from them, with at least the gap
+// between neighbours and all within top...bottom when there is room. The order of the desired positions is kept.
+// With z_i = p_i - i * gap for the positions sorted in order, the gaps become z_i <= z_(i+1), which makes it isotonic
+// regression of the desired positions minus i * gap, solved exactly by pooling adjacent violators. The bounds are
+// the same for all z_i, so clamping the solution keeps it optimal.
+std::vector<double> separate(const std::vector<double> &desired, double gap, double top, double bottom) {
+    const size_t n = desired.size();
+    std::vector<size_t> order(n);
+    for(size_t i = 0; i < n; i++) {
+        order[i] = i;
+    }
+    std::stable_sort(order.begin(), order.end(), [&desired](size_t a, size_t b) { return desired[a] < desired[b]; });
+    struct Block {
+        double sum;
+        size_t count;
+        double mean() const { return sum / static_cast<double>(count); }
+    };
+    std::vector<Block> blocks;
+    for(size_t i = 0; i < n; i++) {
+        blocks.push_back({desired[order[i]] - static_cast<double>(i) * gap, 1});
+        while(blocks.size() > 1 && blocks[blocks.size() - 2].mean() > blocks.back().mean()) {
+            blocks[blocks.size() - 2].sum += blocks.back().sum;
+            blocks[blocks.size() - 2].count += blocks.back().count;
+            blocks.pop_back();
+        }
+    }
+    const double low = top;
+    const double high = std::max(low, bottom - static_cast<double>(n > 0 ? n - 1 : 0) * gap);
+    std::vector<double> positions(n);
+    size_t i = 0;
+    for(const Block &block : blocks) {
+        const double z = std::clamp(block.mean(), low, high);
+        for(size_t j = 0; j < block.count; j++, i++) {
+            positions[order[i]] = z + static_cast<double>(i) * gap;
+        }
+    }
+    return positions;
+}
 }
 
 double niceStep(double range, int targetTicks) {
@@ -68,6 +108,10 @@ void SpectrumPlotWidget::setInfoText(const QString &text) {
 void SpectrumPlotWidget::setLegendCorner(Qt::Corner corner) {
     m_legendCorner = corner;
     update();
+}
+
+void SpectrumPlotWidget::setLegendDraggable(bool draggable) {
+    m_legendDraggable = draggable;
 }
 
 void SpectrumPlotWidget::setContextActions(const QList<QAction *> &actions) {
@@ -277,6 +321,10 @@ double SpectrumPlotWidget::toPlotY(double count) const {
     return std::log10(count > 0 ? count : ZeroOnLogScale * m_yAxis.logFloor);
 }
 
+double SpectrumPlotWidget::fromPlotY(double y) const {
+    return m_logScale ? std::pow(10.0, y) : y;
+}
+
 QPointF SpectrumPlotWidget::dataToPixel(double x, double y) const {
     const QRect plot = plotRect();
     return {plot.left() + (x - m_viewX.min) / m_viewX.size() * plot.width(),
@@ -305,9 +353,10 @@ void SpectrumPlotWidget::paintEvent(QPaintEvent *) {
     }
     drawOverlay(painter);
     drawMarkers(painter, plot);
+    drawLabels(painter);
     painter.restore();
     drawAxes(painter, plot);
-    drawLegend(painter, plot);
+    drawLegend(painter);
 }
 
 void SpectrumPlotWidget::drawCurve(QPainter &painter, const Curve &curve) const {
@@ -399,6 +448,80 @@ void SpectrumPlotWidget::drawMarkers(QPainter &painter, const QRect &plot) const
     }
 }
 
+void SpectrumPlotWidget::setLabels(const QList<Label> &labels) {
+    m_labels = labels;
+    if(m_draggedLabel >= m_labels.size()) {
+        m_draggedLabel = -1;
+    }
+    update();
+}
+
+QList<QRectF> SpectrumPlotWidget::placeLabels() const {
+    const QFontMetrics metrics = fontMetrics();
+    const double height = metrics.height() + 2 * LabelPadding;
+    const QRect plot = plotRect();
+    // Labels without a position are separated among themselves, centres apart by the height of a label, inside the plot
+    std::vector<double> desired;
+    for(const Label &label : m_labels) {
+        if(!label.position) {
+            desired.push_back(dataToPixel(label.x, toPlotY(label.y)).y());
+        }
+    }
+    const std::vector<double> separated = separate(desired, height, plot.top() + height / 2, plot.bottom() - height / 2);
+    QList<QRectF> rects;
+    size_t next = 0;
+    for(qsizetype i = 0; i < m_labels.size(); i++) {
+        const Label &label = m_labels[i];
+        const double width = metrics.horizontalAdvance(label.text) + 2 * LabelPadding;
+        QPointF centre;
+        if(i == m_draggedLabel) {
+            centre = m_labelDragCentre;
+        } else if(label.position) {
+            centre = dataToPixel(label.position->x(), toPlotY(label.position->y()));
+        } else {
+            centre = QPointF(dataToPixel(label.x, 0).x(), separated[next]);
+        }
+        if(!label.position) {
+            next++;
+        }
+        rects.append(QRectF(centre.x() - width / 2, centre.y() - height / 2, width, height));
+    }
+    return rects;
+}
+
+int SpectrumPlotWidget::labelAt(const QPoint &pos) const {
+    if(!plotRect().contains(pos)) {
+        return -1;
+    }
+    const QList<QRectF> rects = placeLabels();
+    for(auto i = rects.size() - 1; i >= 0; i--) { // Drawn last on top
+        if(rects[i].contains(pos)) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+void SpectrumPlotWidget::drawLabels(QPainter &painter) const {
+    const QList<QRectF> rects = placeLabels();
+    QColor background = palette().color(QPalette::Window);
+    background.setAlpha(m_stale ? 120 : 200);
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing);
+    for(qsizetype i = 0; i < m_labels.size(); i++) {
+        QColor color = m_labels[i].color;
+        if(m_stale) {
+            color.setAlpha(90);
+        }
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(background);
+        painter.drawRoundedRect(rects[i], LabelPadding, LabelPadding);
+        painter.setPen(color);
+        painter.drawText(rects[i], Qt::AlignCenter, m_labels[i].text);
+    }
+    painter.restore();
+}
+
 int SpectrumPlotWidget::markerAt(const QPoint &pos) const {
     if(m_mode == Mode::Move || !plotRect().contains(pos)) {
         return -1;
@@ -415,7 +538,9 @@ void SpectrumPlotWidget::updateIdleCursor(const QPoint &pos) {
     if(m_mode == Mode::Move) {
         return;
     }
-    if(markerAt(pos) >= 0) {
+    if(labelAt(pos) >= 0 || (m_legendDraggable && legendRect().contains(pos))) {
+        setCursor(Qt::OpenHandCursor);
+    } else if(markerAt(pos) >= 0) {
         setCursor(Qt::SizeHorCursor);
     } else {
         setCursor(m_mode == Mode::Pick ? Qt::PointingHandCursor : Qt::CrossCursor);
@@ -476,24 +601,49 @@ void SpectrumPlotWidget::drawAxes(QPainter &painter, const QRect &plot) const {
     }
 }
 
-void SpectrumPlotWidget::drawLegend(QPainter &painter, const QRect &plot) const {
+namespace {
+constexpr int LegendPadding = 6;
+constexpr int LegendLineLength = 20;
+constexpr int LegendMargin = 10; // From the plot edges
+}
+
+QRect SpectrumPlotWidget::legendRect() const {
     if(m_curves.isEmpty()) {
+        return {};
+    }
+    const QFontMetrics metrics = fontMetrics();
+    int textWidth = 0;
+    for(const Curve &curve : m_curves) {
+        const QString label = (m_yAxis.legendEvents ? QString("%1 — %2 events").arg(curve.name).arg(curve.events) : curve.name)
+                              + curve.legendSuffix;
+        textWidth = std::max(textWidth, metrics.horizontalAdvance(label));
+    }
+    const int width = LegendPadding * 3 + LegendLineLength + textWidth;
+    const int height = LegendPadding * 2 + metrics.height() * static_cast<int>(m_curves.size());
+    if(m_draggingLegend) {
+        return {m_legendDragPos - m_legendGrab, QSize(width, height)};
+    }
+    const QRect plot = plotRect();
+    const bool left = m_legendCorner == Qt::TopLeftCorner || m_legendCorner == Qt::BottomLeftCorner;
+    const bool top = m_legendCorner == Qt::TopLeftCorner || m_legendCorner == Qt::TopRightCorner;
+    return {left ? plot.left() + LegendMargin : plot.right() - width - LegendMargin,
+            top ? plot.top() + LegendMargin : plot.bottom() - height - LegendMargin, width, height};
+}
+
+void SpectrumPlotWidget::drawLegend(QPainter &painter) const {
+    const QRect box = legendRect();
+    if(box.isEmpty()) {
         return;
     }
     const QFontMetrics metrics = painter.fontMetrics();
-    constexpr int Padding = 6;
-    constexpr int LineLength = 20;
+    constexpr int Padding = LegendPadding;
+    constexpr int LineLength = LegendLineLength;
     QStringList labels;
-    int textWidth = 0;
     for(const Curve &curve : m_curves) {
         labels.append((m_yAxis.legendEvents ? QString("%1 — %2 events").arg(curve.name).arg(curve.events) : curve.name)
                       + curve.legendSuffix);
-        textWidth = std::max(textWidth, metrics.horizontalAdvance(labels.last()));
     }
     const int lineHeight = metrics.height();
-    const int width = Padding * 3 + LineLength + textWidth;
-    const QRect box(m_legendCorner == Qt::TopLeftCorner ? plot.left() + 10 : plot.right() - width - 10, plot.top() + 10,
-                    width, Padding * 2 + lineHeight * static_cast<int>(m_curves.size()));
     painter.save();
     painter.setPen(palette().color(QPalette::Mid));
     painter.setBrush(QColor(255, 255, 255, 220));
@@ -530,6 +680,21 @@ void SpectrumPlotWidget::mousePressEvent(QMouseEvent *event) {
         return;
     }
     m_dragStart = event->pos();
+    // Labels are on top of the markers
+    if(const int label = labelAt(event->pos()); label >= 0) {
+        m_labelDragCentre = placeLabels()[label].center();
+        m_labelGrab = QPointF(event->pos()) - m_labelDragCentre;
+        m_draggedLabel = label;
+        setCursor(Qt::ClosedHandCursor);
+        return;
+    }
+    if(const QRect legend = legendRect(); m_legendDraggable && legend.contains(event->pos())) {
+        m_draggingLegend = true;
+        m_legendGrab = event->pos() - legend.topLeft();
+        m_legendDragPos = event->pos();
+        setCursor(Qt::ClosedHandCursor);
+        return;
+    }
     if(const int marker = markerAt(event->pos()); marker >= 0) {
         m_draggedMarker = marker;
         return;
@@ -550,7 +715,13 @@ void SpectrumPlotWidget::mousePressEvent(QMouseEvent *event) {
 }
 
 void SpectrumPlotWidget::mouseMoveEvent(QMouseEvent *event) {
-    if(m_draggedMarker >= 0) {
+    if(m_draggedLabel >= 0) {
+        m_labelDragCentre = QPointF(event->pos()) - m_labelGrab;
+        update();
+    } else if(m_draggingLegend) {
+        m_legendDragPos = event->pos();
+        update();
+    } else if(m_draggedMarker >= 0) {
         m_markers[m_draggedMarker].x = std::clamp(pixelToData(event->pos()).x(), m_viewX.min, m_viewX.max);
         update();
     } else if(!(event->buttons() & Qt::LeftButton)) {
@@ -570,6 +741,29 @@ void SpectrumPlotWidget::mouseMoveEvent(QMouseEvent *event) {
 
 void SpectrumPlotWidget::mouseReleaseEvent(QMouseEvent *event) {
     if(event->button() != Qt::LeftButton) {
+        return;
+    }
+    if(m_draggedLabel >= 0) {
+        const int label = std::exchange(m_draggedLabel, -1);
+        setCursor(Qt::OpenHandCursor);
+        // Kept there until new labels are set
+        const QPointF centre = pixelToData(m_labelDragCentre);
+        m_labels[label].position = QPointF(centre.x(), fromPlotY(centre.y()));
+        emit labelMoved(label, *m_labels[label].position);
+        return;
+    }
+    if(m_draggingLegend) {
+        // To the corner of the quarter of the plot where its centre was dropped
+        const QPointF centre = QRectF(legendRect()).center();
+        const QPointF plotCentre = QRectF(plotRect()).center();
+        const bool left = centre.x() < plotCentre.x();
+        const bool top = centre.y() < plotCentre.y();
+        m_draggingLegend = false;
+        m_legendCorner = top ? (left ? Qt::TopLeftCorner : Qt::TopRightCorner)
+                             : (left ? Qt::BottomLeftCorner : Qt::BottomRightCorner);
+        setCursor(Qt::OpenHandCursor);
+        update();
+        emit legendCornerChanged(m_legendCorner);
         return;
     }
     if(m_draggedMarker >= 0) {

@@ -10,6 +10,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QColor>
+#include <QHash>
 #include <QList>
 #include <QPointF>
 #include <QString>
@@ -223,7 +224,9 @@ constexpr double DefaultAverageMax = 500 * Units::ThinFilmUnit;
 constexpr double DefaultDensity = 2000; // kg/m³, converts depths to nm
 
 // Corner of the plot with the legend of a depth profile. Default follows the preferences.
-enum class LegendPosition { Default, TopRight, TopLeft };
+enum class LegendPosition { Default, TopRight, TopLeft, BottomRight, BottomLeft };
+constexpr LegendPosition LegendCorners[] = {LegendPosition::TopRight, LegendPosition::TopLeft, LegendPosition::BottomRight,
+                                            LegendPosition::BottomLeft}; // All but Default
 QString legendPositionName(LegendPosition position); // As shown to the user
 QString legendPositionId(LegendPosition position); // In files and the preferences
 LegendPosition legendPositionFromId(const QString &id, LegendPosition fallback);
@@ -256,6 +259,11 @@ struct DepthProfile {
     bool showTotal = false;
     bool showNormalization = false; // The interval where the total is 100 %
     bool shadeAverage = true; // The averaging interval is shaded, its ends are always drawn
+    bool showLabels = false; // Names of the selections in the plot at their averages
+    QList<int> cutIdsWithoutLabel; // Shown selections left without a label
+    // Centres of the labels dragged by the user, by the first selection of their curve: x the depth in atoms/m², y the
+    // atomic fraction. The other labels are placed automatically.
+    QHash<int, QPointF> labelPositions;
     LegendPosition legendPosition = LegendPosition::Default;
     bool showLegendConcentrations = true; // The renormalized averages in the legend
 };

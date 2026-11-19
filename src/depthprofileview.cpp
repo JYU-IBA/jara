@@ -38,7 +38,7 @@
 namespace {
 const QString ZoomHint = QStringLiteral(
         "Drag to zoom, double-click to show everything. Drag the dashed lines to change the normalization and "
-        "averaging intervals.");
+        "averaging intervals, drag the legend to another corner.");
 const QString MoveHint = QStringLiteral("Drag to move the view. Scroll the mouse wheel or pinch to zoom.");
 const QString ThinFilmText = QStringLiteral("10¹⁵ at/cm²");
 constexpr double Nanometre = 1e-9;
@@ -139,22 +139,26 @@ DepthProfileView::DepthProfileView(Measurement *measurement, DepthProfile *profi
     m_iterationTimer->setSingleShot(true);
     connect(m_iterationTimer, &QTimer::timeout, this, &DepthProfileView::iterationStep);
     connect(m_plot, &SpectrumPlotWidget::markerMoved, this, &DepthProfileView::markerMoved);
-    // The default position is set in the preferences
-    auto *legendMenu = new QMenu("Legend", this);
-    m_legendGroup = new QActionGroup(this);
-    for(const LegendPosition position : {LegendPosition::Default, LegendPosition::TopRight, LegendPosition::TopLeft}) {
-        QAction *action = legendMenu->addAction(legendPositionName(position));
-        action->setCheckable(true);
-        action->setData(static_cast<int>(position));
-        m_legendGroup->addAction(action);
-        connect(action, &QAction::triggered, this, [this, position]() {
-            m_profile->legendPosition = position;
-            emit modified();
-            updateLegendPosition();
-        });
-    }
-    legendMenu->addSeparator();
-    QAction *concentrations = legendMenu->addAction("Show Concentrations");
+    // The legend is dragged to a corner, until then it is where the preferences put it
+    m_plot->setLegendDraggable(true);
+    connect(m_plot, &SpectrumPlotWidget::legendCornerChanged, this, [this](Qt::Corner corner) {
+        switch(corner) {
+            case Qt::TopLeftCorner:
+                m_profile->legendPosition = LegendPosition::TopLeft;
+                break;
+            case Qt::TopRightCorner:
+                m_profile->legendPosition = LegendPosition::TopRight;
+                break;
+            case Qt::BottomLeftCorner:
+                m_profile->legendPosition = LegendPosition::BottomLeft;
+                break;
+            case Qt::BottomRightCorner:
+                m_profile->legendPosition = LegendPosition::BottomRight;
+                break;
+        }
+        emit modified();
+    });
+    auto *concentrations = new QAction("Concentrations in the Legend", this);
     concentrations->setCheckable(true);
     concentrations->setChecked(m_profile->showLegendConcentrations);
     concentrations->setToolTip("The average concentrations after the names, renormalized unless averaged over the "
@@ -173,7 +177,10 @@ DepthProfileView::DepthProfileView(Measurement *measurement, DepthProfile *profi
         emit modified();
         updateProfile(SpectrumPlotWidget::ViewChange::Keep);
     });
-    m_plot->setContextActions({legendMenu->menuAction(), shadeAverage});
+    m_labelMenu = new QMenu("Labels", this);
+    connect(m_labelMenu, &QMenu::aboutToShow, this, &DepthProfileView::updateLabelMenu);
+    connect(m_plot, &SpectrumPlotWidget::labelMoved, this, &DepthProfileView::labelMoved);
+    m_plot->setContextActions({concentrations, m_labelMenu->menuAction(), shadeAverage});
     updateLegendPosition();
     m_hint = ZoomHint;
     m_statusLabel = new QLabel(m_hint);
@@ -781,6 +788,8 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
         m_plot->setCurves(1, {}, viewChange);
         m_plot->setRegions({});
         m_plot->setMarkers({});
+        m_plot->setLabels({});
+        m_labelCutIds.clear();
         m_plot->setInfoText({});
         updateAverages();
         return;
@@ -794,6 +803,8 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
     m_errorLabel->setVisible(!m_result.errorMessage.isEmpty());
     if(!m_result.errorMessage.isEmpty()) {
         m_plot->setCurves(1, {}, viewChange);
+        m_plot->setLabels({});
+        m_labelCutIds.clear();
         updateAverages();
         return;
     }
@@ -867,6 +878,28 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
     }
     m_plot->setRegions(regions);
     m_plot->setMarkers(markers);
+    // Names of the shown selections in the middle of the averaging interval at their averages, which are
+    // unrenormalized as the curves are
+    QList<SpectrumPlotWidget::Label> labels;
+    m_labelCutIds.clear();
+    if(m_profile->showLabels) {
+        for(size_t c = 0; c < m_result.curves.size(); c++) {
+            const DepthProfileCurve &curve = m_result.curves[c];
+            if(curve.allIn(m_profile->cutIdsHiddenFromPlot) || curve.allIn(m_profile->cutIdsWithoutLabel)) {
+                continue;
+            }
+            const Cut *cut = m_measurement->cut(curve.cutId);
+            SpectrumPlotWidget::Label label{(averageMin + averageMax) / 2, m_result.averages[c].concentration * 100,
+                                            curve.label(), cut ? cut->color : QColor(Qt::gray), std::nullopt};
+            // Dragged by the user to a depth and concentration
+            if(const auto position = m_profile->labelPositions.find(curve.cutId); position != m_profile->labelPositions.end()) {
+                label.position = QPointF(toDisplay(position->x()), position->y() * 100);
+            }
+            labels.append(label);
+            m_labelCutIds.append(curve.cutId);
+        }
+    }
+    m_plot->setLabels(labels);
     QString intervals;
     if(follows) {
         intervals = QStringLiteral(", total 100 % and averages over the orange interval");
@@ -887,17 +920,23 @@ void DepthProfileView::applyPreferences() {
 }
 
 void DepthProfileView::updateLegendPosition() {
-    const LegendPosition preferred = Defaults::depthProfilePreferences().legendPosition;
-    for(QAction *action : m_legendGroup->actions()) {
-        const auto position = static_cast<LegendPosition>(action->data().toInt());
-        action->setChecked(position == m_profile->legendPosition);
-        if(position == LegendPosition::Default) {
-            action->setText(QString("Default (%1)").arg(legendPositionName(preferred)));
-        }
+    const LegendPosition position = m_profile->legendPosition == LegendPosition::Default
+                                            ? Defaults::depthProfilePreferences().legendPosition
+                                            : m_profile->legendPosition;
+    switch(position) {
+        case LegendPosition::TopLeft:
+            m_plot->setLegendCorner(Qt::TopLeftCorner);
+            break;
+        case LegendPosition::BottomRight:
+            m_plot->setLegendCorner(Qt::BottomRightCorner);
+            break;
+        case LegendPosition::BottomLeft:
+            m_plot->setLegendCorner(Qt::BottomLeftCorner);
+            break;
+        default:
+            m_plot->setLegendCorner(Qt::TopRightCorner);
+            break;
     }
-    const LegendPosition position =
-            m_profile->legendPosition == LegendPosition::Default ? preferred : m_profile->legendPosition;
-    m_plot->setLegendCorner(position == LegendPosition::TopLeft ? Qt::TopLeftCorner : Qt::TopRightCorner);
 }
 
 void DepthProfileView::updateAverages() {
@@ -970,6 +1009,57 @@ void DepthProfileView::markerMoved(int index, double x) {
     } else {
         setInterval(interval, isMin ? depth : m_profile->averageMin, isMin ? m_profile->averageMax : depth);
     }
+}
+
+void DepthProfileView::labelMoved(int index, QPointF position) {
+    if(index < 0 || index >= m_labelCutIds.size()) {
+        return;
+    }
+    m_profile->labelPositions.insert(m_labelCutIds[index], QPointF(fromDisplay(position.x()), position.y() / 100));
+    emit modified();
+    updateProfile(SpectrumPlotWidget::ViewChange::Keep);
+}
+
+void DepthProfileView::updateLabelMenu() {
+    m_labelMenu->clear();
+    QAction *show = m_labelMenu->addAction("Show Labels");
+    show->setCheckable(true);
+    show->setChecked(m_profile->showLabels);
+    show->setToolTip("Names of the selections in the plot at their averages, they can be dragged");
+    connect(show, &QAction::toggled, this, [this](bool checked) {
+        m_profile->showLabels = checked;
+        emit modified();
+        updateProfile(SpectrumPlotWidget::ViewChange::Keep);
+    });
+    m_labelMenu->addSeparator();
+    // The shown curves, all of the selections summed in a curve share its label
+    for(const DepthProfileCurve &curve : m_result.curves) {
+        if(curve.allIn(m_profile->cutIdsHiddenFromPlot)) {
+            continue;
+        }
+        QAction *action = m_labelMenu->addAction(curve.label());
+        action->setCheckable(true);
+        action->setChecked(!curve.allIn(m_profile->cutIdsWithoutLabel));
+        action->setEnabled(m_profile->showLabels);
+        const QList<int> ids = curve.cutIds;
+        connect(action, &QAction::toggled, this, [this, ids](bool checked) {
+            for(const int id : ids) {
+                m_profile->cutIdsWithoutLabel.removeAll(id);
+                if(!checked) {
+                    m_profile->cutIdsWithoutLabel.append(id);
+                }
+            }
+            emit modified();
+            updateProfile(SpectrumPlotWidget::ViewChange::Keep);
+        });
+    }
+    m_labelMenu->addSeparator();
+    QAction *reset = m_labelMenu->addAction("Reset Label Positions", this, [this]() {
+        m_profile->labelPositions.clear();
+        emit modified();
+        updateProfile(SpectrumPlotWidget::ViewChange::Keep);
+    });
+    reset->setEnabled(m_profile->showLabels && !m_profile->labelPositions.isEmpty());
 }
 
 void DepthProfileView::checkStale() {

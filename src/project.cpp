@@ -133,6 +133,18 @@ QList<int> idsFromJson(const QJsonValue &json) {
     return ids;
 }
 
+// In the order of the ids, so that saving again gives the same file
+QJsonArray labelPositionsToJson(const QHash<int, QPointF> &positions) {
+    QList<int> ids = positions.keys();
+    std::sort(ids.begin(), ids.end());
+    QJsonArray json;
+    for(const int id : ids) {
+        const QPointF position = positions.value(id);
+        json.append(QJsonObject{{"cut", id}, {"depth", position.x()}, {"concentration", position.y()}});
+    }
+    return json;
+}
+
 QJsonObject depthProfileToJson(const DepthProfile &profile) {
     QJsonObject normalization{{"auto", profile.autoNormalization},
                               {"min", profile.normalizationMin},
@@ -155,6 +167,9 @@ QJsonObject depthProfileToJson(const DepthProfile &profile) {
                                  {"total", profile.showTotal},
                                  {"normalization", profile.showNormalization},
                                  {"shadeAverage", profile.shadeAverage},
+                                 {"labels", profile.showLabels},
+                                 {"unlabeledCuts", idsToJson(profile.cutIdsWithoutLabel)},
+                                 {"labelPositions", labelPositionsToJson(profile.labelPositions)},
                                  {"legend", legendPositionId(profile.legendPosition)},
                                  {"legendConcentrations", profile.showLegendConcentrations}}}};
     rangeToJson(json, profile.rangeMin, profile.rangeMax);
@@ -192,6 +207,13 @@ std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
     profile->showTotal = plot["total"].toBool(profile->showTotal);
     profile->showNormalization = plot["normalization"].toBool(profile->showNormalization);
     profile->shadeAverage = plot["shadeAverage"].toBool(profile->shadeAverage);
+    profile->showLabels = plot["labels"].toBool(profile->showLabels);
+    profile->cutIdsWithoutLabel = idsFromJson(plot["unlabeledCuts"]);
+    for(const auto &value : plot["labelPositions"].toArray()) {
+        const QJsonObject position = value.toObject();
+        profile->labelPositions.insert(position["cut"].toInt(),
+                                       QPointF(position["depth"].toDouble(), position["concentration"].toDouble()));
+    }
     profile->legendPosition = legendPositionFromId(plot["legend"].toString(), profile->legendPosition);
     profile->showLegendConcentrations = plot["legendConcentrations"].toBool(profile->showLegendConcentrations);
     rangeFromJson(json, profile->rangeMin, profile->rangeMax);
@@ -427,6 +449,8 @@ void Measurement::removeCut(int index) {
         profile->cutIds.removeAll(id);
         profile->cutIdsExcludedFromAverage.removeAll(id);
         profile->cutIdsHiddenFromPlot.removeAll(id);
+        profile->cutIdsWithoutLabel.removeAll(id);
+        profile->labelPositions.remove(id);
     }
 }
 
@@ -672,6 +696,10 @@ QString legendPositionName(LegendPosition position) {
             return QStringLiteral("Top Right");
         case LegendPosition::TopLeft:
             return QStringLiteral("Top Left");
+        case LegendPosition::BottomRight:
+            return QStringLiteral("Bottom Right");
+        case LegendPosition::BottomLeft:
+            return QStringLiteral("Bottom Left");
     }
     return {};
 }
@@ -684,12 +712,19 @@ QString legendPositionId(LegendPosition position) {
             return QStringLiteral("topRight");
         case LegendPosition::TopLeft:
             return QStringLiteral("topLeft");
+        case LegendPosition::BottomRight:
+            return QStringLiteral("bottomRight");
+        case LegendPosition::BottomLeft:
+            return QStringLiteral("bottomLeft");
     }
     return {};
 }
 
 LegendPosition legendPositionFromId(const QString &id, LegendPosition fallback) {
-    for(const LegendPosition position : {LegendPosition::Default, LegendPosition::TopRight, LegendPosition::TopLeft}) {
+    if(id == legendPositionId(LegendPosition::Default)) {
+        return LegendPosition::Default;
+    }
+    for(const LegendPosition position : LegendCorners) {
         if(id == legendPositionId(position)) {
             return position;
         }

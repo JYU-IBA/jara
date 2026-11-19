@@ -16,6 +16,7 @@ class QActionGroup;
 class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
+class QMenu;
 class QPushButton;
 class QSpinBox;
 class QTimer;
@@ -52,6 +53,8 @@ private slots:
     void chooseSelections(); // In a dialog
     void averageItemChanged(QTreeWidgetItem *item, int column);
     void markerMoved(int index, double x);
+    void labelMoved(int index, QPointF position); // Of the centre in the depth unit shown and at.%
+    void updateLabelMenu(); // Before it is shown, from the curves of the profile
     void exportProfile();
 
 private:
@@ -106,7 +109,8 @@ private:
     QCheckBox *m_followNormalizationCheck = nullptr;
     QTreeWidget *m_averageTable = nullptr;
     QPushButton *m_iterateButton = nullptr;
-    QActionGroup *m_legendGroup = nullptr; // Of the legend positions in the context menu of the plot
+    QMenu *m_labelMenu = nullptr; // In the context menu of the plot
+    QList<int> m_labelCutIds; // First selection of the curve of each label in the plot
     QWidget *m_staleBar = nullptr;
     QLabel *m_errorLabel = nullptr;
     QLabel *m_warningLabel = nullptr; // Elements counted more than once

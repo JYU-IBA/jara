@@ -1,6 +1,7 @@
 #ifndef JARA_SPECTRUMPLOTWIDGET_H
 #define JARA_SPECTRUMPLOTWIDGET_H
 
+#include <optional>
 #include <vector>
 
 #include <QAction>
@@ -64,6 +65,17 @@ public:
         bool draggable = false; // Moved by dragging it, markerMoved() is emitted when it is released
     };
 
+    // Text in the plot, centred at x and as near to y as the other labels allow: labels are moved apart vertically so
+    // that they do not overlap, see placeLabels(). A label with a position is centred there instead. Labels can be
+    // dragged, which emits labelMoved() with the new position.
+    struct Label {
+        double x; // In x axis units
+        double y; // As the values of the curves
+        QString text;
+        QColor color;
+        std::optional<QPointF> position; // Of the centre, x in axis units and y as the values of the curves
+    };
+
     struct Curve {
         QString name; // In the legend and the cursor info
         QColor color;
@@ -91,10 +103,13 @@ public:
     void setCurves(double binWidth, const QList<Curve> &curves, ViewChange viewChange); // Bin width in x axis units
     void setRegions(const QList<Region> &regions);
     void setInfoText(const QString &text); // Above the plot instead of the bin width and the highest value
-    void setLegendCorner(Qt::Corner corner); // Top left or top right
+    void setLegendCorner(Qt::Corner corner);
+    // The legend can be dragged to another corner, which emits legendCornerChanged()
+    void setLegendDraggable(bool draggable);
     void setContextActions(const QList<QAction *> &actions); // Added to the end of the context menu, not owned
     void setOverlay(const QList<QPointF> &points, const QColor &color); // Line through the points, x and counts
     void setMarkers(const QList<Marker> &markers);
+    void setLabels(const QList<Label> &labels);
     void setXView(double min, double max); // The counts axis is kept
     void setStale(bool stale); // Drawn faded and dashed
     bool logScale() const { return m_logScale; }
@@ -111,6 +126,8 @@ signals:
     void logScaleChanged(bool logScale);
     void picked(double x);
     void markerMoved(int index, double x);
+    void legendCornerChanged(Qt::Corner corner);
+    void labelMoved(int index, QPointF position); // Of its centre, x in axis units and y as the values of the curves
 
 protected:
     bool event(QEvent *event) override;
@@ -131,6 +148,7 @@ private:
 
     QRect plotRect() const;
     double toPlotY(double count) const; // Count to the y coordinate of the view, log10 of it on a log scale
+    double fromPlotY(double y) const; // The inverse of toPlotY()
     QPointF dataToPixel(double x, double y) const; // y as from toPlotY()
     QPointF pixelToData(const QPointF &pixel) const;
     void updateFullRange();
@@ -139,6 +157,9 @@ private:
     void moveByPixels(const QPointF &delta);
     void updateCursorInfo(const QPoint &pos);
     int markerAt(const QPoint &pos) const; // Index of the draggable marker near the position, -1 when there is none
+    QList<QRectF> placeLabels() const; // Rectangles of the labels in pixels
+    int labelAt(const QPoint &pos) const; // Index of the topmost label at the position, -1 when there is none
+    void drawLabels(QPainter &painter) const;
     void updateIdleCursor(const QPoint &pos);
     double binStart(size_t bin) const;
     int binAt(double x) const; // -1 when outside the bins
@@ -147,7 +168,8 @@ private:
     void drawOverlay(QPainter &painter) const;
     void drawMarkers(QPainter &painter, const QRect &plot) const;
     void drawAxes(QPainter &painter, const QRect &plot) const;
-    void drawLegend(QPainter &painter, const QRect &plot) const;
+    QRect legendRect() const; // Empty when there is no legend, follows the mouse while it is dragged
+    void drawLegend(QPainter &painter) const;
 
     XAxis m_xAxis;
     YAxis m_yAxis;
@@ -155,12 +177,20 @@ private:
     QList<Region> m_regions;
     QString m_infoText;
     Qt::Corner m_legendCorner = Qt::TopRightCorner;
+    bool m_legendDraggable = false;
+    bool m_draggingLegend = false;
+    QPoint m_legendGrab; // From the top left corner of the dragged legend to the mouse
+    QPoint m_legendDragPos; // Of the mouse
     QList<QAction *> m_contextActions;
     QList<Curve> m_curves;
     QList<QPointF> m_overlay;
     QColor m_overlayColor;
     QList<Marker> m_markers;
     int m_draggedMarker = -1;
+    QList<Label> m_labels;
+    int m_draggedLabel = -1;
+    QPointF m_labelGrab; // From the centre of the dragged label to the mouse, pixels
+    QPointF m_labelDragCentre; // Of the dragged label, pixels
     double m_binWidth = 1; // In x axis units
     size_t m_bins = 0;
     double m_maxValue = 0;
