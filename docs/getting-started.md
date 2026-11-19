@@ -7,10 +7,12 @@ files, which are never copied or moved. Paths inside the project's folder are st
 so the folder can be moved as a whole.
 
 The project panel on the left shows the project information first, then the settings, the samples and the reports.
-Double-clicking an item opens it in a tab. Tabs can be dragged out into windows of their own. Items are renamed in place
-in the tree: choose **Rename** in their context menu or press F2.
+Clicking an item, or pressing Enter, opens it in the current tab, like a link in a web browser. Ctrl-click (⌘-click on
+macOS), middle-click or **Open in New Tab** in its context menu opens it in a new tab, and **+** next to the tabs or
+File → New Tab adds an empty one. An item that is already open in a tab is shown there. Tabs can be dragged out into
+windows of their own. Items are renamed in place in the tree: choose **Rename** in their context menu or press F2.
 
-Double-click the project information to open it in a tab: the project's **name**, shown in the tree and in reports
+The project information has the project's **name**, shown in the tree and in reports
 (the file name when empty), its file, when it was created and last saved, and **notes**.
 
 - **File → New / Open / Save**. Recent projects are under File → Open Recent.
@@ -23,21 +25,21 @@ Double-click the project information to open it in a tab: the project's **name**
 
 - **Sample → Add Sample**, then **Add Measurements...** to add ToF-E event files (`*.asc`) to it. Files can also be
   dropped on a sample in the tree.
-- **Add Files...** attaches any other files to a sample, e.g. notes or images. Double-click a file to open it.
-- Double-click a sample to open its tab: its name, description, metadata entries (right-click the table to add or
+- **Add Files...** attaches any other files to a sample, e.g. notes or images. Double-click a file to open it in its own program.
+- A sample shows its name, description, metadata entries (right-click the table to add or
   remove them) and the descriptions of its attached files.
 - A measurement file has one event per line, ToF and energy in channels in the first two columns; further columns
   are ignored. The order of the lines is the order the events were measured in, which the
   [split analysis](split-analysis.md) relies on.
 - Measurements can be dragged to another sample.
 
-Double-click a measurement to open it in a tab: its name, description and data file, and the experimental, detector
+A measurement shows its name, description and data file, and the experimental, detector
 and physics settings assigned to it, see [Settings](settings.md). The tab also shows the beam, the angles and the exit
 angle that follow from them.
 
 ## Working with a measurement
 
-Each measurement has its **ToF-E histogram** under it. Double-click it to open the histogram and draw
+Each measurement has its **ToF-E histogram** under it. Open it to draw
 [selections](selections.md). Right-click a measurement in the tree to add analyses to it:
 
 - **Add Energy Spectrum**, see [Energy spectra](energy-spectra.md)

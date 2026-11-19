@@ -5,6 +5,7 @@
 #include "project.h"
 
 #include <algorithm>
+#include <functional>
 
 #include <QAction>
 #include <QApplication>
@@ -24,7 +25,9 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QKeyEvent>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPlainTextEdit>
@@ -213,7 +216,44 @@ const void *draggedObject(const QMimeData *mimeData, const QString &mimeType) {
 // QTreeWidget would remove the dragged row itself, so the drag is started here and the drop is handled in
 // ProjectPanel::eventFilter().
 class ProjectTree : public QTreeWidget {
+public:
+    // A left click on an item, not on its expand arrow, or a middle click. New tab with Ctrl/Cmd or the middle button.
+    std::function<void(QTreeWidgetItem *, bool newTab)> clicked;
+
 protected:
+    // Return or Enter opens the current item and F2 renames it, the same on all platforms (on macOS Qt would rename
+    // with Return)
+    void keyPressEvent(QKeyEvent *event) override {
+        QTreeWidgetItem *item = currentItem();
+        if(item && state() != QAbstractItemView::EditingState) {
+            if(event->key() == Qt::Key_F2 && (item->flags() & Qt::ItemIsEditable)) {
+                editItem(item);
+                return;
+            }
+            if((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) && clicked) {
+                clicked(item, false);
+                return;
+            }
+        }
+        QTreeWidget::keyPressEvent(event);
+    }
+    void mousePressEvent(QMouseEvent *event) override {
+        const QModelIndex index = indexAt(event->position().toPoint());
+        m_pressed = index.isValid() && event->position().x() >= visualRect(index).left() ? itemFromIndex(index) : nullptr;
+        QTreeWidget::mousePressEvent(event);
+    }
+    void mouseReleaseEvent(QMouseEvent *event) override {
+        QTreeWidget::mouseReleaseEvent(event);
+        QTreeWidgetItem *item = itemAt(event->position().toPoint());
+        if(clicked && item && item == m_pressed && state() != QAbstractItemView::EditingState) {
+            const bool newTab = event->button() == Qt::MiddleButton
+                                || (event->modifiers() & (Qt::ControlModifier | Qt::MetaModifier));
+            if(event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) {
+                clicked(item, newTab);
+            }
+        }
+        m_pressed = nullptr;
+    }
     void startDrag(Qt::DropActions) override {
         QTreeWidgetItem *item = currentItem();
         if(!item || (nodeType(item) != MeasurementNode && nodeType(item) != DepthProfileNode)) {
@@ -227,6 +267,9 @@ protected:
         drag->setPixmap(item->icon(0).pixmap(16));
         drag->exec(profile ? Qt::CopyAction : Qt::MoveAction);
     }
+
+private:
+    QTreeWidgetItem *m_pressed = nullptr; // By a click that can open it
 };
 
 // Selections of a measurement that correspond to those of another, with the same element or isotope and type. Each
@@ -321,18 +364,26 @@ bool chooseSettings(QWidget *parent, SettingsCollection &collection, const QStri
 }
 
 ProjectPanel::ProjectPanel(QWidget *parent) : QWidget(parent) {
-    m_tree = new ProjectTree;
+    auto *tree = new ProjectTree;
+    m_tree = tree;
     m_tree->setHeaderHidden(true);
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    // Renamed in place with F2 or from the context menu, double-clicking opens items
-    m_tree->setEditTriggers(QAbstractItemView::EditKeyPressed);
+    // Renamed in place with F2 or from the context menu, see ProjectTree
+    m_tree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(m_tree);
 
     connect(m_tree, &QTreeWidget::currentItemChanged, this, &ProjectPanel::currentItemChanged);
-    connect(m_tree, &QTreeWidget::itemDoubleClicked, this, &ProjectPanel::itemDoubleClicked);
+    // Items open with a click or Enter, files outside JaRA with a double click
+    tree->clicked = [this](QTreeWidgetItem *item, bool newTab) { openItem(item, newTab); };
+    connect(m_tree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *item) {
+        if(nodeType(item) == FileNode) {
+            m_tree->setCurrentItem(item);
+            openCurrentFile();
+        }
+    });
     connect(m_tree, &QTreeWidget::itemChanged, this, &ProjectPanel::itemRenamed);
     connect(m_tree, &QTreeWidget::customContextMenuRequested, this, &ProjectPanel::showContextMenu);
     m_tree->setAcceptDrops(true);
@@ -596,8 +647,12 @@ void ProjectPanel::settingsEdited() {
     }
 }
 
-void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
+void ProjectPanel::openItem(QTreeWidgetItem *item, bool newTab) {
+    if(nodeType(item) == FileNode) {
+        return; // Opened outside JaRA with a double click
+    }
     m_tree->setCurrentItem(item); // The actions below work on the current item
+    emit aboutToOpen(newTab);
     switch(nodeType(item)) {
         case SampleNode:
             emit sampleOpenRequested(currentSample());
@@ -607,9 +662,6 @@ void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
             break;
         case HistogramNode:
             emit measurementOpenRequested(currentMeasurement());
-            break;
-        case FileNode:
-            openCurrentFile();
             break;
         case SettingsNode:
             emit settingsOpenRequested(currentSettings());
@@ -648,12 +700,15 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
     QTreeWidgetItem *item = m_tree->itemAt(pos);
     if(item) {
         m_tree->setCurrentItem(item);
+        if(nodeType(item) != FileNode) {
+            menu.addAction("Open in New Tab", this, [this, item]() { openItem(item, true); });
+        }
         if(item->flags() & Qt::ItemIsEditable) {
             menu.addAction("Rename", this, [this, item]() { m_tree->editItem(item); });
-            menu.addSeparator();
         }
+        menu.addSeparator();
         if(nodeType(item) == SettingsNode || nodeType(item) == DetectorNode || nodeType(item) == PhysicsNode) {
-            menu.addAction("Edit", this, [this, item]() { itemDoubleClicked(item); });
+            menu.addAction("Edit", this, [this, item]() { openItem(item, false); });
             menu.addAction("Duplicate", this, &ProjectPanel::duplicateCurrentSettings);
             menu.addSeparator();
             menu.addAction(m_copySettingsAction);

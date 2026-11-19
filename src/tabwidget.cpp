@@ -48,6 +48,14 @@ void DetachableTabBar::mouseMoveEvent(QMouseEvent *event) {
     QTabBar::mouseMoveEvent(event);
 }
 
+EmptyTab::EmptyTab(QWidget *parent)
+    : QLabel("Click an item in the project tree to open it here.\n"
+             "Ctrl-click (⌘-click) or middle-click opens it in a new tab.", parent) {
+    setAlignment(Qt::AlignCenter);
+    setWordWrap(true);
+    setForegroundRole(QPalette::PlaceholderText);
+}
+
 DetachableTabWidget::DetachableTabWidget(const QString &emptyHint, QWidget *parent)
     : QTabWidget(parent), m_emptyHint(emptyHint) {
     auto *bar = new DetachableTabBar;

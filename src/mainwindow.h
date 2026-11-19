@@ -47,6 +47,7 @@ private slots:
     void openSplit(Measurement *measurement, SplitAnalysis *split);
     void openReport(Report *report);
     void openProjectInfo();
+    void newTab(); // Empty, the next item opened from the project tree is shown in it
     void openSettings(ExperimentalSettings *settings);
     void openDetector(DetectorSettings *detector);
     void openPhysics(PhysicsSettings *physics);
@@ -104,6 +105,8 @@ private:
     QAction *m_preferencesAction;
     QAction *m_importSettingsAction;
     QAction *m_quitAction;
+    QAction *m_newTabAction;
+    bool m_openInNewTab = false; // The next item opened from the project tree, see showTab()
     QAction *m_addSampleAction;
     QAction *m_addReportAction;
     QAction *m_removeSampleAction;

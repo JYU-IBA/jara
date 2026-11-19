@@ -1,6 +1,7 @@
 #ifndef JARA_TABWIDGET_H
 #define JARA_TABWIDGET_H
 
+#include <QLabel>
 #include <QMainWindow>
 #include <QTabBar>
 #include <QTabWidget>
@@ -53,6 +54,14 @@ private:
     int dropIndex(const QPoint &pos) const; // Tab position for a drop at pos, in this widget's coordinates
 
     QString m_emptyHint;
+};
+
+// Page of a new tab, before an item of the project tree is opened in it
+class EmptyTab : public QLabel {
+    Q_OBJECT
+
+public:
+    explicit EmptyTab(QWidget *parent = nullptr);
 };
 
 // Window for tabs dragged out of the main window. Closes itself when its last tab is moved away or closed.

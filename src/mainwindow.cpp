@@ -28,6 +28,8 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QSplitter>
+#include <QTimer>
+#include <QToolButton>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTreeWidget>
@@ -142,9 +144,26 @@ QWidget *MainWindow::createStartPage() {
 QWidget *MainWindow::createProjectView() {
     m_projectPanel = new ProjectPanel;
 
-    m_tabs = new DetachableTabWidget("Double-click a measurement, energy spectrum or settings in the project tree to open them here.\n"
-                                     "Drag a tab out to show it in a window of its own, and back to a tab bar.");
+    // There is always a tab, a new one is empty until an item is opened in it
+    m_tabs = new DetachableTabWidget;
     connectTabs(m_tabs);
+    auto *newTabButton = new QToolButton;
+    newTabButton->setText("+");
+    newTabButton->setAutoRaise(true);
+    newTabButton->setToolTip("New tab");
+    connect(newTabButton, &QToolButton::clicked, this, &MainWindow::newTab);
+    m_tabs->setCornerWidget(newTabButton, Qt::TopRightCorner);
+    connect(m_tabs, &DetachableTabWidget::countChanged, this, [this](int count) {
+        if(count == 0) {
+            // Not while the last tab is being removed or dragged away
+            QTimer::singleShot(0, this, [this]() {
+                if(m_tabs->count() == 0) {
+                    newTab();
+                }
+            });
+        }
+    });
+    newTab();
 
     auto *splitter = new QSplitter;
     splitter->addWidget(m_projectPanel);
@@ -176,6 +195,7 @@ QWidget *MainWindow::createProjectView() {
     connect(m_projectPanel, &ProjectPanel::depthProfileRenamed, this, [this](DepthProfile *profile) {
         updateDepthProfileTitle(findView<DepthProfileView>([profile](DepthProfileView *view) { return view->profile() == profile; }));
     });
+    connect(m_projectPanel, &ProjectPanel::aboutToOpen, this, [this](bool newTab) { m_openInNewTab = newTab; });
     connect(m_projectPanel, &ProjectPanel::projectInfoOpenRequested, this, &MainWindow::openProjectInfo);
     connect(m_projectPanel, &ProjectPanel::sampleOpenRequested, this, &MainWindow::openSample);
     connect(m_projectPanel, &ProjectPanel::projectRenamed, this, &MainWindow::projectSaved); // Shows the name
@@ -260,6 +280,10 @@ void MainWindow::createActions() {
     m_closeAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_W));
     connect(m_closeAction, &QAction::triggered, this, &MainWindow::closeProject);
 
+    m_newTabAction = new QAction("New Ta&b", this);
+    m_newTabAction->setShortcut(QKeySequence::AddTab);
+    connect(m_newTabAction, &QAction::triggered, this, &MainWindow::newTab);
+
     // The current tab of the active window, the main window or a tab window
     m_closeTabAction = new QAction("Close &Tab", this);
     m_closeTabAction->setShortcut(QKeySequence::Close);
@@ -338,6 +362,7 @@ void MainWindow::createMenus(QMenuBar *menuBar) {
     fileMenu->addAction(m_saveAction);
     fileMenu->addAction(m_saveAsAction);
     fileMenu->addAction(m_exportArchiveAction);
+    fileMenu->addAction(m_newTabAction);
     fileMenu->addAction(m_closeTabAction);
     fileMenu->addAction(m_closeAction);
     fileMenu->addSeparator();
@@ -661,13 +686,27 @@ template<typename View, typename Predicate> View *MainWindow::findView(Predicate
 }
 
 void MainWindow::showTab(QWidget *page, const QString &title, const QString &toolTip) {
+    const bool newTab = std::exchange(m_openInNewTab, false);
     auto [tabs, index] = findTab(page);
     if(!tabs) {
+        // In place of the current tab of the main window, like a link in a browser, which closes what it showed
         tabs = m_tabs;
-        index = m_tabs->addTab(page, title);
+        index = m_tabs->currentIndex();
+        if(newTab || index < 0) {
+            index = m_tabs->addTab(page, title);
+        } else {
+            QWidget *previous = m_tabs->widget(index);
+            m_tabs->insertTab(index, page, title);
+            m_tabs->removeTab(index + 1);
+            previous->deleteLater(); // It may have asked for the item to be opened
+        }
         m_tabs->setTabToolTip(index, toolTip);
     }
     tabs->activateTab(index);
+}
+
+void MainWindow::newTab() {
+    m_tabs->activateTab(m_tabs->addTab(new EmptyTab, "New Tab"));
 }
 
 void MainWindow::openMeasurement(Measurement *measurement) {

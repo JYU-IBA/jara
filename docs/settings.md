@@ -2,7 +2,7 @@
 
 Settings are shared: several measurements can be assigned the same experimental, detector and physics settings, and
 changing them affects all of those measurements. Add them from the **Experiment** menu or by right-clicking the tree,
-and double-click them to edit them in a tab. The tab also lists the measurements they are assigned to.
+and click them to edit them in a tab. The tab also lists the measurements they are assigned to.
 
 Settings can be duplicated (context menu), copied and pasted between projects, exported as JSON files and imported
 from JSON files or from other projects (Experiment → Import...).
