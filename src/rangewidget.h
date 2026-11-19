@@ -16,16 +16,18 @@ class RangeSlider;
 
 // Part of a measurement used by an energy spectrum or a depth profile, from and to a percentage of the counts of the
 // measurement's reference, see split.h. A slider with two handles and spin boxes, with the counts of the reference in
-// the range below them.
+// the range below them. With an outer range, the range is a part of it: the percentages and fractions are of the outer
+// range, and the info also shows the weight of the part, the reference counts of the outer range / of the part.
 class MeasurementRangeWidget : public QWidget {
     Q_OBJECT
 
 public:
     MeasurementRangeWidget(const std::vector<ToFEEvent> *events, const Measurement *measurement, QWidget *parent = nullptr);
     ~MeasurementRangeWidget() override;
-    void setRange(double min, double max); // Fractions, 0...1
+    void setRange(double min, double max); // Fractions, 0...1, of the outer range
     double min() const;
     double max() const;
+    void setOuterRange(double min, double max); // Fractions of the measurement, the whole of it by default
     void refresh(); // Call after the reference may have changed
 
 signals:
@@ -42,6 +44,9 @@ private:
     QDoubleSpinBox *m_minSpin; // %
     QDoubleSpinBox *m_maxSpin;
     QLabel *m_infoLabel;
+    double m_outerMin = 0;
+    double m_outerMax = 1;
+    bool m_hasOuterRange = false;
 };
 
 #endif // JARA_RANGEWIDGET_H

@@ -33,6 +33,10 @@ Depths are areal densities, shown in 10¹⁵ at/cm², µg/cm² or nm (with the d
   used.
 - **Part of the measurement**: use only the events from one percentage to another of the counts of the selection that
   divides the measurement, see [Split analysis](split-analysis.md).
+- **Per Selection...** opens a dialog where a selection can use a narrower part of that part, e.g. hydrogen only from
+  the beginning before it is lost. The part is given as percentages of the profile's part. The selection's events are
+  weighted by the reference counts in the profile's part / in its own part (shown in the dialog), so that it stands for
+  the same fluence as the others. The button shows how many selections have their own part.
 - **Stopping bin**, **Max. depth** (or **Auto**, which follows the depth the events reach), **Smoothing**: changing
   them starts the iterations again.
 - **Profile bin**: the bins of the profile shown.

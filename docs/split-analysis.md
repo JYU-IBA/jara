@@ -33,3 +33,7 @@ selection divides the measurement automatically. Without one, every event counts
 [Energy spectra](energy-spectra.md) and [depth profiles](depth-profiles.md) have a **Part of the measurement** range,
 from one percentage to another of the reference counts, e.g. 0–30 % to use only the events before the losses build up.
 The range is shown with the reference counts and events in it.
+
+In a depth profile, a selection can also use a narrower part of the profile's part (**Per Selection...**), e.g. the
+profile 0–70 % and hydrogen 0–30 %. Its events are weighted by the ratio of the reference counts (here 70/30), see
+[Depth profiles](depth-profiles.md).

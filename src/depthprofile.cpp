@@ -70,8 +70,12 @@ DepthProfileInputs depthProfileInputs(const Measurement &measurement, const Dept
     inputs.rangeMax = profile.rangeMax;
     for(const Cut &cut : measurement.cuts) {
         if(profile.cutIds.contains(cut.id) && isAnalyzed(cut)) {
+            // A part of the profile's range for some selections
+            const auto [min, max] = profile.cutRanges.value(cut.id, {0.0, 1.0});
+            const double width = profile.rangeMax - profile.rangeMin;
             inputs.cuts.append({cut.id, cut.z, cut.a, cut.type, cut.polygon, cut.representsElement,
-                                abundanceCorrection(cut), cut.weight});
+                                abundanceCorrection(cut), cut.weight, profile.rangeMin + min * width,
+                                profile.rangeMin + max * width});
         }
     }
     return inputs;
@@ -228,7 +232,7 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
     // Detected energies and efficiencies of the events. The time of flight is spread within its channel, as in energy
     // spectra.
     const EventDivision division(events, inputs.referencePolygon);
-    const std::span<const ToFEEvent> range = division.range(inputs.rangeMin, inputs.rangeMax);
+    const size_t referenceCounts = division.referenceCountsIn(inputs.rangeMin, inputs.rangeMax);
     for(qsizetype s = 0; s < inputs.cuts.size(); s++) {
         const auto &cut = inputs.cuts[s];
         const Particle &particle = m_particles[m_physics[static_cast<size_t>(s)].particle];
@@ -244,6 +248,15 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
                                      .arg(Elements::label(cut.z, cut.a));
             return;
         }
+        // The selection's part of the measurement, standing for the profile's range
+        const std::span<const ToFEEvent> range = division.range(cut.rangeMin, cut.rangeMax);
+        const size_t cutReferenceCounts = division.referenceCountsIn(cut.rangeMin, cut.rangeMax);
+        if(cutReferenceCounts == 0) {
+            m_errorMessage = QString("There are no reference counts in the part of the measurement of %1.")
+                                     .arg(cutLabel(cut.z, cut.a, cut.type, false));
+            return;
+        }
+        selection.rangeWeight = static_cast<double>(referenceCounts) / static_cast<double>(cutReferenceCounts);
         std::mt19937 random(static_cast<std::mt19937::result_type>(cut.id));
         std::uniform_real_distribution<double> dither(-0.5, 0.5);
         std::vector<double> energies;
@@ -277,7 +290,7 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
                 continue;
             }
             selection.energies.push_back(energy);
-            selection.efficiencyWeights.push_back(cut.weight * cut.abundanceCorrection / eff);
+            selection.efficiencyWeights.push_back(cut.weight * selection.rangeWeight * cut.abundanceCorrection / eff);
         }
         selection.depths.assign(selection.energies.size(), 0);
         selection.weights.assign(selection.energies.size(), 0);

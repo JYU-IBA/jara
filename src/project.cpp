@@ -173,6 +173,16 @@ QJsonObject depthProfileToJson(const DepthProfile &profile) {
                                  {"legend", legendPositionId(profile.legendPosition)},
                                  {"legendConcentrations", profile.showLegendConcentrations}}}};
     rangeToJson(json, profile.rangeMin, profile.rangeMax);
+    if(!profile.cutRanges.isEmpty()) {
+        QList<int> ids = profile.cutRanges.keys();
+        std::sort(ids.begin(), ids.end()); // Saving again gives the same file
+        QJsonArray cutRanges;
+        for(const int id : ids) {
+            const auto [min, max] = profile.cutRanges.value(id);
+            cutRanges.append(QJsonObject{{"cut", id}, {"min", min}, {"max", max}});
+        }
+        json["cutRanges"] = cutRanges;
+    }
     return json;
 }
 
@@ -217,6 +227,14 @@ std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
     profile->legendPosition = legendPositionFromId(plot["legend"].toString(), profile->legendPosition);
     profile->showLegendConcentrations = plot["legendConcentrations"].toBool(profile->showLegendConcentrations);
     rangeFromJson(json, profile->rangeMin, profile->rangeMax);
+    for(const auto &value : json["cutRanges"].toArray()) {
+        const QJsonObject range = value.toObject();
+        const double min = range["min"].toDouble(0);
+        const double max = range["max"].toDouble(1);
+        if(min >= 0 && min < max && max <= 1) {
+            profile->cutRanges.insert(range["cut"].toInt(), {min, max});
+        }
+    }
     return profile;
 }
 
@@ -454,6 +472,7 @@ void Measurement::removeCut(int index) {
         profile->cutIdsHiddenFromPlot.removeAll(id);
         profile->cutIdsWithoutLabel.removeAll(id);
         profile->labelPositions.remove(id);
+        profile->cutRanges.remove(id);
     }
 }
 

@@ -12,6 +12,8 @@
 
 class MeasurementRangeWidget;
 class QCheckBox;
+class QDialog;
+class QGridLayout;
 class QActionGroup;
 class QComboBox;
 class QDoubleSpinBox;
@@ -51,6 +53,7 @@ private slots:
     void iterateOrStop();
     void iterationStep();
     void chooseSelections(); // In a dialog
+    void showCutRanges(); // The non-modal dialog of the parts of the measurement of selections
     void averageItemChanged(QTreeWidgetItem *item, int column);
     void markerMoved(int index, double x);
     void labelMoved(int index, QPointF position); // Of the centre in the depth unit shown and at.%
@@ -65,6 +68,7 @@ private:
     QWidget *createStaleBar();
     QWidget *createSidePanel();
     void updateSelectionSummary();
+    void updateCutRanges(); // The button and, when shown, the dialog of the parts of the measurement of selections
     void updateIntervalSpins();
     void startIterating();
     void stopIterating();
@@ -93,6 +97,12 @@ private:
     SpectrumPlotWidget *m_plot = nullptr;
     QLabel *m_selectionSummary = nullptr; // Selections included in the calculation
     MeasurementRangeWidget *m_rangeWidget = nullptr;
+    QPushButton *m_cutRangesButton = nullptr;
+    QDialog *m_cutRangesDialog = nullptr; // Created when first shown
+    QGridLayout *m_cutRangesGrid = nullptr;
+    QStringList m_cutRangesKey; // Selections in the dialog, it is rebuilt when they change
+    QHash<int, QCheckBox *> m_cutRangeChecks; // By cut id
+    QHash<int, MeasurementRangeWidget *> m_cutRangeWidgets;
     QCheckBox *m_autoMaxDepthCheck = nullptr;
     QTimer *m_iterationTimer = nullptr;
     QDoubleSpinBox *m_stoppingBinSpin = nullptr;

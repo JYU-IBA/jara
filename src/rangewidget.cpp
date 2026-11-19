@@ -158,6 +158,13 @@ double MeasurementRangeWidget::max() const {
     return static_cast<double>(m_slider->max()) / Steps;
 }
 
+void MeasurementRangeWidget::setOuterRange(double min, double max) {
+    m_outerMin = min;
+    m_outerMax = max;
+    m_hasOuterRange = true;
+    updateInfo();
+}
+
 void MeasurementRangeWidget::refresh() {
     m_division = std::make_unique<EventDivision>(*m_events, m_measurement->referencePolygon());
     updateInfo();
@@ -173,16 +180,23 @@ void MeasurementRangeWidget::showRange(int min, int max) {
 
 void MeasurementRangeWidget::updateInfo() {
     const Cut *reference = m_measurement->referenceCut();
-    const size_t total = m_division->referenceCounts();
-    const size_t first = m_division->eventIndex(min());
-    const size_t last = std::max(first, m_division->eventIndex(max()));
-    // Counts of the reference in the range, as rounded by the division
-    const auto counts = [&](double fraction) {
-        return fraction >= 1 ? total : static_cast<size_t>(std::lround(fraction * static_cast<double>(total)));
-    };
-    m_infoLabel->setText(QString("%1 of %2 counts of %3, %4 events")
-                                 .arg(counts(max()) - std::min(counts(max()), counts(min())))
-                                 .arg(total)
-                                 .arg(reference ? cutLabel(*reference) : QStringLiteral("all events"))
-                                 .arg(last - first));
+    // Fractions of the measurement
+    const double width = m_outerMax - m_outerMin;
+    const double absoluteMin = m_outerMin + min() * width;
+    const double absoluteMax = m_outerMin + max() * width;
+    const size_t first = m_division->eventIndex(absoluteMin);
+    const size_t last = std::max(first, m_division->eventIndex(absoluteMax));
+    const size_t counts = m_division->referenceCountsIn(absoluteMin, absoluteMax);
+    QString text = QString("%1 of %2 counts of %3, %4 events")
+                           .arg(counts)
+                           .arg(m_hasOuterRange ? m_division->referenceCountsIn(m_outerMin, m_outerMax)
+                                                : m_division->referenceCounts())
+                           .arg(reference ? cutLabel(*reference) : QStringLiteral("all events"))
+                           .arg(last - first);
+    if(m_hasOuterRange) {
+        const size_t outerCounts = m_division->referenceCountsIn(m_outerMin, m_outerMax);
+        text += counts > 0 ? QString(", weight %1").arg(static_cast<double>(outerCounts) / static_cast<double>(counts), 0, 'g', 4)
+                           : QStringLiteral(", no reference counts");
+    }
+    m_infoLabel->setText(text);
 }

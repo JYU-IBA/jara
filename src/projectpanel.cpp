@@ -1332,6 +1332,12 @@ void ProjectPanel::copyDepthProfile(const DepthProfile *profile, Measurement *ta
             copy->labelPositions.insert(id, i.value());
         }
     }
+    copy->cutRanges.clear();
+    for(auto i = profile->cutRanges.begin(); i != profile->cutRanges.end(); ++i) {
+        if(const int id = corresponding(i.key()); id > 0) {
+            copy->cutRanges.insert(id, i.value());
+        }
+    }
     target->depthProfiles.push_back(std::move(copy));
     QTreeWidgetItem *profileItem = createDepthProfileItem(*target->depthProfiles.back(),
                                                           static_cast<int>(target->depthProfiles.size() - 1));

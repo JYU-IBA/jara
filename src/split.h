@@ -28,6 +28,7 @@ public:
     EventDivision(const std::vector<ToFEEvent> &events, const QList<QPointF> &referencePolygon);
     size_t referenceCounts() const;
     size_t eventIndex(double fraction) const; // Where the part starting at the fraction (0...1) starts
+    size_t referenceCountsIn(double min, double max) const; // Between the fractions, as the parts have them
     std::span<const ToFEEvent> range(double min, double max) const; // Events from fraction min to max
 
 private:

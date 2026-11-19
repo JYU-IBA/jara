@@ -258,6 +258,9 @@ struct DepthProfile {
     // Part of the measurement used, as fractions of the counts of the measurement's reference, see split.h
     double rangeMin = 0;
     double rangeMax = 1;
+    // Narrower parts of the range above for some selections, by cut id, as fractions of the range. Their events are
+    // weighted by the reference counts in the range / in their part, see depthprofile.h.
+    QHash<int, std::pair<double, double>> cutRanges;
     // What the plot shows, the calculation is not affected
     QList<int> cutIdsHiddenFromPlot;
     bool showTotal = false;

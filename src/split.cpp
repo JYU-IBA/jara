@@ -41,6 +41,17 @@ size_t EventDivision::eventIndex(double fraction) const {
     return m_allEvents ? n : m_referenceIndices[n - 1] + 1;
 }
 
+size_t EventDivision::referenceCountsIn(double min, double max) const {
+    const size_t counts = referenceCounts();
+    auto upTo = [counts](double fraction) {
+        if(fraction >= 1) {
+            return counts;
+        }
+        return fraction <= 0 ? size_t{0} : static_cast<size_t>(std::lround(fraction * static_cast<double>(counts)));
+    };
+    return upTo(max) - std::min(upTo(max), upTo(min));
+}
+
 std::span<const ToFEEvent> EventDivision::range(double min, double max) const {
     const size_t first = eventIndex(min);
     const size_t last = std::max(first, eventIndex(max));

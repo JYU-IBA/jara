@@ -195,6 +195,7 @@ DepthProfileView::DepthProfileView(Measurement *measurement, DepthProfile *profi
         m_statusLabel->setText(text.isEmpty() ? m_hint : text);
     });
     updateSelectionSummary();
+    updateCutRanges();
     recalculate();
 }
 
@@ -321,7 +322,13 @@ QWidget *DepthProfileView::createSidePanel() {
     selectionLayout->addLayout(summaryRow);
     m_rangeWidget = new MeasurementRangeWidget(&m_events, m_measurement);
     m_rangeWidget->setRange(m_profile->rangeMin, m_profile->rangeMax);
-    selectionLayout->addWidget(new QLabel("Part of the measurement:"));
+    m_cutRangesButton = new QPushButton("Per Selection...");
+    m_cutRangesButton->setToolTip("Narrower parts for some selections, e.g. hydrogen only from the beginning");
+    connect(m_cutRangesButton, &QPushButton::clicked, this, &DepthProfileView::showCutRanges);
+    auto *rangeRow = new QHBoxLayout;
+    rangeRow->addWidget(new QLabel("Part of the measurement:"), 1);
+    rangeRow->addWidget(m_cutRangesButton);
+    selectionLayout->addLayout(rangeRow);
     selectionLayout->addWidget(m_rangeWidget);
     connect(m_rangeWidget, &MeasurementRangeWidget::rangeEdited, this, [this](double min, double max) {
         m_profile->rangeMin = min;
@@ -512,6 +519,100 @@ void DepthProfileView::updateSelectionSummary() {
         }
     }
     m_selectionSummary->setText(QString("%1/%2 selections included").arg(included).arg(all));
+}
+
+void DepthProfileView::showCutRanges() {
+    if(!m_cutRangesDialog) {
+        m_cutRangesDialog = new QDialog(this); // Not modal, the profile can be worked with meanwhile
+        auto *layout = new QVBoxLayout(m_cutRangesDialog);
+        auto *intro = new QLabel("Parts of the profile's part of the measurement. Events are weighted to the whole part.");
+        intro->setWordWrap(true);
+        layout->addWidget(intro);
+        m_cutRangesGrid = new QGridLayout;
+        layout->addLayout(m_cutRangesGrid);
+        layout->addStretch();
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+        connect(buttons, &QDialogButtonBox::rejected, m_cutRangesDialog, &QDialog::close);
+        layout->addWidget(buttons);
+        m_cutRangesDialog->resize(520, m_cutRangesDialog->sizeHint().height());
+    }
+    m_cutRangesDialog->show(); // Before updating, which skips a hidden dialog
+    updateCutRanges();
+    m_cutRangesDialog->raise();
+    m_cutRangesDialog->activateWindow();
+}
+
+void DepthProfileView::updateCutRanges() {
+    QList<const Cut *> cuts; // Included in the profile
+    QStringList key;
+    int own = 0;
+    for(const Cut &cut : m_measurement->cuts) {
+        if(isAnalyzed(cut) && m_profile->cutIds.contains(cut.id)) {
+            cuts.append(&cut);
+            key.append(QString("%1 %2 %3").arg(cut.id).arg(cutLabel(cut), cut.color.name()));
+            own += m_profile->cutRanges.contains(cut.id) ? 1 : 0;
+        }
+    }
+    m_cutRangesButton->setText(own > 0 ? QString("Per Selection (%1)...").arg(own) : QStringLiteral("Per Selection..."));
+    if(!m_cutRangesDialog || !m_cutRangesDialog->isVisible()) {
+        return; // Updated when shown
+    }
+    m_cutRangesDialog->setWindowTitle(QString("Parts of Selections — %1").arg(m_profile->name));
+    // Rebuilt only when the selections change, not while the user works with the rows
+    if(key != m_cutRangesKey) {
+        m_cutRangesKey = key;
+        while(QLayoutItem *item = m_cutRangesGrid->takeAt(0)) {
+            delete item->widget();
+            delete item;
+        }
+        m_cutRangeChecks.clear();
+        m_cutRangeWidgets.clear();
+        int row = 0;
+        for(const Cut *cut : cuts) {
+            const int id = cut->id;
+            auto *check = new QCheckBox(cutLabel(*cut));
+            check->setIcon(colorSwatch(cut->color));
+            check->setToolTip("Use a part of the profile's part of the measurement for this selection");
+            auto *range = new MeasurementRangeWidget(&m_events, m_measurement);
+            m_cutRangesGrid->addWidget(check, row, 0, Qt::AlignTop);
+            m_cutRangesGrid->addWidget(range, row, 1);
+            m_cutRangeChecks.insert(id, check);
+            m_cutRangeWidgets.insert(id, range);
+            row++;
+            // Not in the handlers: the profile is modified, which updates this dialog
+            connect(check, &QCheckBox::toggled, this, [this, id, range](bool checked) {
+                range->setEnabled(checked);
+                const std::pair<double, double> part{range->min(), range->max()};
+                QTimer::singleShot(0, this, [this, id, checked, part]() {
+                    if(checked) {
+                        m_profile->cutRanges.insert(id, part);
+                    } else {
+                        m_profile->cutRanges.remove(id);
+                    }
+                    emit modified();
+                    recalculate();
+                });
+            });
+            connect(range, &MeasurementRangeWidget::rangeEdited, this, [this, id](double min, double max) {
+                QTimer::singleShot(0, this, [this, id, min, max]() {
+                    m_profile->cutRanges.insert(id, {min, max});
+                    emit modified();
+                    recalculate();
+                });
+            });
+        }
+    }
+    for(auto i = m_cutRangeWidgets.begin(); i != m_cutRangeWidgets.end(); ++i) {
+        const auto part = m_profile->cutRanges.find(i.key());
+        const bool own = part != m_profile->cutRanges.end();
+        QCheckBox *check = m_cutRangeChecks.value(i.key());
+        const QSignalBlocker blocker(check);
+        check->setChecked(own);
+        i.value()->setEnabled(own);
+        i.value()->setOuterRange(m_profile->rangeMin, m_profile->rangeMax);
+        i.value()->setRange(own ? part->first : 0, own ? part->second : 1);
+        i.value()->refresh();
+    }
 }
 
 void DepthProfileView::chooseSelections() {
@@ -1029,6 +1130,7 @@ void DepthProfileView::checkStale() {
     // Selections may have been added, removed or recolored, which only needs the summary and the curves updated
     updateSelectionSummary();
     m_rangeWidget->refresh();
+    updateCutRanges();
     updateProfile(SpectrumPlotWidget::ViewChange::Keep);
     setStale(depthProfileInputs(*m_measurement, *m_profile) != m_calculatedInputs);
 }

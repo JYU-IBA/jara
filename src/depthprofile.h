@@ -34,7 +34,9 @@
 // efficiency is that of the selection's isotope, the incident ion for scattered ions, or of the most abundant isotope
 // when the selection is an element.
 //
-// Only the events in the range of the profile are used, see split.h.
+// Only the events in the range of the profile are used, see split.h. A selection can use a narrower part of it, e.g.
+// hydrogen only from the beginning of the measurement before it is lost. Its events are then weighted by the reference
+// counts in the profile's range / in its part, so that it stands for the same fluence as the others.
 //
 // With an automatic maximum depth, the stopping bins are extended when events come from deeper, and cut when the
 // events end well before the maximum depth.
@@ -51,6 +53,9 @@ struct DepthProfileInputs {
         bool representsElement;
         double abundanceCorrection; // 1 / natural abundance when the isotope represents its element, otherwise 1
         double weight; // Additional weight set by the user
+        // Part of the measurement used, fractions of the reference counts, the profile's range or a part of it
+        double rangeMin;
+        double rangeMax;
         bool operator==(const CutInput &) const = default;
     };
     bool hasSettings = false;
@@ -94,9 +99,10 @@ public:
         int a = 0;
         CutType type = CutType::Recoil;
         bool representsElement = false;
+        double rangeWeight = 1; // Reference counts in the profile's range / in the selection's part of it
         std::vector<double> energies; // J, detected, of the events used
         // 1 / efficiency of the events used, also / natural abundance when the isotope represents its element and times
-        // the additional weight of the selection
+        // the additional weight of the selection and its range weight
         std::vector<double> efficiencyWeights;
         std::vector<double> depths; // atoms/m², negative above the surface, NaN beyond the maximum depth
         std::vector<double> weights; // 1 / (efficiency * cross section), zero beyond the maximum depth
