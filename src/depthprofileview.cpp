@@ -134,6 +134,12 @@ DepthProfileView::DepthProfileView(Measurement *measurement, DepthProfile *profi
     m_iterationTimer->setSingleShot(true);
     connect(m_iterationTimer, &QTimer::timeout, this, &DepthProfileView::iterationStep);
     connect(m_plot, &SpectrumPlotWidget::markerMoved, this, &DepthProfileView::markerMoved);
+    m_viewPending = m_profile->view.has_value();
+    m_viewSaveTimer = new QTimer(this);
+    m_viewSaveTimer->setSingleShot(true);
+    m_viewSaveTimer->setInterval(500);
+    connect(m_viewSaveTimer, &QTimer::timeout, this, &DepthProfileView::modified);
+    connect(m_plot, &SpectrumPlotWidget::viewChangedByUser, this, &DepthProfileView::storeView);
     // The legend is dragged to a corner, until then it is where the preferences put it
     connect(m_plot, &SpectrumPlotWidget::legendCornerChanged, this, [this](Qt::Corner corner) {
         m_profile->legendPosition = legendPosition(corner);
@@ -760,6 +766,34 @@ void DepthProfileView::startIterating() {
     m_iterationTimer->start(0);
 }
 
+void DepthProfileView::storeView() {
+    if(m_applyingView || !m_calculation || !m_calculation->isValid()) {
+        return;
+    }
+    m_viewPending = false; // The user's zoom from now on
+    double xMin = 0;
+    double xMax = 0;
+    double yMin = 0;
+    double yMax = 0;
+    m_plot->viewRange(xMin, xMax, yMin, yMax);
+    m_profile->view = PlotView{fromDisplay(xMin), fromDisplay(xMax), yMin / 100, yMax / 100, m_plot->logScale()};
+    m_viewSaveTimer->start();
+}
+
+void DepthProfileView::applyStoredView() {
+    if(!m_viewPending || !m_profile->view) {
+        return;
+    }
+    const PlotView &view = *m_profile->view;
+    m_applyingView = true;
+    m_plot->setLogScale(view.logScale);
+    m_plot->showRange(toDisplay(view.depthMin), toDisplay(view.depthMax), view.concentrationMin * 100,
+                      view.concentrationMax * 100);
+    m_applyingView = false;
+    // Kept until the iterations end, the last one scales the plot to the profile
+    m_viewPending = m_iterating;
+}
+
 void DepthProfileView::stopIterating() {
     m_iterating = false;
     if(m_iterationTimer) {
@@ -931,6 +965,7 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
     }
     m_plot->setBinEdges(edges);
     m_plot->setCurves(1, curves, viewChange);
+    applyStoredView();
 
     QColor normalizationFill = NormalizationColor;
     normalizationFill.setAlpha(30);

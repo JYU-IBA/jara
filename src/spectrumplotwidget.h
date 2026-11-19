@@ -109,6 +109,11 @@ public:
     void setMarkers(const QList<Marker> &markers);
     void setLabels(const QList<Label> &labels);
     void setXView(double min, double max); // The counts axis is kept
+    // The shown ranges, y as the values of the curves (not log10 on a log scale)
+    void viewRange(double &xMin, double &xMax, double &yMin, double &yMax) const;
+    void showRange(double xMin, double xMax, double yMin, double yMax); // Kept within the data, as zooming is
+    // Exactly these ranges, also beyond the data, e.g. for printing. Until the curves or the axes change.
+    void setFixedRange(double xMin, double xMax, double yMin, double yMax);
     void setStale(bool stale); // Drawn faded and dashed
     bool logScale() const { return m_logScale; }
 
@@ -122,6 +127,7 @@ public slots:
 signals:
     void cursorInfoChanged(const QString &text);
     void logScaleChanged(bool logScale);
+    void viewChangedByUser(); // Zoomed, moved or the scale changed by the user
     void picked(double x);
     void markerMoved(int index, double x);
     void legendCornerChanged(Qt::Corner corner); // The legend was dragged there

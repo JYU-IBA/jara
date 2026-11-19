@@ -169,7 +169,7 @@ void SpectrumPlotWidget::setCurves(double binWidth, const QList<Curve> &curves, 
     updateFullRange();
     switch(viewChange) {
         case ViewChange::ShowAll:
-            resetZoom();
+            setView(m_fullX, m_fullY);
             break;
         case ViewChange::KeepEnergyRange:
             setView(m_viewX, m_fullY);
@@ -194,6 +194,7 @@ void SpectrumPlotWidget::setLogScale(bool logScale) {
     updateFullRange();
     setView(m_viewX, m_fullY);
     emit logScaleChanged(logScale);
+    emit viewChangedByUser();
 }
 
 void SpectrumPlotWidget::setMode(SpectrumPlotWidget::Mode mode) {
@@ -223,6 +224,24 @@ void SpectrumPlotWidget::updateFullRange() {
 
 void SpectrumPlotWidget::resetZoom() {
     setView(m_fullX, m_fullY);
+    emit viewChangedByUser();
+}
+
+void SpectrumPlotWidget::viewRange(double &xMin, double &xMax, double &yMin, double &yMax) const {
+    xMin = m_viewX.min;
+    xMax = m_viewX.max;
+    yMin = fromPlotY(m_viewY.min);
+    yMax = fromPlotY(m_viewY.max);
+}
+
+void SpectrumPlotWidget::showRange(double xMin, double xMax, double yMin, double yMax) {
+    setView({xMin, xMax}, {toPlotY(yMin), toPlotY(yMax)});
+}
+
+void SpectrumPlotWidget::setFixedRange(double xMin, double xMax, double yMin, double yMax) {
+    m_fullX = m_viewX = {xMin, xMax};
+    m_fullY = m_viewY = {toPlotY(yMin), toPlotY(yMax)};
+    update();
 }
 
 void SpectrumPlotWidget::zoomIn() {
@@ -243,6 +262,7 @@ void SpectrumPlotWidget::zoomAt(const QPointF &anchor, double factor) {
         return {min, min + size};
     };
     setView(zoomed(m_viewX, m_fullX, anchor.x()), zoomed(m_viewY, m_fullY, anchor.y()));
+    emit viewChangedByUser();
 }
 
 void SpectrumPlotWidget::moveByPixels(const QPointF &delta) {
@@ -251,6 +271,7 @@ void SpectrumPlotWidget::moveByPixels(const QPointF &delta) {
     const double dx = -delta.x() * m_viewX.size() / plot.width();
     const double dy = delta.y() * m_viewY.size() / plot.height();
     setView({m_viewX.min + dx, m_viewX.max + dx}, {m_viewY.min + dy, m_viewY.max + dy});
+    emit viewChangedByUser();
 }
 
 void SpectrumPlotWidget::setView(const Range &x, const Range &y) {
@@ -732,6 +753,7 @@ void SpectrumPlotWidget::mouseMoveEvent(QMouseEvent *event) {
         const double dx = (m_dragStart.x() - event->pos().x()) * m_moveStartX.size() / plot.width();
         const double dy = (event->pos().y() - m_dragStart.y()) * m_moveStartY.size() / plot.height();
         setView({m_moveStartX.min + dx, m_moveStartX.max + dx}, {m_moveStartY.min + dy, m_moveStartY.max + dy});
+        emit viewChangedByUser();
     }
     updateCursorInfo(event->pos());
 }
@@ -784,6 +806,7 @@ void SpectrumPlotWidget::mouseReleaseEvent(QMouseEvent *event) {
     const QPointF topLeft = pixelToData(selection.topLeft());
     const QPointF bottomRight = pixelToData(selection.bottomRight());
     setView({topLeft.x(), bottomRight.x()}, {bottomRight.y(), topLeft.y()});
+    emit viewChangedByUser();
 }
 
 void SpectrumPlotWidget::mouseDoubleClickEvent(QMouseEvent *event) {

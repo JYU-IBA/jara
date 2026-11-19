@@ -173,6 +173,11 @@ QJsonObject depthProfileToJson(const DepthProfile &profile) {
                                  {"legend", legendPositionId(profile.legendPosition)},
                                  {"legendConcentrations", profile.showLegendConcentrations}}}};
     rangeToJson(json, profile.rangeMin, profile.rangeMax);
+    if(profile.view) {
+        QJsonObject plot = json["plot"].toObject();
+        plot["view"] = plotViewToJson(*profile.view);
+        json["plot"] = plot;
+    }
     if(!profile.cutRanges.isEmpty()) {
         QList<int> ids = profile.cutRanges.keys();
         std::sort(ids.begin(), ids.end()); // Saving again gives the same file
@@ -217,6 +222,9 @@ std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
     profile->showTotal = plot["total"].toBool(profile->showTotal);
     profile->showNormalization = plot["normalization"].toBool(profile->showNormalization);
     profile->shadeAverage = plot["shadeAverage"].toBool(profile->shadeAverage);
+    if(plot.contains("view")) {
+        profile->view = plotViewFromJson(plot["view"].toObject());
+    }
     profile->showLabels = plot["labels"].toBool(profile->showLabels);
     profile->cutIdsWithoutLabel = idsFromJson(plot["unlabeledCuts"]);
     for(const auto &value : plot["labelPositions"].toArray()) {
@@ -397,6 +405,28 @@ double cutAbundance(const Cut &cut) {
 
 double abundanceCorrection(const Cut &cut) {
     return cut.representsElement ? 1 / cutAbundance(cut) : 1;
+}
+
+QJsonObject plotViewToJson(const PlotView &view) {
+    return QJsonObject{{"depthMin", view.depthMin}, {"depthMax", view.depthMax},
+                       {"concentrationMin", view.concentrationMin}, {"concentrationMax", view.concentrationMax},
+                       {"log", view.logScale}};
+}
+
+PlotView plotViewFromJson(const QJsonObject &json) {
+    PlotView view;
+    view.depthMin = json["depthMin"].toDouble(view.depthMin);
+    view.depthMax = json["depthMax"].toDouble(view.depthMax);
+    view.concentrationMin = json["concentrationMin"].toDouble(view.concentrationMin);
+    view.concentrationMax = json["concentrationMax"].toDouble(view.concentrationMax);
+    view.logScale = json["log"].toBool(view.logScale);
+    if(view.depthMax <= view.depthMin) {
+        view.depthMax = view.depthMin + DefaultAverageMax;
+    }
+    if(view.concentrationMax <= view.concentrationMin) {
+        view.concentrationMax = view.concentrationMin + 1;
+    }
+    return view;
 }
 
 QString cutLabel(int z, int a, CutType type, bool superscript) {

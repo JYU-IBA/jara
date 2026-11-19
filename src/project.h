@@ -235,6 +235,18 @@ constexpr double DefaultAverageMin = 0;
 constexpr double DefaultAverageMax = 500 * Units::ThinFilmUnit;
 constexpr double DefaultDensity = 2000; // kg/m³, converts depths to nm
 
+// Shown ranges of a depth profile plot
+struct PlotView {
+    double depthMin = 0; // atoms/m²
+    double depthMax = DefaultAverageMax;
+    double concentrationMin = 0; // Atomic fraction
+    double concentrationMax = 1;
+    bool logScale = false;
+    bool operator==(const PlotView &) const = default;
+};
+QJsonObject plotViewToJson(const PlotView &view);
+PlotView plotViewFromJson(const QJsonObject &json);
+
 // Depth profile of some of a measurement's selections from single scattering (slab analysis), see depthprofile.h
 struct DepthProfile {
     QString name;
@@ -273,6 +285,7 @@ struct DepthProfile {
     QHash<int, QPointF> labelPositions;
     LegendPosition legendPosition = LegendPosition::Default;
     bool showLegendConcentrations = true; // The renormalized averages in the legend
+    std::optional<PlotView> view; // Zoomed by the user, otherwise everything is shown
 };
 
 struct Measurement {

@@ -76,6 +76,8 @@ private:
     void updateAverages();
     void updateIterationStatus();
     void updateLegendPosition(); // From the profile or the preferences
+    void storeView(); // The zoom of the plot in the profile
+    void applyStoredView(); // While the profile is calculated after the tab is opened
     void setStale(bool stale);
     void setInterval(Interval interval, double min, double max); // Stored in the profile, depths in atoms/m²
     void setAutoNormalization(bool automatic); // A manual interval starts from the automatic one
@@ -94,6 +96,9 @@ private:
     int m_remainingIterations = 0;
     DepthUnit m_unit = DepthUnit::ThinFilm;
     QList<Interval> m_markerIntervals; // Interval of each pair of plot markers
+    bool m_viewPending = false; // The stored zoom is applied when the profile has been calculated
+    bool m_applyingView = false;
+    QTimer *m_viewSaveTimer = nullptr; // Zooming modifies the project once it stops
     SpectrumPlotWidget *m_plot = nullptr;
     QLabel *m_selectionSummary = nullptr; // Selections included in the calculation
     MeasurementRangeWidget *m_rangeWidget = nullptr;
