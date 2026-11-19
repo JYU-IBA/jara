@@ -629,9 +629,12 @@ void DepthProfileView::averageItemChanged(QTreeWidgetItem *item, int column) {
             ids.append(id);
         }
     }
-    emit modified();
-    // Changing the plot or the averages in the event handler of the table would rebuild the table under it
-    QTimer::singleShot(0, this, [this]() { updateProfile(SpectrumPlotWidget::ViewChange::Keep); });
+    // Not in the handler of the table: updating the profile, also after the project has been modified, rebuilds the
+    // table and deletes the item being changed
+    QTimer::singleShot(0, this, [this]() {
+        emit modified();
+        updateProfile(SpectrumPlotWidget::ViewChange::Keep);
+    });
 }
 
 void DepthProfileView::recalculate() {

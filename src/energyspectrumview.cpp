@@ -16,6 +16,7 @@
 #include <QSaveFile>
 #include <QSplitter>
 #include <QTextStream>
+#include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
 
@@ -199,8 +200,12 @@ void EnergySpectrumView::selectionItemChanged(QListWidgetItem *item) {
     if(item->checkState() == Qt::Checked) {
         m_spectrum->cutIds.append(id);
     }
-    recalculate();
-    emit modified();
+    // Not in the handler of the list: after the project has been modified, the list is rebuilt, which deletes the item
+    // being changed
+    QTimer::singleShot(0, this, [this]() {
+        recalculate();
+        emit modified();
+    });
 }
 
 void EnergySpectrumView::recalculate() {

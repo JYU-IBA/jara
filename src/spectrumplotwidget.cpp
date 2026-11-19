@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 #include <QContextMenuEvent>
@@ -112,10 +113,13 @@ void SpectrumPlotWidget::setCurves(double binWidth, const QList<Curve> &curves, 
     m_binWidth = binWidth > 0 ? binWidth : 1;
     m_bins = 0;
     m_maxValue = 0;
+    m_minValue = std::numeric_limits<double>::infinity();
     for(const Curve &curve : curves) {
         m_bins = std::max(m_bins, curve.values.size());
         for(size_t i = 0; i < curve.values.size(); i++) {
-            m_maxValue = std::max(m_maxValue, curve.values[i] + (i < curve.errors.size() ? curve.errors[i] : 0));
+            const double error = i < curve.errors.size() ? curve.errors[i] : 0;
+            m_maxValue = std::max(m_maxValue, curve.values[i] + error);
+            m_minValue = std::min(m_minValue, curve.values[i] - error);
         }
     }
     if(!m_edges.empty()) {
@@ -167,6 +171,12 @@ void SpectrumPlotWidget::updateFullRange() {
     }
     const double floor = m_yAxis.logFloor;
     const double top = std::max(m_maxValue, 2 * floor);
+    if(!m_logScale && !m_yAxis.includeZero && std::isfinite(m_minValue) && m_maxValue > 0) {
+        // A tenth of the range of the values as margins, or of the values themselves when they are all the same
+        const double margin = 0.1 * (m_maxValue > m_minValue ? m_maxValue - m_minValue : m_maxValue);
+        m_fullY = {m_minValue - margin, m_maxValue + margin};
+        return;
+    }
     m_fullY = m_logScale ? Range{std::log10(floor), std::log10(top) + 0.1} : Range{0, top * 1.05};
 }
 

@@ -15,6 +15,7 @@
 #include <QSpinBox>
 #include <QSplitter>
 #include <QTextStream>
+#include <QTimer>
 #include <QToolBar>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -198,8 +199,12 @@ void SplitView::selectionItemChanged(QListWidgetItem *item) {
     if(item->checkState() == Qt::Checked) {
         m_split->cutIds.append(id);
     }
-    refresh();
-    emit modified();
+    // Not in the handler of the list: after the project has been modified, the list is rebuilt, which deletes the item
+    // being changed
+    QTimer::singleShot(0, this, [this]() {
+        recalculate(); // Shows everything, the counts axis is scaled to the selections shown
+        emit modified();
+    });
 }
 
 QString SplitView::referenceText() const {
@@ -246,6 +251,8 @@ void SplitView::updatePlot(SpectrumPlotWidget::ViewChange viewChange) {
     yAxis.title = m_split->relative ? QStringLiteral("Counts / mean") : QStringLiteral("Counts per part");
     yAxis.maxUnit = m_split->relative ? QString() : QStringLiteral("counts");
     yAxis.logFloor = m_split->relative ? 0.01 : 0.5;
+    yAxis.legendEvents = false; // The counts and the fits are in the table
+    yAxis.includeZero = false; // Changes between the parts are small compared with the counts
     m_plot->setYAxis(yAxis);
     if(!m_result.isValid()) {
         m_plot->setBinEdges({});
@@ -271,8 +278,6 @@ void SplitView::updatePlot(SpectrumPlotWidget::ViewChange viewChange) {
             curve.errors.push_back(std::sqrt(static_cast<double>(count)) * scale);
         }
         curve.line = {{0, counts.fit.intercept * scale}, {100, (counts.fit.intercept + 100 * counts.fit.slope) * scale}};
-        curve.legendSuffix = QString(" %1 %").arg(valueWithUncertainty(counts.fit.relativeChange(),
-                                                                       counts.fit.relativeChangeUncertainty()));
         curves.append(curve);
     }
     m_plot->setCurves(100.0 / m_result.parts, curves, viewChange);

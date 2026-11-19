@@ -45,6 +45,9 @@ public:
         double logFloor = 0.5; // Bottom of the full range on a log scale, zero is drawn below it
         int decimals = -1; // Of the values in the cursor info, -1 for up to six significant digits
         bool legendEvents = true; // The numbers of events of the curves are shown in the legend
+        // The full range of a linear axis starts from zero, otherwise it covers the values with a margin, so that
+        // small differences between them can be seen
+        bool includeZero = true;
     };
 
     // Shaded background, e.g. an interval of depths
@@ -161,6 +164,7 @@ private:
     double m_binWidth = 1; // In x axis units
     size_t m_bins = 0;
     double m_maxValue = 0;
+    double m_minValue = 0; // Lowest value minus its error
     bool m_logScale = false; // Spectra start with a linear count axis
     bool m_stale = false;
     Mode m_mode = Mode::Zoom;
