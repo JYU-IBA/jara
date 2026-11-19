@@ -40,6 +40,7 @@ constexpr double GramPerCubicCentimetre = 1000; // kg/m³
 constexpr int CutIdRole = Qt::UserRole;
 constexpr int CutIdsRole = Qt::UserRole + 1; // Of the selections summed in a row of the averages
 constexpr int ConcentrationDecimals = 2; // at.%
+constexpr int ExportConcentrationDecimals = 4; // at.%
 
 constexpr double MaxDepthSpin = 1e6; // 1e15 at/cm²
 const QColor NormalizationColor(0x1f, 0x77, 0xb4);
@@ -1050,9 +1051,9 @@ void DepthProfileView::exportProfile() {
         return;
     }
     auto number = [](double value, int precision = 6) { return QString::number(value, 'g', precision); };
-    // In at.%, as in the tables, "nan" for none
+    // In at.% to 0.0001 at.%, so that trace amounts are kept, "nan" for none
     auto value = [](double fraction) {
-        return std::isnan(fraction) ? QStringLiteral("nan") : QString::number(fraction * 100, 'f', ConcentrationDecimals);
+        return std::isnan(fraction) ? QStringLiteral("nan") : QString::number(fraction * 100, 'f', ExportConcentrationDecimals);
     };
     const double thinFilm = Units::ThinFilmUnit;
     ExportTable table;
