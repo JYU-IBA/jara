@@ -9,9 +9,10 @@ namespace {
 const QString TextFilter = QStringLiteral("Text files (*.txt)");
 const QString CsvFilter = QStringLiteral("CSV files (*.csv)");
 
-// Quoted when it has a comma, a quote or a line break, quotes doubled
-QString csvField(const QString &field) {
-    if(!field.contains(QLatin1Char(',')) && !field.contains(QLatin1Char('"')) && !field.contains(QLatin1Char('\n'))) {
+// Strings, i.e. the column names, are always quoted, numbers only when they have a comma, a quote or a line break.
+// Quotes are doubled.
+QString csvField(const QString &field, bool string) {
+    if(!string && !field.contains(QLatin1Char(',')) && !field.contains(QLatin1Char('"')) && !field.contains(QLatin1Char('\n'))) {
         return field;
     }
     QString quoted = field;
@@ -19,10 +20,10 @@ QString csvField(const QString &field) {
     return QLatin1Char('"') + quoted + QLatin1Char('"');
 }
 
-QString csvRow(const QStringList &fields) {
+QString csvRow(const QStringList &fields, bool strings) {
     QStringList quoted;
     for(const QString &field : fields) {
-        quoted.append(csvField(field));
+        quoted.append(csvField(field, strings));
     }
     return quoted.join(QLatin1Char(',')) + QLatin1Char('\n');
 }
@@ -41,9 +42,9 @@ QString exportTable(QWidget *parent, const QString &title, const QString &baseNa
     const bool csv = QFileInfo(fileName).suffix().compare(QLatin1String("csv"), Qt::CaseInsensitive) == 0;
     QString text;
     if(csv) {
-        text += csvRow(table.columns);
+        text += csvRow(table.columns, true);
         for(const QStringList &row : table.rows) {
-            text += csvRow(row);
+            text += csvRow(row, false);
         }
     } else {
         for(const QString &comment : table.comments) {
