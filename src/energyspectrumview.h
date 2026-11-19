@@ -15,6 +15,7 @@ class QDoubleSpinBox;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
+class MeasurementRangeWidget;
 
 // Tab in the main work area showing an energy spectrum of a measurement. Loads the measurement's data file when
 // created. Changes made here recalculate the spectrum right away. Changes made elsewhere, to the selections or the
@@ -58,6 +59,7 @@ private:
     SpectrumPlotWidget *m_plot = nullptr;
     QDoubleSpinBox *m_binWidthSpin = nullptr;
     QListWidget *m_selectionList = nullptr;
+    MeasurementRangeWidget *m_rangeWidget = nullptr;
     QWidget *m_staleBar = nullptr;
     QLabel *m_errorLabel = nullptr;
     QLabel *m_statusLabel = nullptr;

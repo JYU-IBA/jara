@@ -10,6 +10,7 @@ struct AttachedFile;
 struct DetectorSettings;
 struct PhysicsSettings;
 struct DepthProfile;
+struct SplitAnalysis;
 struct EnergySpectrum;
 struct ExperimentalSettings;
 struct Measurement;
@@ -30,7 +31,8 @@ class QTreeWidgetItem;
 // Project tree and a properties editor for the selected node. Experimental, detector and physics settings are edited
 // in tabs of the work area, opened with settingsOpenRequested(), detectorOpenRequested() and physicsOpenRequested().
 // The tree has experimental settings as the first top-level items, followed by detector settings, physics settings and
-// then the samples with their measurements and files. Energy spectra and depth profiles are under their measurements.
+// then the samples with their measurements and files. Energy spectra, depth profiles and split analyses are under their
+// measurements.
 class ProjectPanel : public QWidget {
     Q_OBJECT
 
@@ -52,6 +54,7 @@ public slots:
     void addMeasurementFiles(int sampleIndex, const QStringList &fileNames);
     void addSpectrum(); // To the current measurement
     void addDepthProfile(); // To the current measurement
+    void addSplit(); // To the current measurement
     void addSettings();
     void removeSettings();
     void addDetector();
@@ -89,6 +92,9 @@ signals:
     void depthProfileOpenRequested(Measurement *measurement, DepthProfile *profile);
     void depthProfileAboutToBeRemoved(DepthProfile *profile);
     void depthProfileRenamed(DepthProfile *profile);
+    void splitOpenRequested(Measurement *measurement, SplitAnalysis *split);
+    void splitAboutToBeRemoved(SplitAnalysis *split);
+    void splitRenamed(SplitAnalysis *split);
 
 private slots:
     void currentItemChanged(QTreeWidgetItem *item);
@@ -102,6 +108,7 @@ private slots:
     void removeCurrentMeasurement();
     void removeCurrentSpectrum();
     void removeCurrentDepthProfile();
+    void removeCurrentSplit();
 
 private:
     QWidget *createPropertyPages();
@@ -116,9 +123,10 @@ private:
     PhysicsSettings *physicsOf(QTreeWidgetItem *item) const;
     int firstSampleRow() const; // Row of the first sample among the top-level items
     AttachedFile &currentFile() const;
-    Measurement *currentMeasurement() const; // Also of the current spectrum or depth profile
+    Measurement *currentMeasurement() const; // Also of the current spectrum, depth profile or split analysis
     EnergySpectrum *currentSpectrum() const;
     DepthProfile *currentDepthProfile() const;
+    SplitAnalysis *currentSplit() const;
     void showProperties(QTreeWidgetItem *item);
     void showGeometry(const Measurement &measurement); // Beam and angles from the assigned settings
     void addSettingsCollection(const SettingsCollection &collection);
@@ -155,6 +163,7 @@ private:
     QLabel *m_exitAngleLabel;
     QLineEdit *m_spectrumNameEdit;
     QLineEdit *m_depthProfileNameEdit;
+    QLineEdit *m_splitNameEdit;
     QAction *m_copySettingsAction;
     QAction *m_pasteSettingsAction;
 };

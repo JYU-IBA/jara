@@ -2,6 +2,7 @@
 #include "colorbutton.h"
 #include "elements.h"
 #include "project.h"
+#include "rangewidget.h"
 
 #include <QActionGroup>
 #include <QApplication>
@@ -144,7 +145,7 @@ QWidget *EnergySpectrumView::createStaleBar() {
     palette.setColor(QPalette::Window, QColor(0xff, 0xe0, 0x82));
     palette.setColor(QPalette::WindowText, Qt::black);
     m_staleBar->setPalette(palette);
-    auto *label = new QLabel("The spectrum is out of date: the selections, the ToF calibration, the timing detector foil, the incident ion or the physics settings have changed since it was calculated.");
+    auto *label = new QLabel("The spectrum is out of date: the selections, the selection that divides the measurement, the ToF calibration, the timing detector foil, the incident ion or the physics settings have changed since it was calculated.");
     label->setWordWrap(true);
     auto *refresh = new QPushButton("Refresh");
     auto *layout = new QHBoxLayout(m_staleBar);
@@ -163,7 +164,17 @@ QWidget *EnergySpectrumView::createSelectionPanel() {
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(new QLabel("Selections"));
     layout->addWidget(m_selectionList);
+    m_rangeWidget = new MeasurementRangeWidget(&m_events, m_measurement);
+    m_rangeWidget->setRange(m_spectrum->rangeMin, m_spectrum->rangeMax);
+    layout->addWidget(new QLabel("Part of the measurement"));
+    layout->addWidget(m_rangeWidget);
     connect(m_selectionList, &QListWidget::itemChanged, this, &EnergySpectrumView::selectionItemChanged);
+    connect(m_rangeWidget, &MeasurementRangeWidget::rangeEdited, this, [this](double min, double max) {
+        m_spectrum->rangeMin = min;
+        m_spectrum->rangeMax = max;
+        recalculate();
+        emit modified();
+    });
     return panel;
 }
 
@@ -171,6 +182,9 @@ void EnergySpectrumView::updateSelectionList() {
     const QSignalBlocker blocker(m_selectionList);
     m_selectionList->clear();
     for(const Cut &cut : m_measurement->cuts) {
+        if(!isAnalyzed(cut)) {
+            continue;
+        }
         auto *item = new QListWidgetItem(colorSwatch(cut.color), cutLabel(cut));
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setCheckState(m_spectrum->cutIds.contains(cut.id) ? Qt::Checked : Qt::Unchecked);
@@ -212,6 +226,7 @@ void EnergySpectrumView::checkStale() {
     }
     // Selections may have been added, removed or recolored, which only needs the list and the curves updated
     updateSelectionList();
+    m_rangeWidget->refresh();
     updateCurves(SpectrumPlotWidget::ViewChange::Keep);
     setStale(energySpectrumInputs(*m_measurement, *m_spectrum) != m_calculatedInputs);
 }
@@ -275,6 +290,12 @@ void EnergySpectrumView::exportSpectrum() {
     }
     out << "# Bin width " << QString::number(m_result.binWidth / Units::Megaelectronvolt, 'g', 10) << " MeV\n";
     out << "# Events are spread uniformly within their ToF channel before the conversion to energy\n";
+    if(m_calculatedInputs.rangeMin > 0 || m_calculatedInputs.rangeMax < 1) {
+        const Cut *reference = m_measurement->referenceCut();
+        out << "# Part of the measurement: " << QString::number(m_calculatedInputs.rangeMin * 100, 'g', 6) << " % to "
+            << QString::number(m_calculatedInputs.rangeMax * 100, 'g', 6) << " % of the counts of "
+            << (reference ? cutLabel(*reference, false) : QStringLiteral("all events")) << "\n";
+    }
     if(m_stale) {
         out << "# Out of date: the selections, the ToF calibration or the incident ion have changed since the spectrum was calculated\n";
     }

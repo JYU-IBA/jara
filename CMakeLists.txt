@@ -69,6 +69,12 @@ add_executable(jara
         src/depthprofile.h
         src/depthprofileview.cpp
         src/depthprofileview.h
+        src/rangewidget.cpp
+        src/rangewidget.h
+        src/split.cpp
+        src/split.h
+        src/splitview.cpp
+        src/splitview.h
         src/efficiencydialog.cpp
         src/efficiencydialog.h
         src/archive.cpp

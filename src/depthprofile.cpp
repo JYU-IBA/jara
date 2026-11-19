@@ -1,6 +1,7 @@
 #include "depthprofile.h"
 #include "elements.h"
 #include "energyspectrum.h"
+#include "split.h"
 #include "stopping.h"
 
 #include <algorithm>
@@ -64,8 +65,11 @@ DepthProfileInputs depthProfileInputs(const Measurement &measurement, const Dept
     inputs.maxDepth = profile.maxDepth;
     inputs.autoMaxDepth = profile.autoMaxDepth;
     inputs.minStoppingBinEvents = profile.minStoppingBinEvents;
+    inputs.referencePolygon = measurement.referencePolygon();
+    inputs.rangeMin = profile.rangeMin;
+    inputs.rangeMax = profile.rangeMax;
     for(const Cut &cut : measurement.cuts) {
-        if(profile.cutIds.contains(cut.id)) {
+        if(profile.cutIds.contains(cut.id) && isAnalyzed(cut)) {
             inputs.cuts.append({cut.id, cut.z, cut.a, cut.type, cut.polygon, cut.representsElement,
                                 abundanceCorrection(cut), cut.weight});
         }
@@ -223,6 +227,8 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
 
     // Detected energies and efficiencies of the events. The time of flight is spread within its channel, as in energy
     // spectra.
+    const EventDivision division(events, inputs.referencePolygon);
+    const std::span<const ToFEEvent> range = division.range(inputs.rangeMin, inputs.rangeMax);
     for(qsizetype s = 0; s < inputs.cuts.size(); s++) {
         const auto &cut = inputs.cuts[s];
         const Particle &particle = m_particles[m_physics[static_cast<size_t>(s)].particle];
@@ -242,7 +248,7 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         std::uniform_real_distribution<double> dither(-0.5, 0.5);
         std::vector<double> energies;
         double maxEnergy = 0;
-        forEachEventIn(events, cut.polygon, [&](const ToFEEvent &event) {
+        forEachEventIn(range, cut.polygon, [&](const ToFEEvent &event) {
             selection.events++;
             const double energy = tofToEnergy(event.tof + dither(random), particle.mass, inputs.tofLength,
                                               inputs.tofSlope, inputs.tofOffset);

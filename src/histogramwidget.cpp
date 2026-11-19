@@ -375,8 +375,13 @@ void HistogramWidget::drawCutLabel(QPainter &painter, const Cut &cut, const QPol
     // Just above and right of the topmost vertex, mass number as a superscript
     const QPointF anchor = *std::min_element(polygon.begin(), polygon.end(),
                                              [](const QPointF &a, const QPointF &b) { return a.y() < b.y(); });
-    const QString symbol = cut.type == CutType::Scattered ? Elements::symbol(cut.z) + QStringLiteral("*") : Elements::symbol(cut.z);
-    const QString mass = cut.a > 0 ? QString::number(cut.a) : QString();
+    QString symbol = cut.z > 0 ? Elements::symbol(cut.z) : QString();
+    if(cut.type == CutType::Scattered) {
+        symbol += QStringLiteral("*");
+    } else if(cut.type == CutType::Reference) {
+        symbol = cut.z > 0 ? symbol + QStringLiteral(" (ref)") : cutLabel(cut);
+    }
+    const QString mass = cut.a > 0 && cut.z > 0 ? QString::number(cut.a) : QString();
     const QFont symbolFont = painter.font();
     QFont massFont = symbolFont;
     if(symbolFont.pointSizeF() > 0) {

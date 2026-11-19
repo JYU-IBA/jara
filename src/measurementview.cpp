@@ -48,7 +48,9 @@ QList<Cut> cutsFromClipboard() {
         return {};
     }
     QList<Cut> cuts = cutsFromJson(root["cuts"].toArray());
-    cuts.removeIf([](const Cut &cut) { return !Elements::isKnown(cut.z) || cut.polygon.size() < 3; });
+    cuts.removeIf([](const Cut &cut) {
+        return (!Elements::isKnown(cut.z) && cut.type != CutType::Reference) || cut.polygon.size() < 3;
+    });
     return cuts;
 }
 }
@@ -184,7 +186,7 @@ QWidget *MeasurementView::createCutPanel() {
             return cut.color != Defaults::elementColor(cut.z);
         });
         menu.addAction("Reset All Colors", this, &MeasurementView::resetCutColors)->setEnabled(custom);
-        // Checked when all selected selections have the type
+        // Checked when all selected selections have the type. Only references can be without an element.
         auto addTypeAction = [this, &menu, count](const QString &text, CutType type) {
             const QList<int> rows = selectedCutRows();
             QAction *action = menu.addAction(text, this, [this, type]() { setCutType(type); });
@@ -192,11 +194,22 @@ QWidget *MeasurementView::createCutPanel() {
             action->setChecked(count > 0 && std::all_of(rows.begin(), rows.end(), [this, type](int row) {
                                    return m_measurement->cuts.at(row).type == type;
                                }));
-            action->setEnabled(count > 0);
+            action->setEnabled(count > 0 && (type == CutType::Reference || std::all_of(rows.begin(), rows.end(), [this](int row) {
+                                                 return m_measurement->cuts.at(row).z > 0;
+                                             })));
         };
         menu.addSeparator();
         addTypeAction("Recoil (ERD)", CutType::Recoil);
         addTypeAction("Scattered (RBS)", CutType::Scattered);
+        addTypeAction("Reference", CutType::Reference);
+        QAction *reference = menu.addAction("Divides the Measurement", this, [this](bool checked) {
+            setReferenceCut(checked ? m_cutList->currentRow() : -1);
+        });
+        reference->setCheckable(true);
+        reference->setEnabled(count == 1);
+        reference->setChecked(count == 1 && m_measurement->cuts.at(selectedCutRows().first()).id == m_measurement->referenceCutId);
+        reference->setToolTip("The counts of this selection divide the measurement into parts in split analyses and the "
+                              "ranges of energy spectra and depth profiles. Without one, all events count.");
         // Checked when all selected selections represent their element, only isotopes that occur naturally can
         const QList<int> rows = selectedCutRows();
         const bool canRepresent = count > 0 && std::all_of(rows.begin(), rows.end(), [this](int row) {
@@ -238,17 +251,28 @@ void MeasurementView::updateCutList() {
     const int row = m_cutList->currentRow();
     m_cutList->clear();
     for(const Cut &cut : m_measurement->cuts) {
-        auto *item = new QListWidgetItem(colorSwatch(cut.color), QString("%1 — %2 events")
+        const bool divides = cut.id == m_measurement->referenceCutId;
+        auto *item = new QListWidgetItem(colorSwatch(cut.color), QString("%1 — %2 events%3")
                                                                       .arg(cutLabel(cut))
-                                                                      .arg(countEventsIn(m_events, cut.polygon)));
+                                                                      .arg(countEventsIn(m_events, cut.polygon))
+                                                                      .arg(divides ? QStringLiteral(" — divides") : QString()));
+        if(divides) {
+            QFont font = item->font();
+            font.setBold(true);
+            item->setFont(font);
+        }
         QStringList toolTip;
-        if(cut.representsElement) {
+        if(divides) {
+            toolTip.append("Divides the measurement into parts in split analyses and the ranges of energy spectra and "
+                           "depth profiles");
+        }
+        if(cut.representsElement && isAnalyzed(cut)) {
             toolTip.append(QString("Represents natural %1 in depth profiles, events weighted by 1 / %2%3")
                                    .arg(Elements::symbol(cut.z))
                                    .arg(cutAbundance(cut), 0, 'g', 4)
                                    .arg(cut.abundance ? QString(" (set by the user)") : QString()));
         }
-        if(cut.weight != 1) {
+        if(cut.weight != 1 && isAnalyzed(cut)) {
             toolTip.append(QString("Additional weight %1 in depth profiles").arg(cut.weight));
         }
         item->setToolTip(toolTip.join(QLatin1Char('\n')));
@@ -272,6 +296,10 @@ void MeasurementView::polygonCompleted(const QList<QPointF> &polygon) {
     cut.abundance = dialog.abundance();
     cut.weight = dialog.weight();
     m_measurement->cuts.append(cut);
+    // The first reference divides the measurement
+    if(cut.type == CutType::Reference && !m_measurement->referenceCut()) {
+        m_measurement->referenceCutId = cut.id;
+    }
     updateCutList();
     m_cutList->setCurrentRow(static_cast<int>(m_measurement->cuts.size()) - 1);
     emit modified();
@@ -299,6 +327,9 @@ void MeasurementView::editCut() {
     cut.representsElement = dialog.representsElement();
     cut.abundance = dialog.abundance();
     cut.weight = dialog.weight();
+    if(cut.type == CutType::Reference && !m_measurement->referenceCut()) {
+        m_measurement->referenceCutId = cut.id;
+    }
     updateCutList();
     emit modified();
 }
@@ -350,12 +381,24 @@ void MeasurementView::setRepresentsElement(bool represents) {
 void MeasurementView::setCutType(CutType type) {
     const QList<int> rows = selectedCutRows();
     for(int row : rows) {
-        m_measurement->cuts[row].type = type;
+        Cut &cut = m_measurement->cuts[row];
+        if(cut.z > 0 || type == CutType::Reference) { // Only references can be without an element
+            cut.type = type;
+        }
+    }
+    if(type == CutType::Reference && !m_measurement->referenceCut() && !rows.isEmpty()) {
+        m_measurement->referenceCutId = m_measurement->cuts.at(rows.first()).id;
     }
     updateCutList();
     for(int row : rows) {
         m_cutList->item(row)->setSelected(true);
     }
+    emit modified();
+}
+
+void MeasurementView::setReferenceCut(int row) {
+    m_measurement->referenceCutId = row >= 0 ? m_measurement->cuts.at(row).id : 0;
+    updateCutList();
     emit modified();
 }
 

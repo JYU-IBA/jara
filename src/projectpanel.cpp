@@ -40,15 +40,16 @@
 
 namespace {
 // Experimental settings are the first top-level nodes, then detector settings, physics settings and samples. Under a sample node,
-// measurements come first, followed by attached files. Energy spectra and then depth profiles are under their
-// measurement.
-enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode, SpectrumNode, DepthProfileNode, PhysicsNode };
-enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, SpectrumPage, DepthProfilePage };
+// measurements come first, followed by attached files. Energy spectra, depth profiles and then split analyses are
+// under their measurement.
+enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode, SpectrumNode, DepthProfileNode, PhysicsNode,
+                SplitNode };
+enum Page { EmptyPage, SamplePage, MeasurementPage, FilePage, SettingsPage, SpectrumPage, DepthProfilePage, SplitPage };
 constexpr int TypeRole = Qt::UserRole;
-constexpr int IndexRole = Qt::UserRole + 1; // Index in the sample's measurements or files, or the measurement's spectra
-                                            // or depth profiles
-constexpr int ObjectRole = Qt::UserRole + 2; // The sample, measurement, spectrum or depth profile, for finding it again
-                                             // after sorting
+constexpr int IndexRole = Qt::UserRole + 1; // Index in the sample's measurements or files, or the measurement's spectra,
+                                            // depth profiles or split analyses
+constexpr int ObjectRole = Qt::UserRole + 2; // The sample, measurement, spectrum, depth profile or split analysis, for
+                                             // finding it again after sorting
 
 QString displayName(const QString &name) {
     return name.isEmpty() ? QStringLiteral("(unnamed)") : name;
@@ -108,6 +109,21 @@ QTreeWidgetItem *createDepthProfileItem(const DepthProfile &profile, int index) 
     return item;
 }
 
+QTreeWidgetItem *createSplitItem(const SplitAnalysis &split, int index) {
+    auto *item = new QTreeWidgetItem({displayName(split.name)});
+    item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
+    item->setData(0, TypeRole, SplitNode);
+    item->setData(0, IndexRole, index);
+    item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&split)));
+    item->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_FileDialogInfoView));
+    return item;
+}
+
+// Spectra, depth profiles and split analyses of a measurement
+bool isAnalysisNode(const QTreeWidgetItem *item) {
+    return nodeType(item) == SpectrumNode || nodeType(item) == DepthProfileNode || nodeType(item) == SplitNode;
+}
+
 QTreeWidgetItem *createMeasurementItem(const Measurement &measurement, int index) {
     auto *item = createItem(measurement.name, MeasurementNode, index, measurement.path, QStyle::SP_FileDialogContentsView);
     item->setData(0, ObjectRole, QVariant::fromValue(reinterpret_cast<quintptr>(&measurement)));
@@ -116,6 +132,9 @@ QTreeWidgetItem *createMeasurementItem(const Measurement &measurement, int index
     }
     for(size_t i = 0; i < measurement.depthProfiles.size(); i++) {
         item->addChild(createDepthProfileItem(*measurement.depthProfiles.at(i), static_cast<int>(i)));
+    }
+    for(size_t i = 0; i < measurement.splitAnalyses.size(); i++) {
+        item->addChild(createSplitItem(*measurement.splitAnalyses.at(i), static_cast<int>(i)));
     }
     return item;
 }
@@ -390,6 +409,14 @@ QWidget *ProjectPanel::createPropertyPages() {
     depthProfileLayout->addRow(depthProfileHint);
     m_pages->insertWidget(DepthProfilePage, createPage(depthProfileLayout));
 
+    m_splitNameEdit = new QLineEdit;
+    auto *splitHint = new QLabel("Double-click to open the split analysis in a tab.");
+    splitHint->setWordWrap(true);
+    auto *splitLayout = new QFormLayout;
+    splitLayout->addRow("Name:", m_splitNameEdit);
+    splitLayout->addRow(splitHint);
+    m_pages->insertWidget(SplitPage, createPage(splitLayout));
+
     connect(m_sampleNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         QTreeWidgetItem *item = topLevelOf(m_tree->currentItem());
         sampleOf(item)->name = text;
@@ -468,6 +495,13 @@ QWidget *ProjectPanel::createPropertyPages() {
         profile->name = text;
         m_tree->currentItem()->setText(0, displayName(text));
         emit depthProfileRenamed(profile);
+        emit modified();
+    });
+    connect(m_splitNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
+        SplitAnalysis *split = currentSplit();
+        split->name = text;
+        m_tree->currentItem()->setText(0, displayName(text));
+        emit splitRenamed(split);
         emit modified();
     });
     return m_pages;
@@ -600,10 +634,18 @@ AttachedFile &ProjectPanel::currentFile() const {
 
 Measurement *ProjectPanel::currentMeasurement() const {
     QTreeWidgetItem *item = m_tree->currentItem();
-    if(nodeType(item) == SpectrumNode || nodeType(item) == DepthProfileNode) {
+    if(isAnalysisNode(item)) {
         item = item->parent();
     }
     return currentSample()->measurements.at(nodeIndex(item)).get();
+}
+
+SplitAnalysis *ProjectPanel::currentSplit() const {
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(!m_project || !item || nodeType(item) != SplitNode) {
+        return nullptr;
+    }
+    return currentMeasurement()->splitAnalyses.at(nodeIndex(item)).get();
 }
 
 DepthProfile *ProjectPanel::currentDepthProfile() const {
@@ -715,6 +757,10 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
             m_depthProfileNameEdit->setText(currentDepthProfile()->name);
             m_pages->setCurrentIndex(DepthProfilePage);
             break;
+        case SplitNode:
+            m_splitNameEdit->setText(currentSplit()->name);
+            m_pages->setCurrentIndex(SplitPage);
+            break;
     }
 }
 
@@ -794,6 +840,9 @@ void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
         case DepthProfileNode:
             emit depthProfileOpenRequested(currentMeasurement(), currentDepthProfile());
             break;
+        case SplitNode:
+            emit splitOpenRequested(currentMeasurement(), currentSplit());
+            break;
         default:
             break;
     }
@@ -825,6 +874,7 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
                 menu.addAction("Open Measurement", this, [this]() { emit measurementOpenRequested(currentMeasurement()); });
                 menu.addAction("Add Energy Spectrum", this, &ProjectPanel::addSpectrum);
                 menu.addAction("Add Depth Profile", this, &ProjectPanel::addDepthProfile);
+                menu.addAction("Add Split Analysis", this, &ProjectPanel::addSplit);
                 menu.addAction("Remove Measurement", this, &ProjectPanel::removeCurrentMeasurement);
                 menu.addSeparator();
             } else if(nodeType(item) == SpectrumNode) {
@@ -838,6 +888,12 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
                     emit depthProfileOpenRequested(currentMeasurement(), currentDepthProfile());
                 });
                 menu.addAction("Remove Depth Profile", this, &ProjectPanel::removeCurrentDepthProfile);
+                menu.addSeparator();
+            } else if(nodeType(item) == SplitNode) {
+                menu.addAction("Open Split Analysis", this, [this]() {
+                    emit splitOpenRequested(currentMeasurement(), currentSplit());
+                });
+                menu.addAction("Remove Split Analysis", this, &ProjectPanel::removeCurrentSplit);
                 menu.addSeparator();
             } else if(nodeType(item) == FileNode) {
                 menu.addAction("Open File", this, &ProjectPanel::openCurrentFile);
@@ -1220,7 +1276,7 @@ void ProjectPanel::handleDepthProfileDrag(QDropEvent *event, QTreeWidgetItem *ta
             item = *it;
         }
     }
-    if(target && (nodeType(target) == SpectrumNode || nodeType(target) == DepthProfileNode)) {
+    if(target && isAnalysisNode(target)) {
         target = target->parent();
     }
     const bool onMeasurement = target && nodeType(target) == MeasurementNode && target != (item ? item->parent() : nullptr);
@@ -1267,7 +1323,8 @@ void ProjectPanel::copyDepthProfile(const DepthProfile *profile, Measurement *ta
     target->depthProfiles.push_back(std::move(copy));
     QTreeWidgetItem *profileItem = createDepthProfileItem(*target->depthProfiles.back(),
                                                           static_cast<int>(target->depthProfiles.size() - 1));
-    targetItem->addChild(profileItem);
+    // Depth profiles before split analyses
+    targetItem->insertChild(static_cast<int>(target->spectra.size() + target->depthProfiles.size() - 1), profileItem);
     targetItem->setExpanded(true);
     m_tree->setCurrentItem(profileItem);
     emit modified();
@@ -1514,7 +1571,9 @@ void ProjectPanel::addSpectrum() {
     auto spectrum = std::make_unique<EnergySpectrum>();
     spectrum->name = measurement->uniqueSpectrumName("Energy spectrum");
     for(const Cut &cut : measurement->cuts) {
-        spectrum->cutIds.append(cut.id);
+        if(isAnalyzed(cut)) {
+            spectrum->cutIds.append(cut.id);
+        }
     }
     measurement->spectra.push_back(std::move(spectrum));
     QTreeWidgetItem *spectrumItem = createSpectrumItem(*measurement->spectra.back(), static_cast<int>(measurement->spectra.size() - 1));
@@ -1550,7 +1609,7 @@ void ProjectPanel::addDepthProfile() {
     if(!m_project || !item) {
         return;
     }
-    if(nodeType(item) == SpectrumNode || nodeType(item) == DepthProfileNode) {
+    if(isAnalysisNode(item)) {
         item = item->parent();
     }
     if(nodeType(item) != MeasurementNode) {
@@ -1561,12 +1620,15 @@ void ProjectPanel::addDepthProfile() {
     auto profile = std::make_unique<DepthProfile>(Defaults::depthProfile());
     profile->name = measurement->uniqueDepthProfileName("Depth profile");
     for(const Cut &cut : measurement->cuts) {
-        profile->cutIds.append(cut.id);
+        if(isAnalyzed(cut)) {
+            profile->cutIds.append(cut.id);
+        }
     }
     measurement->depthProfiles.push_back(std::move(profile));
     QTreeWidgetItem *profileItem = createDepthProfileItem(*measurement->depthProfiles.back(),
                                                           static_cast<int>(measurement->depthProfiles.size() - 1));
-    item->addChild(profileItem);
+    // Depth profiles before split analyses
+    item->insertChild(static_cast<int>(measurement->spectra.size() + measurement->depthProfiles.size() - 1), profileItem);
     item->setExpanded(true);
     m_tree->setCurrentItem(profileItem);
     emit modified();
@@ -1587,6 +1649,54 @@ void ProjectPanel::removeCurrentDepthProfile() {
         profiles.erase(profiles.begin() + index);
         delete item;
         renumberChildren(parent, DepthProfileNode);
+        m_tree->setCurrentItem(parent);
+    }
+    currentItemChanged(parent);
+    emit modified();
+}
+
+void ProjectPanel::addSplit() {
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(!m_project || !item) {
+        return;
+    }
+    if(isAnalysisNode(item)) {
+        item = item->parent();
+    }
+    if(nodeType(item) != MeasurementNode) {
+        return;
+    }
+    m_tree->setCurrentItem(item);
+    Measurement *measurement = currentMeasurement();
+    auto split = std::make_unique<SplitAnalysis>();
+    split->name = measurement->uniqueSplitAnalysisName("Split analysis");
+    for(const Cut &cut : measurement->cuts) {
+        split->cutIds.append(cut.id);
+    }
+    measurement->splitAnalyses.push_back(std::move(split));
+    QTreeWidgetItem *splitItem = createSplitItem(*measurement->splitAnalyses.back(),
+                                                 static_cast<int>(measurement->splitAnalyses.size() - 1));
+    item->addChild(splitItem);
+    item->setExpanded(true);
+    m_tree->setCurrentItem(splitItem);
+    emit modified();
+    emit splitOpenRequested(measurement, currentSplit());
+}
+
+void ProjectPanel::removeCurrentSplit() {
+    QTreeWidgetItem *item = m_tree->currentItem();
+    if(!item || nodeType(item) != SplitNode) {
+        return;
+    }
+    QTreeWidgetItem *parent = item->parent();
+    auto &splits = currentMeasurement()->splitAnalyses;
+    const int index = nodeIndex(item);
+    emit splitAboutToBeRemoved(splits.at(index).get());
+    {
+        const QSignalBlocker blocker(m_tree);
+        splits.erase(splits.begin() + index);
+        delete item;
+        renumberChildren(parent, SplitNode);
         m_tree->setCurrentItem(parent);
     }
     currentItemChanged(parent);

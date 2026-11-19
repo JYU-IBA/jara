@@ -1,4 +1,5 @@
 #include "depthprofileview.h"
+#include "rangewidget.h"
 #include "colorbutton.h"
 #include "defaults.h"
 #include "elements.h"
@@ -289,8 +290,8 @@ QWidget *DepthProfileView::createStaleBar() {
     palette.setColor(QPalette::Window, QColor(0xff, 0xe0, 0x82));
     palette.setColor(QPalette::WindowText, Qt::black);
     m_staleBar->setPalette(palette);
-    auto *label = new QLabel("The profile is out of date: the selections or the experimental, detector or physics "
-                             "settings have changed since it was calculated.");
+    auto *label = new QLabel("The profile is out of date: the selections, the selection that divides the measurement "
+                             "or the experimental, detector or physics settings have changed since it was calculated.");
     label->setWordWrap(true);
     auto *recalculate = new QPushButton("Recalculate");
     auto *layout = new QHBoxLayout(m_staleBar);
@@ -313,6 +314,16 @@ QWidget *DepthProfileView::createSidePanel() {
     auto *selectionLayout = new QVBoxLayout(selectionGroup);
     selectionLayout->setContentsMargins(6, 6, 6, 6);
     selectionLayout->addWidget(m_selectionList);
+    m_rangeWidget = new MeasurementRangeWidget(&m_events, m_measurement);
+    m_rangeWidget->setRange(m_profile->rangeMin, m_profile->rangeMax);
+    selectionLayout->addWidget(new QLabel("Part of the measurement:"));
+    selectionLayout->addWidget(m_rangeWidget);
+    connect(m_rangeWidget, &MeasurementRangeWidget::rangeEdited, this, [this](double min, double max) {
+        m_profile->rangeMin = min;
+        m_profile->rangeMax = max;
+        emit modified();
+        recalculate();
+    });
 
     // Calculation: changes start the iterations again
     m_stoppingBinSpin = depthSpinBox(0.1);
@@ -473,6 +484,9 @@ void DepthProfileView::updateSelectionList() {
     const QSignalBlocker blocker(m_selectionList);
     m_selectionList->clear();
     for(const Cut &cut : m_measurement->cuts) {
+        if(!isAnalyzed(cut)) {
+            continue;
+        }
         auto *item = new QTreeWidgetItem(m_selectionList, {cutLabel(cut)});
         item->setIcon(IncludedColumn, colorSwatch(cut.color));
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
@@ -880,6 +894,7 @@ void DepthProfileView::checkStale() {
     }
     // Selections may have been added, removed or recolored, which only needs the list and the curves updated
     updateSelectionList();
+    m_rangeWidget->refresh();
     updateProfile(SpectrumPlotWidget::ViewChange::Keep);
     setStale(depthProfileInputs(*m_measurement, *m_profile) != m_calculatedInputs);
 }
@@ -925,6 +940,12 @@ void DepthProfileView::exportProfile() {
         << " g/cm3 for nm, maximum depth " << number(m_calculation->maxDepth() / Units::ThinFilmUnit) << " 1e15 at/cm2\n";
     out << "# Total 100 % on average over " << number(m_result.normalizationMin / Units::ThinFilmUnit) << "-"
         << number(m_result.normalizationMax / Units::ThinFilmUnit) << " 1e15 at/cm2\n";
+    if(m_calculatedInputs.rangeMin > 0 || m_calculatedInputs.rangeMax < 1) {
+        const Cut *reference = m_measurement->referenceCut();
+        out << "# Part of the measurement: " << number(m_calculatedInputs.rangeMin * 100) << " % to "
+            << number(m_calculatedInputs.rangeMax * 100) << " % of the counts of "
+            << (reference ? cutLabel(*reference, false) : QStringLiteral("all events")) << "\n";
+    }
     if(m_stale) {
         out << "# Out of date: the selections or the settings have changed since the profile was calculated\n";
     }

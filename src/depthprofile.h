@@ -34,6 +34,8 @@
 // efficiency is that of the selection's isotope, the incident ion for scattered ions, or of the most abundant isotope
 // when the selection is an element.
 //
+// Only the events in the range of the profile are used, see split.h.
+//
 // With an automatic maximum depth, the stopping bins are extended when events come from deeper, and cut when the
 // events end well before the maximum depth.
 
@@ -69,6 +71,9 @@ struct DepthProfileInputs {
     double maxDepth = 0; // atoms/m², where an automatic one starts
     bool autoMaxDepth = false;
     int minStoppingBinEvents = 1; // Pseudo-events from the bin before, see above
+    QList<QPointF> referencePolygon; // Divides the measurement, empty when all events count, see split.h
+    double rangeMin = 0; // Part of the measurement used, fractions of the reference counts
+    double rangeMax = 1;
     QList<CutInput> cuts; // Included cuts in the order of the measurement's cuts
     bool operator==(const DepthProfileInputs &) const = default;
 };

@@ -49,8 +49,11 @@ ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
     m_typeCombo = new QComboBox;
     m_typeCombo->addItem("Recoil (ERD)", static_cast<int>(CutType::Recoil));
     m_typeCombo->addItem("Scattered (RBS)", static_cast<int>(CutType::Scattered));
+    m_typeCombo->addItem("Reference", static_cast<int>(CutType::Reference));
     m_typeCombo->setToolTip("Scattered ions are labeled with the target atom and an asterisk, their energy is calculated "
-                            "with the mass of the incident ion.");
+                            "with the mass of the incident ion. Reference selections are not used in energy spectra or "
+                            "depth profiles, they divide the measurement into parts with equal counts, their element "
+                            "is optional.");
     m_representsCheck = new QCheckBox("Represents the natural element");
     m_representsCheck->setToolTip("In depth profiles, the events of the isotope are weighted by 1 / its natural "
                                   "abundance and the profile is labeled with the element. Only for isotopes that occur "
@@ -107,6 +110,10 @@ ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
     connect(m_edit, &QLineEdit::textEdited, this, &ElementDialog::textEdited);
     connect(m_isotopeCombo, &QComboBox::activated, this, &ElementDialog::isotopeChanged);
     connect(m_colorButton, &ColorButton::colorPicked, this, [this]() { m_colorFollowsElement = false; });
+    connect(m_typeCombo, &QComboBox::currentIndexChanged, this, [this]() {
+        updateAbundance();
+        updateOkButton();
+    });
     connect(m_representsCheck, &QCheckBox::toggled, this, &ElementDialog::updateAbundance);
     connect(m_abundanceSpin, &QDoubleSpinBox::valueChanged, this, [this]() {
         m_abundanceEdited = true;
@@ -133,7 +140,7 @@ int ElementDialog::a() const {
 void ElementDialog::setColorSelectable(const QColor &color, bool followElement) {
     m_form->setRowVisible(m_colorButton, true);
     m_colorFollowsElement = followElement;
-    m_colorButton->setColor(followElement && m_z > 0 ? Defaults::elementColor(m_z) : color);
+    m_colorButton->setColor(followElement ? Defaults::elementColor(m_z) : color);
 }
 
 QColor ElementDialog::color() const {
@@ -143,6 +150,7 @@ QColor ElementDialog::color() const {
 void ElementDialog::setTypeSelectable(CutType type) {
     m_form->setRowVisible(m_typeCombo, true);
     m_typeCombo->setCurrentIndex(m_typeCombo->findData(static_cast<int>(type)));
+    updateOkButton();
 }
 
 CutType ElementDialog::type() const {
@@ -164,7 +172,7 @@ void ElementDialog::setCutPropertiesSelectable(bool representsElement, std::opti
 }
 
 bool ElementDialog::representsElement() const {
-    return m_representsCheck->isEnabled() && m_representsCheck->isChecked();
+    return canRepresentElement(m_z, a()) && type() != CutType::Reference && m_representsCheck->isChecked();
 }
 
 std::optional<double> ElementDialog::abundance() const {
@@ -179,6 +187,10 @@ double ElementDialog::weight() const {
 }
 
 void ElementDialog::updateAbundance() {
+    // The weights are only for depth profiles, which do not use references
+    const bool analyzed = type() != CutType::Reference;
+    m_representsCheck->setEnabled(analyzed && canRepresentElement(m_z, a()));
+    m_weightSpin->setEnabled(analyzed);
     const bool represents = representsElement();
     m_abundanceRow->setEnabled(represents);
     m_abundanceResetButton->setEnabled(m_abundanceEdited);
@@ -234,9 +246,18 @@ void ElementDialog::setElement(int z, int a) {
     m_isotopeCombo->setEnabled(m_z > 0);
     isotopeSelected();
     if(m_colorFollowsElement) {
-        m_colorButton->setColor(m_z > 0 ? Defaults::elementColor(m_z) : QColor());
+        m_colorButton->setColor(Defaults::elementColor(m_z));
     }
-    m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(m_z > 0 && (!m_requireIsotope || this->a() > 0));
+    updateOkButton();
+}
+
+void ElementDialog::updateOkButton() {
+    // Only reference selections can be without an element
+    const bool elementOptional = m_form->isRowVisible(m_typeCombo) && type() == CutType::Reference;
+    m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled((m_z > 0 || (elementOptional && m_edit->text().trimmed().isEmpty()))
+                                                          && (!m_requireIsotope || a() > 0));
+    m_edit->setPlaceholderText(elementOptional ? QStringLiteral("e.g. Si, 14 or 28Si, empty for none")
+                                               : QStringLiteral("e.g. Si, 14 or 28Si"));
 }
 
 void ElementDialog::elementClicked(int z) {
@@ -259,8 +280,7 @@ void ElementDialog::isotopeChanged() {
 }
 
 void ElementDialog::isotopeSelected() {
-    m_representsCheck->setEnabled(canRepresentElement(m_z, a()));
-    if(!m_representsCheck->isEnabled()) {
+    if(!canRepresentElement(m_z, a())) {
         m_representsCheck->setChecked(false);
     }
     // A natural abundance set by the user is for the isotope it was set for

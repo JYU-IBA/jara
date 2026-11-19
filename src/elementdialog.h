@@ -33,7 +33,9 @@ public:
     // picks one.
     void setColorSelectable(const QColor &color, bool followElement);
     QColor color() const;
-    void setTypeSelectable(CutType type); // Shows a row for choosing between recoils and scattered ions
+    // Shows a row for choosing between recoils, scattered ions and references. A reference can be without an element,
+    // z() is then zero.
+    void setTypeSelectable(CutType type);
     CutType type() const;
     // Shows the rows of the rest of a selection's properties, see Cut: whether the isotope represents its natural
     // element, its natural abundance and the additional weight of the events
@@ -50,6 +52,7 @@ private slots:
 private:
     void setElement(int z, int a);
     void isotopeSelected(); // Resets the natural abundance to the one from JIBAL
+    void updateOkButton(); // An element is needed, except for reference selections
     void updateAbundance(); // Shows the abundance correction and enables the rows of representing the element
 
     int m_z = 0;

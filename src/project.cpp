@@ -24,6 +24,46 @@ const QString FormatName = QStringLiteral("jara-project");
 const QString SettingsFormatName = QStringLiteral("jara-settings");
 const QString RecoilTypeName = QStringLiteral("recoil");
 const QString ScatteredTypeName = QStringLiteral("scattered");
+const QString ReferenceTypeName = QStringLiteral("reference");
+
+QString cutTypeId(CutType type) { // In files
+    switch(type) {
+    case CutType::Recoil:
+        return RecoilTypeName;
+    case CutType::Scattered:
+        return ScatteredTypeName;
+    case CutType::Reference:
+        return ReferenceTypeName;
+    }
+    return RecoilTypeName;
+}
+
+CutType cutTypeFromId(const QString &id) { // Recoil by default
+    if(id == ScatteredTypeName) {
+        return CutType::Scattered;
+    }
+    return id == ReferenceTypeName ? CutType::Reference : CutType::Recoil;
+}
+
+// The range is only stored when it is not the whole measurement
+void rangeToJson(QJsonObject &json, double min, double max) {
+    if(min > 0 || max < 1) {
+        json["range"] = QJsonArray{min, max};
+    }
+}
+
+void rangeFromJson(const QJsonObject &json, double &min, double &max) {
+    const QJsonArray range = json["range"].toArray();
+    if(range.size() != 2) {
+        return;
+    }
+    const double first = std::clamp(range.at(0).toDouble(0), 0.0, 1.0);
+    const double last = std::clamp(range.at(1).toDouble(1), 0.0, 1.0);
+    if(first < last) {
+        min = first;
+        max = last;
+    }
+}
 
 QString screeningModelId(ScreeningModel model) { // In files
     return model == ScreeningModel::None ? QStringLiteral("none") : QStringLiteral("andersen");
@@ -97,7 +137,7 @@ QJsonObject depthProfileToJson(const DepthProfile &profile) {
     QJsonObject normalization{{"auto", profile.autoNormalization},
                               {"min", profile.normalizationMin},
                               {"max", profile.normalizationMax}};
-    return QJsonObject{
+    QJsonObject json{
             {"name", profile.name},
             {"cuts", idsToJson(profile.cutIds)},
             {"binWidth", profile.binWidth},
@@ -115,6 +155,8 @@ QJsonObject depthProfileToJson(const DepthProfile &profile) {
                                  {"normalization", profile.showNormalization},
                                  {"legend", legendPositionId(profile.legendPosition)},
                                  {"legendConcentrations", profile.showLegendConcentrations}}}};
+    rangeToJson(json, profile.rangeMin, profile.rangeMax);
+    return json;
 }
 
 // Missing or invalid values are left at their defaults
@@ -148,6 +190,7 @@ std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
     profile->showNormalization = plot["normalization"].toBool(profile->showNormalization);
     profile->legendPosition = legendPositionFromId(plot["legend"].toString(), profile->legendPosition);
     profile->showLegendConcentrations = plot["legendConcentrations"].toBool(profile->showLegendConcentrations);
+    rangeFromJson(json, profile->rangeMin, profile->rangeMax);
     return profile;
 }
 
@@ -175,9 +218,20 @@ QJsonObject sampleToJson(const Sample &sample, const std::function<QString(const
             for(int id : spectrum->cutIds) {
                 cutIds.append(id);
             }
-            spectra.append(QJsonObject{{"name", spectrum->name}, {"binWidth", spectrum->binWidth}, {"cuts", cutIds}});
+            QJsonObject spectrumObject{{"name", spectrum->name}, {"binWidth", spectrum->binWidth}, {"cuts", cutIds}};
+            rangeToJson(spectrumObject, spectrum->rangeMin, spectrum->rangeMax);
+            spectra.append(spectrumObject);
         }
         object["spectra"] = spectra;
+        QJsonArray splits;
+        for(const auto &split : measurement->splitAnalyses) {
+            splits.append(QJsonObject{{"name", split->name}, {"parts", split->parts}, {"cuts", idsToJson(split->cutIds)},
+                                      {"relative", split->relative}});
+        }
+        object["splitAnalyses"] = splits;
+        if(measurement->referenceCutId > 0) {
+            object["referenceCut"] = measurement->referenceCutId;
+        }
         QJsonArray profiles;
         for(const auto &profile : measurement->depthProfiles) {
             profiles.append(depthProfileToJson(*profile));
@@ -235,7 +289,21 @@ std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &base
             for(const auto &id : object["cuts"].toArray()) {
                 spectrum->cutIds.append(id.toInt());
             }
+            rangeFromJson(object, spectrum->rangeMin, spectrum->rangeMax);
             sample->measurements.back()->spectra.push_back(std::move(spectrum));
+        }
+        for(const auto &splitValue : measurement["splitAnalyses"].toArray()) {
+            const QJsonObject object = splitValue.toObject();
+            auto split = std::make_unique<SplitAnalysis>();
+            split->name = object["name"].toString();
+            split->parts = std::clamp(object["parts"].toInt(DefaultSplitParts), MinSplitParts, MaxSplitParts);
+            split->cutIds = idsFromJson(object["cuts"]);
+            split->relative = object["relative"].toBool();
+            sample->measurements.back()->splitAnalyses.push_back(std::move(split));
+        }
+        const int referenceCutId = measurement["referenceCut"].toInt();
+        if(sample->measurements.back()->cut(referenceCutId)) {
+            sample->measurements.back()->referenceCutId = referenceCutId;
         }
         for(const auto &profileValue : measurement["depthProfiles"].toArray()) {
             sample->measurements.back()->depthProfiles.push_back(depthProfileFromJson(profileValue.toObject()));
@@ -285,8 +353,25 @@ double abundanceCorrection(const Cut &cut) {
 }
 
 QString cutLabel(int z, int a, CutType type, bool superscript) {
+    if(type == CutType::Reference && z <= 0) {
+        return QStringLiteral("Ref");
+    }
     const QString label = superscript ? Elements::displayLabel(z, a) : Elements::label(z, a);
-    return type == CutType::Scattered ? label + QStringLiteral("*") : label;
+    switch(type) {
+    case CutType::Scattered:
+        return label + QStringLiteral("*");
+    case CutType::Reference:
+        return label + QStringLiteral(" (ref)");
+    default:
+        return label;
+    }
+}
+
+QString cutLabel(const Cut &cut, bool superscript) {
+    if(cut.type == CutType::Reference && cut.z <= 0) {
+        return QString("Ref %1").arg(cut.id);
+    }
+    return cutLabel(cut.z, cut.a, cut.type, superscript);
 }
 
 int Measurement::newCutId() const {
@@ -317,9 +402,20 @@ const Cut *Measurement::cut(int id) const {
     return nullptr;
 }
 
+QList<QPointF> Measurement::referencePolygon() const {
+    const Cut *reference = referenceCut();
+    return reference ? reference->polygon : QList<QPointF>();
+}
+
 void Measurement::removeCut(int index) {
     const int id = cuts.at(index).id;
     cuts.removeAt(index);
+    if(referenceCutId == id) {
+        referenceCutId = 0;
+    }
+    for(const auto &split : splitAnalyses) {
+        split->cutIds.removeAll(id);
+    }
     for(const auto &spectrum : spectra) {
         spectrum->cutIds.removeAll(id);
     }
@@ -346,10 +442,22 @@ QString Measurement::uniqueSpectrumName(const QString &name) const {
     return uniqueName(name, names);
 }
 
+QString Measurement::uniqueSplitAnalysisName(const QString &name) const {
+    QStringList names;
+    for(const auto &split : splitAnalyses) {
+        names.append(split->name);
+    }
+    return uniqueName(name, names);
+}
+
 std::unique_ptr<Measurement> copyMeasurement(const Measurement &measurement) {
     auto copy = std::make_unique<Measurement>(measurement.name, measurement.description, measurement.path, measurement.cuts,
                                               measurement.settings, measurement.detector, measurement.physics);
     copy->sha256 = measurement.sha256;
+    copy->referenceCutId = measurement.referenceCutId;
+    for(const auto &split : measurement.splitAnalyses) {
+        copy->splitAnalyses.push_back(std::make_unique<SplitAnalysis>(*split));
+    }
     for(const auto &spectrum : measurement.spectra) {
         copy->spectra.push_back(std::make_unique<EnergySpectrum>(*spectrum));
     }
@@ -367,7 +475,7 @@ QJsonArray cutsToJson(const QList<Cut> &cuts) {
             polygon.append(QJsonArray{point.x(), point.y()});
         }
         QJsonObject object{{"id", cut.id}, {"z", cut.z}, {"a", cut.a},
-                           {"type", cut.type == CutType::Scattered ? ScatteredTypeName : RecoilTypeName},
+                           {"type", cutTypeId(cut.type)},
                            {"color", cut.color.name()}, {"polygon", polygon}};
         if(cut.representsElement) {
             object["representsElement"] = true;
@@ -392,7 +500,11 @@ QList<Cut> cutsFromJson(const QJsonArray &json) {
     for(const auto &value : json) {
         const QJsonObject object = value.toObject();
         Cut cut{object["id"].toInt(), object["z"].toInt(), object["a"].toInt(), {}, QColor::fromString(object["color"].toString())};
-        cut.type = object["type"].toString() == ScatteredTypeName ? CutType::Scattered : CutType::Recoil; // Recoil by default
+        cut.type = cutTypeFromId(object["type"].toString());
+        if(cut.type == CutType::Reference && !Elements::isKnown(cut.z)) {
+            cut.z = 0;
+            cut.a = 0;
+        }
         if(!cut.color.isValid()) {
             cut.color = Defaults::elementColor(cut.z);
         }

@@ -56,7 +56,7 @@ bool loadAscFile(const QString &fileName, std::vector<ToFEEvent> &events, QStrin
     return true;
 }
 
-size_t countEventsIn(const std::vector<ToFEEvent> &events, const QList<QPointF> &polygon) {
+size_t countEventsIn(std::span<const ToFEEvent> events, const QList<QPointF> &polygon) {
     size_t count = 0;
     forEachEventIn(events, polygon, [&count](const ToFEEvent &) { count++; });
     return count;

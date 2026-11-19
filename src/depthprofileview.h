@@ -10,6 +10,7 @@
 #include "spectrumplotwidget.h"
 #include "tofedata.h"
 
+class MeasurementRangeWidget;
 class QCheckBox;
 class QActionGroup;
 class QComboBox;
@@ -88,6 +89,7 @@ private:
     QList<Interval> m_markerIntervals; // Interval of each pair of plot markers
     SpectrumPlotWidget *m_plot = nullptr;
     QTreeWidget *m_selectionList = nullptr; // Included in the calculation, shown in the plot
+    MeasurementRangeWidget *m_rangeWidget = nullptr;
     QCheckBox *m_autoMaxDepthCheck = nullptr;
     QTimer *m_iterationTimer = nullptr;
     QDoubleSpinBox *m_stoppingBinSpin = nullptr;

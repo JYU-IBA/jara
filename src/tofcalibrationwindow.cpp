@@ -295,6 +295,9 @@ void ToFCalibrationWindow::updateTree() {
                 measurementItem->setToolTip(SelectionColumn, "The measurement has no data file.");
             }
             for(const Cut &cut : measurement->cuts) {
+                if(!isAnalyzed(cut)) {
+                    continue; // References have no particle to calculate the time of flight of
+                }
                 auto *item = new QTreeWidgetItem(measurementItem, {cutLabel(cut)});
                 item->setIcon(SelectionColumn, colorSwatch(cut.color));
                 setMeasurement(item, measurement.get());
@@ -501,7 +504,7 @@ void ToFCalibrationWindow::updateCalibration() {
     QList<QPointF> fitPoints;
     for(Measurement *measurement : measurements()) {
         for(const Cut &cut : measurement->cuts) {
-            if(!cut.tofEdge) {
+            if(!cut.tofEdge || !isAnalyzed(cut)) {
                 continue;
             }
             CalibrationPoint point{measurement, cut.id, QString("%1 / %2").arg(nameOrUnnamed(measurement->name), cutLabel(cut)),

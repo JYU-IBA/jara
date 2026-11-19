@@ -38,8 +38,10 @@ struct AttachedFile {
 QString fileChecksum(const QString &path);
 
 // Recoiled target atoms (ERD) or incident ions scattered from them (RBS). For both, the element of a cut is that of
-// the target atom. The energy of scattered ions is calculated with the mass of the incident ion.
-enum class CutType { Recoil, Scattered };
+// the target atom. The energy of scattered ions is calculated with the mass of the incident ion. Reference selections
+// are not used in energy spectra or depth profiles, they divide the measurement into parts, see split.h. Their
+// element is optional (z = 0).
+enum class CutType { Recoil, Scattered, Reference };
 
 // Channel of the leading (short ToF) edge of a selection's ToF spectrum, accepted in the ToF calibration tool
 struct ToFEdge {
@@ -51,7 +53,7 @@ struct ToFEdge {
 // Polygon selection of events in a ToF-E histogram, assigned to an element
 struct Cut {
     int id = 0; // Unique within the measurement, energy spectra refer to cuts by it
-    int z = 0;
+    int z = 0; // Zero only for a reference selection without an element
     int a = 0; // Mass number, zero when no specific isotope is selected
     QList<QPointF> polygon; // ToF and E in channels
     QColor color; // Drawn with this color
@@ -77,10 +79,13 @@ double cutAbundance(const Cut &cut);
 // its element, otherwise 1
 double abundanceCorrection(const Cut &cut);
 
-// The element or isotope, with an asterisk for scattered ions. With superscript, the mass number is in Unicode
-// superscript digits.
+// The element or isotope, with an asterisk for scattered ions and " (ref)" for reference selections, "Ref" for a
+// reference selection without an element. With superscript, the mass number is in Unicode superscript digits.
 QString cutLabel(int z, int a, CutType type, bool superscript = true);
-inline QString cutLabel(const Cut &cut) { return cutLabel(cut.z, cut.a, cut.type); }
+// As above, a reference selection without an element is told apart by its id ("Ref 3")
+QString cutLabel(const Cut &cut, bool superscript = true);
+// Used in energy spectra and depth profiles, i.e. not a reference selection
+inline bool isAnalyzed(const Cut &cut) { return cut.type != CutType::Reference; }
 
 // Values are in SI units, see units.h. Angles are measured from the sample surface. IBM geometry
 // is assumed, so the exit angle is the scattering angle minus the incident angle.
@@ -157,6 +162,21 @@ struct EnergySpectrum {
     QString name;
     double binWidth = DefaultSpectrumBinWidth; // J
     QList<int> cutIds; // Included selections
+    // Part of the measurement used, as fractions of the counts of the measurement's reference, see split.h
+    double rangeMin = 0;
+    double rangeMax = 1;
+};
+
+// Counts of selections in consecutive parts of a measurement with equal counts of the measurement's reference, to
+// see whether counts are lost during the measurement, e.g. hydrogen released by the beam. See split.h.
+constexpr int DefaultSplitParts = 10;
+constexpr int MinSplitParts = 2;
+constexpr int MaxSplitParts = 1000;
+struct SplitAnalysis {
+    QString name;
+    int parts = DefaultSplitParts;
+    QList<int> cutIds; // Shown selections, references included
+    bool relative = false; // Counts shown relative to the mean of each selection
 };
 
 // Screening of the Rutherford cross sections of depth profiles
@@ -225,6 +245,9 @@ struct DepthProfile {
     QList<int> cutIdsExcludedFromAverage; // Left out of the renormalized averages, e.g. the substrate
     double density = DefaultDensity; // kg/m³
     bool separateIsotopes = false; // Selections of an element are summed into one unless this is set, see depthprofile.h
+    // Part of the measurement used, as fractions of the counts of the measurement's reference, see split.h
+    double rangeMin = 0;
+    double rangeMax = 1;
     // What the plot shows, the calculation is not affected
     QList<int> cutIdsHiddenFromPlot;
     bool showTotal = false;
@@ -244,6 +267,10 @@ struct Measurement {
     std::vector<std::unique_ptr<EnergySpectrum>> spectra; // Pointers stay valid, spectrum views refer to them
     std::vector<std::unique_ptr<DepthProfile>> depthProfiles; // Same as above
     QString sha256; // Of the data file, see AttachedFile
+    std::vector<std::unique_ptr<SplitAnalysis>> splitAnalyses; // Same as above
+    // Selection whose counts divide the measurement into parts, see split.h. Zero when there is none, all events then
+    // count.
+    int referenceCutId = 0;
 
     // Exit angle from the surface, available when both experimental and detector settings are assigned
     bool hasExitAngle() const { return settings && detector; }
@@ -253,12 +280,15 @@ struct Measurement {
     int newCutId() const; // Not used by any cut of this measurement
     void assignCutIds(); // Gives cuts without an id, or with an id already used by an earlier cut, a new one
     const Cut *cut(int id) const; // nullptr when there is no such cut
-    void removeCut(int index); // Also from the spectra and depth profiles
+    const Cut *referenceCut() const { return cut(referenceCutId); } // nullptr when all events count
+    QList<QPointF> referencePolygon() const; // Of the reference, empty when all events count
+    void removeCut(int index); // Also from the spectra, depth profiles, split analyses and as the reference
     QString uniqueSpectrumName(const QString &name) const;
     QString uniqueDepthProfileName(const QString &name) const;
+    QString uniqueSplitAnalysisName(const QString &name) const;
 };
 
-// Copy of a measurement with copies of its spectra and depth profiles
+// Copy of a measurement with copies of its spectra, depth profiles and split analyses
 std::unique_ptr<Measurement> copyMeasurement(const Measurement &measurement);
 
 // "Name" when it is not taken, otherwise "Name (2)", "Name (3)" and so on

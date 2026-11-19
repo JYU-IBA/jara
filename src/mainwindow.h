@@ -8,6 +8,7 @@
 #include "project.h"
 
 class DepthProfileView;
+class SplitView;
 class DetachableTabWidget;
 class EnergySpectrumView;
 class ProjectPanel;
@@ -40,6 +41,7 @@ private slots:
     void openMeasurement(Measurement *measurement);
     void openSpectrum(Measurement *measurement, EnergySpectrum *spectrum);
     void openDepthProfile(Measurement *measurement, DepthProfile *profile);
+    void openSplit(Measurement *measurement, SplitAnalysis *split);
     void openSettings(ExperimentalSettings *settings);
     void openDetector(DetectorSettings *detector);
     void openPhysics(PhysicsSettings *physics);
@@ -66,6 +68,7 @@ private:
     void closeToFCalibration(const DetectorSettings *detector); // nullptr closes all
     void updateSpectrumTitle(EnergySpectrumView *view); // nullptr is ignored
     void updateDepthProfileTitle(DepthProfileView *view); // nullptr is ignored
+    void updateSplitTitle(SplitView *view); // nullptr is ignored
     QList<QWidget *> tabPages() const; // In all windows
     // Tab widget and index of the page, nullptr when it is not in a tab
     std::pair<DetachableTabWidget *, int> findTab(const QWidget *page) const;

@@ -1,6 +1,7 @@
 #ifndef JARA_TOFEDATA_H
 #define JARA_TOFEDATA_H
 
+#include <span>
 #include <vector>
 
 #include <QList>
@@ -18,7 +19,7 @@ struct ToFEEvent {
 bool loadAscFile(const QString &fileName, std::vector<ToFEEvent> &events, QString &errorMessage);
 
 // Calls f for every event inside the polygon, ToF and E in channels
-template<typename F> void forEachEventIn(const std::vector<ToFEEvent> &events, const QList<QPointF> &points, F f) {
+template<typename F> void forEachEventIn(std::span<const ToFEEvent> events, const QList<QPointF> &points, F f) {
     const QPolygonF polygon(points);
     const QRectF bounds = polygon.boundingRect();
     for(const auto &event : events) {
@@ -29,6 +30,6 @@ template<typename F> void forEachEventIn(const std::vector<ToFEEvent> &events, c
     }
 }
 
-size_t countEventsIn(const std::vector<ToFEEvent> &events, const QList<QPointF> &polygon);
+size_t countEventsIn(std::span<const ToFEEvent> events, const QList<QPointF> &polygon);
 
 #endif // JARA_TOFEDATA_H

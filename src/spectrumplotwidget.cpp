@@ -114,8 +114,8 @@ void SpectrumPlotWidget::setCurves(double binWidth, const QList<Curve> &curves, 
     m_maxValue = 0;
     for(const Curve &curve : curves) {
         m_bins = std::max(m_bins, curve.values.size());
-        for(const double value : curve.values) {
-            m_maxValue = std::max(m_maxValue, value);
+        for(size_t i = 0; i < curve.values.size(); i++) {
+            m_maxValue = std::max(m_maxValue, curve.values[i] + (i < curve.errors.size() ? curve.errors[i] : 0));
         }
     }
     if(!m_edges.empty()) {
@@ -343,6 +343,22 @@ void SpectrumPlotWidget::drawCurve(QPainter &painter, const Curve &curve) const 
     }
     painter.setPen(pen);
     painter.drawPolyline(steps);
+    if(!curve.errors.empty()) {
+        painter.setPen(QPen(color, 1));
+        for(size_t i = first; i <= last && i < curve.errors.size(); i++) {
+            const double x = (binStart(i) + binStart(i + 1)) / 2;
+            painter.drawLine(dataToPixel(x, toPlotY(curve.values[i] - curve.errors[i])),
+                             dataToPixel(x, toPlotY(curve.values[i] + curve.errors[i])));
+        }
+    }
+    if(curve.line.size() >= 2) {
+        QPolygonF line;
+        for(const QPointF &point : curve.line) {
+            line.append(dataToPixel(point.x(), toPlotY(point.y())));
+        }
+        painter.setPen(QPen(color, 1, Qt::DashLine));
+        painter.drawPolyline(line);
+    }
 }
 
 void SpectrumPlotWidget::drawRegions(QPainter &painter, const QRect &plot) const {

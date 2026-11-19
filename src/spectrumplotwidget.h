@@ -68,6 +68,8 @@ public:
         std::vector<double> values; // Of the bins
         Qt::PenStyle style = Qt::SolidLine;
         QString legendSuffix; // After the name in the legend only
+        std::vector<double> errors; // Of the bins, drawn as error bars at their centres when given
+        QList<QPointF> line; // Drawn as a thin line through the points, e.g. a fit, x and y as the values
     };
 
     // What happens to the view when the curves are replaced

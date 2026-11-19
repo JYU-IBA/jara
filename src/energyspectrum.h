@@ -17,7 +17,7 @@
 // occurring isotopes when no isotope is selected. For scattered ions, it is the mass of the incident ion. ToF channels are integers, so each event is spread uniformly within its
 // channel before the conversion. Otherwise the discrete energies of the channels would show up as spikes in bins
 // narrower than a few channels. The spreading uses a fixed seed for each selection, so the same inputs always give
-// the same spectrum.
+// the same spectrum. Only the events in the range of the spectrum are used, see split.h.
 
 // Everything a spectrum is calculated from, apart from the events. Comparing these tells whether a calculated
 // spectrum is still up to date.
@@ -30,6 +30,9 @@ struct EnergySpectrumInputs {
         QList<QPointF> polygon;
         bool operator==(const CutInput &) const = default;
     };
+    QList<QPointF> referencePolygon; // Divides the measurement, empty when all events count, see split.h
+    double rangeMin = 0; // Part of the measurement used, fractions of the reference counts
+    double rangeMax = 1;
     int beamZ = 0; // Incident ion, zero when there are no experimental settings
     int beamA = 0;
     bool hasDetector = false;

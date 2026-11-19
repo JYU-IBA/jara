@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "defaults.h"
 #include "depthprofileview.h"
+#include "splitview.h"
 #include "energyspectrumview.h"
 #include "histogramwidget.h"
 #include "measurementview.h"
@@ -169,6 +170,13 @@ QWidget *MainWindow::createProjectView() {
     });
     connect(m_projectPanel, &ProjectPanel::depthProfileRenamed, this, [this](DepthProfile *profile) {
         updateDepthProfileTitle(findView<DepthProfileView>([profile](DepthProfileView *view) { return view->profile() == profile; }));
+    });
+    connect(m_projectPanel, &ProjectPanel::splitOpenRequested, this, &MainWindow::openSplit);
+    connect(m_projectPanel, &ProjectPanel::splitAboutToBeRemoved, this, [this](SplitAnalysis *split) {
+        closeTab(findView<SplitView>([split](SplitView *view) { return view->split() == split; }));
+    });
+    connect(m_projectPanel, &ProjectPanel::splitRenamed, this, [this](SplitAnalysis *split) {
+        updateSplitTitle(findView<SplitView>([split](SplitView *view) { return view->split() == split; }));
     });
     connect(m_projectPanel, &ProjectPanel::settingsOpenRequested, this, &MainWindow::openSettings);
     connect(m_projectPanel, &ProjectPanel::detectorOpenRequested, this, &MainWindow::openDetector);
@@ -571,6 +579,8 @@ void MainWindow::projectModified() {
             spectrumView->checkStale();
         } else if(auto *profileView = qobject_cast<DepthProfileView *>(page)) {
             profileView->checkStale();
+        } else if(auto *splitView = qobject_cast<SplitView *>(page)) {
+            splitView->refresh();
         }
     }
     for(ToFCalibrationWindow *window : findChildren<ToFCalibrationWindow *>()) {
@@ -645,6 +655,21 @@ void MainWindow::openDepthProfile(Measurement *measurement, DepthProfile *profil
         connect(view, &DepthProfileView::titleChanged, this, [this, view]() { updateDepthProfileTitle(view); });
     }
     showTab(view, view->title(), measurement->path);
+}
+
+void MainWindow::openSplit(Measurement *measurement, SplitAnalysis *split) {
+    auto *view = findView<SplitView>([split](SplitView *view) { return view->split() == split; });
+    if(!view) {
+        view = new SplitView(measurement, split);
+        connect(view, &SplitView::modified, this, &MainWindow::projectModified);
+    }
+    showTab(view, view->title(), measurement->path);
+}
+
+void MainWindow::updateSplitTitle(SplitView *view) {
+    if(const auto [tabs, index] = findTab(view); tabs) {
+        tabs->setTabTitle(index, view->title());
+    }
 }
 
 void MainWindow::updateDepthProfileTitle(DepthProfileView *view) {
@@ -764,6 +789,9 @@ void MainWindow::measurementRenamed(Measurement *measurement) {
     for(const auto &profile : measurement->depthProfiles) {
         updateDepthProfileTitle(findView<DepthProfileView>([&profile](DepthProfileView *view) { return view->profile() == profile.get(); }));
     }
+    for(const auto &split : measurement->splitAnalyses) {
+        updateSplitTitle(findView<SplitView>([&split](SplitView *view) { return view->split() == split.get(); }));
+    }
 }
 
 void MainWindow::closeSampleTabs(Sample *sample) {
@@ -779,6 +807,9 @@ void MainWindow::closeMeasurementTab(Measurement *measurement) {
     }
     for(const auto &profile : measurement->depthProfiles) {
         closeTab(findView<DepthProfileView>([&profile](DepthProfileView *view) { return view->profile() == profile.get(); }));
+    }
+    for(const auto &split : measurement->splitAnalyses) {
+        closeTab(findView<SplitView>([&split](SplitView *view) { return view->split() == split.get(); }));
     }
 }
 

@@ -1,5 +1,6 @@
 #include "energyspectrum.h"
 #include "elements.h"
+#include "split.h"
 #include "stopping.h"
 
 #include <algorithm>
@@ -29,8 +30,11 @@ EnergySpectrumInputs energySpectrumInputs(const Measurement &measurement, const 
     inputs.physics = measurement.physicsOrDefault();
     inputs.physics.name.clear();
     inputs.binWidth = spectrum.binWidth;
+    inputs.referencePolygon = measurement.referencePolygon();
+    inputs.rangeMin = spectrum.rangeMin;
+    inputs.rangeMax = spectrum.rangeMax;
     for(const Cut &cut : measurement.cuts) {
-        if(spectrum.cutIds.contains(cut.id)) {
+        if(spectrum.cutIds.contains(cut.id) && isAnalyzed(cut)) {
             inputs.cuts.append({cut.id, cut.z, cut.a, cut.type, cut.polygon});
         }
     }
@@ -73,6 +77,9 @@ EnergySpectrumResult calculateEnergySpectrum(const std::vector<ToFEEvent> &event
         return result;
     }
 
+    const EventDivision division(events, inputs.referencePolygon);
+    const std::span<const ToFEEvent> range = division.range(inputs.rangeMin, inputs.rangeMax);
+
     // Energies first, the bins cover them all
     std::vector<std::vector<double>> energies;
     double maxEnergy = 0;
@@ -105,7 +112,7 @@ EnergySpectrumResult calculateEnergySpectrum(const std::vector<ToFEEvent> &event
         double maxCutEnergy = 0;
         std::mt19937 random(static_cast<std::mt19937::result_type>(cut.id));
         std::uniform_real_distribution<double> dither(-0.5, 0.5);
-        forEachEventIn(events, cut.polygon, [&](const ToFEEvent &event) {
+        forEachEventIn(range, cut.polygon, [&](const ToFEEvent &event) {
             histogram.events++;
             const double tof = event.tof + dither(random); // Anywhere within the channel
             const double energy = tofToEnergy(tof, mass, inputs.tofLength, inputs.tofSlope, inputs.tofOffset);

@@ -120,6 +120,9 @@ QColor Defaults::builtInElementColor(int z) {
     if(const auto found = chosen.find(z); found != chosen.end()) {
         return found.value();
     }
+    if(z <= 0) {
+        return QColor(0x80, 0x80, 0x80); // Reference selections without an element
+    }
     // Others have hues a golden angle apart, so that elements close to each other get clearly different colors
     const int hue = static_cast<int>(std::lround(z * 137.508)) % 360;
     return QColor::fromHsv(hue, 230, 220);
