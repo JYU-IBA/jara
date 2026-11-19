@@ -10,8 +10,8 @@ The project panel on the left shows the project information first, then the sett
 Selecting an item shows its properties below the tree; double-clicking opens it in a tab. Tabs can be dragged out into
 windows of their own.
 
-The project information has the project's **name**, shown in the tree and in reports (the file name when empty),
-**notes**, and when the project was created and last saved.
+Double-click the project information to open it in a tab: the project's **name**, shown in the tree and in reports
+(the file name when empty), its file, when it was created and last saved, and **notes**.
 
 - **File → New / Open / Save**. Recent projects are under File → Open Recent.
 - **File → Export Archive** writes the project and copies of its data files into a `.tar.gz` or `.zip`, so that it

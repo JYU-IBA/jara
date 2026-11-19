@@ -53,6 +53,8 @@ add_executable(jara
         src/units.h
         src/projectimportdialog.cpp
         src/projectimportdialog.h
+        src/projectinfoview.cpp
+        src/projectinfoview.h
         src/tofcalibration.cpp
         src/tofcalibration.h
         src/tofcalibrationwindow.cpp

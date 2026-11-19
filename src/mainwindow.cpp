@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "defaults.h"
 #include "depthprofileview.h"
+#include "projectinfoview.h"
 #include "reportview.h"
 #include "splitview.h"
 #include "energyspectrumview.h"
@@ -172,6 +173,7 @@ QWidget *MainWindow::createProjectView() {
     connect(m_projectPanel, &ProjectPanel::depthProfileRenamed, this, [this](DepthProfile *profile) {
         updateDepthProfileTitle(findView<DepthProfileView>([profile](DepthProfileView *view) { return view->profile() == profile; }));
     });
+    connect(m_projectPanel, &ProjectPanel::projectInfoOpenRequested, this, &MainWindow::openProjectInfo);
     connect(m_projectPanel, &ProjectPanel::reportOpenRequested, this, &MainWindow::openReport);
     connect(m_projectPanel, &ProjectPanel::reportAboutToBeRemoved, this, [this](Report *report) {
         closeTab(findView<ReportView>([report](ReportView *view) { return view->report() == report; }));
@@ -506,7 +508,7 @@ bool MainWindow::saveProject() {
         return false;
     }
     updateWindowState();
-    m_projectPanel->updateProjectTimes();
+    projectSaved();
     statusBar()->showMessage(QString("Saved %1").arg(m_project->fileName()), 5000);
     return true;
 }
@@ -528,7 +530,7 @@ bool MainWindow::saveProjectAs() {
         return false;
     }
     updateWindowState();
-    m_projectPanel->updateProjectTimes();
+    projectSaved();
     addRecentFile(fileName);
     statusBar()->showMessage(QString("Saved %1").arg(fileName), 5000);
     return true;
@@ -682,6 +684,24 @@ void MainWindow::openSplit(Measurement *measurement, SplitAnalysis *split) {
         connect(view, &SplitView::modified, this, &MainWindow::projectModified);
     }
     showTab(view, view->title(), measurement->path);
+}
+
+void MainWindow::openProjectInfo() {
+    auto *view = findView<ProjectInfoView>([](ProjectInfoView *) { return true; }); // There is one
+    if(!view) {
+        view = new ProjectInfoView(m_project.get());
+        connect(view, &ProjectInfoView::modified, this, &MainWindow::projectModified);
+        connect(view, &ProjectInfoView::nameChanged, m_projectPanel, &ProjectPanel::updateProjectName);
+    }
+    showTab(view, "Project", m_project->fileName());
+}
+
+void MainWindow::projectSaved() {
+    // The save time, and the file name, which is the name of a project without one of its own
+    m_projectPanel->updateProjectName();
+    if(auto *view = findView<ProjectInfoView>([](ProjectInfoView *) { return true; })) {
+        view->refresh();
+    }
 }
 
 void MainWindow::openReport(Report *report) {

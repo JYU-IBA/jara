@@ -44,6 +44,7 @@ private slots:
     void openDepthProfile(Measurement *measurement, DepthProfile *profile);
     void openSplit(Measurement *measurement, SplitAnalysis *split);
     void openReport(Report *report);
+    void openProjectInfo();
     void openSettings(ExperimentalSettings *settings);
     void openDetector(DetectorSettings *detector);
     void openPhysics(PhysicsSettings *physics);
@@ -72,6 +73,7 @@ private:
     void updateDepthProfileTitle(DepthProfileView *view); // nullptr is ignored
     void updateSplitTitle(SplitView *view); // nullptr is ignored
     void updateReportTitle(ReportView *view); // nullptr is ignored
+    void projectSaved(); // Updates what shows when it was saved
     QList<QWidget *> tabPages() const; // In all windows
     // Tab widget and index of the page, nullptr when it is not in a tab
     std::pair<DetachableTabWidget *, int> findTab(const QWidget *page) const;

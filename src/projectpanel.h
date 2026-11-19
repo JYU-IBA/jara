@@ -48,7 +48,7 @@ public:
     void settingsEdited(); // Updates the shown names and values after settings were edited elsewhere
 
 public slots:
-    void updateProjectTimes(); // Call after the project was saved, also shows the name, which may follow the file name
+    void updateProjectName(); // In the tree, after it was changed or the project saved (the file name may be used)
     void addSample();
     void removeSample();
     void addFiles();
@@ -99,6 +99,7 @@ signals:
     void splitAboutToBeRemoved(SplitAnalysis *split);
     void splitRenamed(SplitAnalysis *split);
     void reportOpenRequested(Report *report);
+    void projectInfoOpenRequested();
     void reportAboutToBeRemoved(Report *report);
     void reportRenamed(Report *report);
 
@@ -174,10 +175,6 @@ private:
     QLineEdit *m_depthProfileNameEdit;
     QLineEdit *m_splitNameEdit;
     QLineEdit *m_reportNameEdit;
-    QLineEdit *m_projectNameEdit;
-    QPlainTextEdit *m_projectNotesEdit;
-    QLabel *m_projectCreatedLabel;
-    QLabel *m_projectSavedLabel;
     QAction *m_copySettingsAction;
     QAction *m_pasteSettingsAction;
 };

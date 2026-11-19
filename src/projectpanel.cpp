@@ -438,29 +438,12 @@ QWidget *ProjectPanel::createPropertyPages() {
     splitLayout->addRow(splitHint);
     m_pages->insertWidget(SplitPage, createPage(splitLayout));
 
-    m_projectNameEdit = new QLineEdit;
-    m_projectNameEdit->setToolTip("Shown in reports. The file name is used when empty.");
-    m_projectNotesEdit = new QPlainTextEdit;
-    m_projectNotesEdit->setPlaceholderText("Notes");
-    m_projectCreatedLabel = new QLabel;
-    m_projectSavedLabel = new QLabel;
-    auto *projectLayout = new QFormLayout;
-    projectLayout->addRow("Name:", m_projectNameEdit);
-    projectLayout->addRow("Created:", m_projectCreatedLabel);
-    projectLayout->addRow("Saved:", m_projectSavedLabel);
-    projectLayout->addRow(m_projectNotesEdit);
+    auto *projectHint = new QLabel("Double-click to open the project information in a tab.");
+    projectHint->setWordWrap(true);
+    auto *projectLayout = new QVBoxLayout;
+    projectLayout->addWidget(projectHint);
+    projectLayout->addStretch();
     m_pages->insertWidget(ProjectPage, createPage(projectLayout));
-    connect(m_projectNameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
-        m_project->setName(text.trimmed());
-        m_tree->topLevelItem(0)->setText(0, m_project->displayName());
-        emit modified();
-    });
-    connect(m_projectNotesEdit, &QPlainTextEdit::textChanged, this, [this]() {
-        if(m_project && m_projectNotesEdit->toPlainText() != m_project->notes()) {
-            m_project->setNotes(m_projectNotesEdit->toPlainText());
-            emit modified();
-        }
-    });
 
     m_reportNameEdit = new QLineEdit;
     auto *reportHint = new QLabel("Double-click to open the report in a tab.");
@@ -650,18 +633,10 @@ int ProjectPanel::firstSampleRow() const {
     return FirstSettingsRow + static_cast<int>(m_project->settingsCount() + m_project->detectorCount() + m_project->physicsCount());
 }
 
-void ProjectPanel::updateProjectTimes() {
-    if(!m_project) {
-        return;
+void ProjectPanel::updateProjectName() {
+    if(m_project) {
+        m_tree->topLevelItem(0)->setText(0, m_project->displayName());
     }
-    const QString format = QStringLiteral("yyyy-MM-dd HH:mm:ss");
-    m_projectCreatedLabel->setText(m_project->created().isValid() ? m_project->created().toString(format)
-                                                                  : QStringLiteral("Unknown"));
-    m_projectSavedLabel->setText(m_project->saved().isValid() ? m_project->saved().toString(format)
-                                                              : QStringLiteral("Not saved yet"));
-    // The file name is used when the project has no name of its own
-    m_tree->topLevelItem(0)->setText(0, m_project->displayName());
-    m_projectNameEdit->setPlaceholderText(m_project->displayName());
 }
 
 int ProjectPanel::firstReportRow() const {
@@ -857,12 +832,6 @@ void ProjectPanel::showProperties(QTreeWidgetItem *item) {
             m_pages->setCurrentIndex(ReportPage);
             break;
         case ProjectNode:
-            m_projectNameEdit->setText(m_project->name());
-            m_projectNameEdit->setPlaceholderText(m_project->displayName());
-            if(m_projectNotesEdit->toPlainText() != m_project->notes()) {
-                m_projectNotesEdit->setPlainText(m_project->notes());
-            }
-            updateProjectTimes();
             m_pages->setCurrentIndex(ProjectPage);
             break;
     }
@@ -950,6 +919,9 @@ void ProjectPanel::itemDoubleClicked(QTreeWidgetItem *item) {
         case ReportNode:
             emit reportOpenRequested(currentReport());
             break;
+        case ProjectNode:
+            emit projectInfoOpenRequested();
+            break;
         default:
             break;
     }
@@ -977,7 +949,7 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
                 menu.addAction("Remove Physics Settings", this, &ProjectPanel::removePhysics);
             }
         } else if(nodeType(item) == ProjectNode) {
-            // Only the actions for the whole project below
+            menu.addAction("Open Project Information", this, &ProjectPanel::projectInfoOpenRequested);
         } else if(nodeType(item) == ReportNode) {
             menu.addAction("Open Report", this, [this]() { emit reportOpenRequested(currentReport()); });
             menu.addAction("Remove Report", this, &ProjectPanel::removeCurrentReport);
