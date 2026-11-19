@@ -22,16 +22,10 @@
 #include <QVBoxLayout>
 
 namespace {
-const QString ZoomHint = QStringLiteral(
-        "Drag to zoom, double-click to show everything. Scroll the mouse wheel or pinch to zoom, "
-        "scroll with two fingers to move.");
-const QString MoveHint = QStringLiteral("Drag to move the view. Scroll the mouse wheel or pinch to zoom.");
 const QString SelectHint = QStringLiteral(
-        "Click to add polygon vertices. Click the first vertex, double-click or press Enter to complete. "
-        "Backspace removes the last vertex, Esc cancels.");
+        "Click to add vertices. Enter or the first vertex completes, Backspace undoes, Esc cancels.");
 const QString EditHint = QStringLiteral(
-        "Click a selection to edit it. Drag vertices or the whole selection, double-click an edge to add a vertex, "
-        "right-click a vertex to remove it.");
+        "Drag vertices or selections. Double-click an edge to add a vertex, right-click one to remove it.");
 
 // Cuts in the clipboard are JSON: {"format": "jara-cuts", "version": 1, "cuts": [...]}, cuts as in project files
 const QString ClipboardFormat = QStringLiteral("jara-cuts");
@@ -80,8 +74,8 @@ MeasurementView::MeasurementView(Measurement *measurement, QWidget *parent) : QW
     m_histogram = new HistogramWidget;
     m_histogram->setEvents(&m_events);
     m_histogram->setCuts(&measurement->cuts);
-    m_hint = ZoomHint;
-    m_statusLabel = new QLabel(m_hint);
+    m_statusLabel = new QLabel;
+    m_statusLabel->setMinimumHeight(m_statusLabel->fontMetrics().height()); // Cursor info, or the hint of the mode
 
     auto *splitter = new QSplitter;
     splitter->addWidget(m_histogram);
@@ -134,8 +128,10 @@ QWidget *MeasurementView::createToolBar() {
         });
         return action;
     };
-    addMode("Zoom Box", HistogramWidget::Mode::Zoom, ZoomHint)->setChecked(true);
-    addMode("Move", HistogramWidget::Mode::Move, MoveHint);
+    QAction *zoomMode = addMode("Zoom Box", HistogramWidget::Mode::Zoom, {});
+    zoomMode->setChecked(true);
+    zoomMode->setToolTip("Drag to zoom, double-click to show everything");
+    addMode("Move", HistogramWidget::Mode::Move, {})->setToolTip("Drag to move the view");
     addMode("Select", HistogramWidget::Mode::Select, SelectHint);
     addMode("Edit", HistogramWidget::Mode::Edit, EditHint);
     return toolBar;

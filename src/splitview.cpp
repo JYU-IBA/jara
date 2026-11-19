@@ -21,10 +21,6 @@
 #include <QVBoxLayout>
 
 namespace {
-const QString ZoomHint = QStringLiteral(
-        "Drag to zoom, double-click to show everything. Scroll the mouse wheel or pinch to zoom, "
-        "scroll with two fingers to move. Drag the legend to another corner.");
-const QString MoveHint = QStringLiteral("Drag to move the view. Scroll the mouse wheel or pinch to zoom.");
 constexpr int CutIdRole = Qt::UserRole;
 
 enum TableColumn { SelectionColumn, CountsColumn, MeanColumn, ChangeColumn, StartColumn, ColumnCount };
@@ -67,8 +63,8 @@ SplitView::SplitView(Measurement *measurement, SplitAnalysis *split, QWidget *pa
         m_split->legendPosition = legendPosition(corner);
         emit modified();
     });
-    m_hint = ZoomHint;
-    m_statusLabel = new QLabel(m_hint);
+    m_statusLabel = new QLabel;
+    m_statusLabel->setMinimumHeight(m_statusLabel->fontMetrics().height()); // Cursor info, or the hint of the mode
     m_referenceLabel = new QLabel;
     m_referenceLabel->setWordWrap(true);
     m_errorLabel = new QLabel;
@@ -144,8 +140,10 @@ QWidget *SplitView::createToolBar() {
         });
         return action;
     };
-    addMode("Zoom Box", SpectrumPlotWidget::Mode::Zoom, ZoomHint)->setChecked(true);
-    addMode("Move", SpectrumPlotWidget::Mode::Move, MoveHint);
+    QAction *zoomMode = addMode("Zoom Box", SpectrumPlotWidget::Mode::Zoom, {});
+    zoomMode->setChecked(true);
+    zoomMode->setToolTip("Drag to zoom, double-click to show everything");
+    addMode("Move", SpectrumPlotWidget::Mode::Move, {})->setToolTip("Drag to move the view");
     toolBar->addSeparator();
 
     QAction *relative = toolBar->addAction("Relative to Mean");
@@ -238,15 +236,10 @@ void SplitView::recalculate() {
     QApplication::restoreOverrideCursor();
     m_errorLabel->setText(m_result.errorMessage);
     m_errorLabel->setVisible(!m_result.isValid());
-    QString text = QString("Divided by %1: %2 counts, %3 per part.")
-                           .arg(referenceText())
-                           .arg(m_result.referenceCounts)
-                           .arg(static_cast<double>(m_result.referenceCounts) / m_split->parts, 0, 'f', 1);
-    if(!m_measurement->referenceCut()) {
-        text += QStringLiteral(" Choose the selection that divides the measurement in its context menu in the "
-                               "measurement tab.");
-    }
-    m_referenceLabel->setText(text);
+    // Only when there is something to do about it
+    m_referenceLabel->setText(QStringLiteral("All events divide the measurement. Choose a selection for it in the "
+                                             "measurement tab."));
+    m_referenceLabel->setVisible(!m_measurement->referenceCut());
     updatePlot(SpectrumPlotWidget::ViewChange::ShowAll);
     updateTable();
 }
@@ -286,7 +279,7 @@ void SplitView::updatePlot(SpectrumPlotWidget::ViewChange viewChange) {
         curves.append(curve);
     }
     m_plot->setCurves(100.0 / m_result.parts, curves, viewChange);
-    m_plot->setInfoText(QString("%1 parts of %2 counts of %3, lines fitted to the counts")
+    m_plot->setInfoText(QString("%1 parts of %2 counts of %3")
                                 .arg(m_result.parts)
                                 .arg(static_cast<double>(m_result.referenceCounts) / m_result.parts, 0, 'f', 1)
                                 .arg(referenceText()));

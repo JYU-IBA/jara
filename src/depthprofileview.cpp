@@ -36,10 +36,6 @@
 #include <QVBoxLayout>
 
 namespace {
-const QString ZoomHint = QStringLiteral(
-        "Drag to zoom, double-click to show everything. Drag the dashed lines to change the normalization and "
-        "averaging intervals, drag the legend to another corner.");
-const QString MoveHint = QStringLiteral("Drag to move the view. Scroll the mouse wheel or pinch to zoom.");
 const QString ThinFilmText = QStringLiteral("10¹⁵ at/cm²");
 constexpr double Nanometre = 1e-9;
 constexpr double GramPerCubicCentimetre = 1000; // kg/m³
@@ -168,8 +164,8 @@ DepthProfileView::DepthProfileView(Measurement *measurement, DepthProfile *profi
     connect(m_plot, &SpectrumPlotWidget::labelMoved, this, &DepthProfileView::labelMoved);
     m_plot->setContextActions({concentrations, m_labelMenu->menuAction(), shadeAverage});
     updateLegendPosition();
-    m_hint = ZoomHint;
-    m_statusLabel = new QLabel(m_hint);
+    m_statusLabel = new QLabel;
+    m_statusLabel->setMinimumHeight(m_statusLabel->fontMetrics().height()); // Cursor info, or the hint of the mode
     m_statusLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred); // Long texts do not move anything
     m_errorLabel = new QLabel;
     m_errorLabel->setStyleSheet("color: red");
@@ -236,8 +232,10 @@ QWidget *DepthProfileView::createToolBar() {
         });
         return action;
     };
-    addMode("Zoom Box", SpectrumPlotWidget::Mode::Zoom, ZoomHint)->setChecked(true);
-    addMode("Move", SpectrumPlotWidget::Mode::Move, MoveHint);
+    QAction *zoomMode = addMode("Zoom Box", SpectrumPlotWidget::Mode::Zoom, {});
+    zoomMode->setChecked(true);
+    zoomMode->setToolTip("Drag to zoom, double-click to show everything, drag the dashed lines to change the intervals");
+    addMode("Move", SpectrumPlotWidget::Mode::Move, {})->setToolTip("Drag to move the view");
     toolBar->addSeparator();
 
     QAction *logScale = toolBar->addAction("Log Scale");
@@ -297,9 +295,9 @@ QWidget *DepthProfileView::createStaleBar() {
     palette.setColor(QPalette::Window, QColor(0xff, 0xe0, 0x82));
     palette.setColor(QPalette::WindowText, Qt::black);
     m_staleBar->setPalette(palette);
-    auto *label = new QLabel("The profile is out of date: the selections, the selection that divides the measurement "
-                             "or the experimental, detector or physics settings have changed since it was calculated.");
-    label->setWordWrap(true);
+    auto *label = new QLabel("Out of date.");
+    label->setToolTip("The selections, the selection that divides the measurement or the experimental, detector or "
+                      "physics settings have changed since the profile was calculated.");
     auto *recalculate = new QPushButton("Recalculate");
     auto *layout = new QHBoxLayout(m_staleBar);
     layout->setContentsMargins(8, 4, 8, 4);
@@ -886,16 +884,7 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
         }
     }
     m_plot->setLabels(labels);
-    QString intervals;
-    if(follows) {
-        intervals = QStringLiteral(", total 100 % and averages over the orange interval");
-    } else {
-        intervals = QStringLiteral(", averages over the orange interval");
-        if(m_profile->showNormalization) {
-            intervals += QStringLiteral(", total 100 % over the blue one");
-        }
-    }
-    m_plot->setInfoText(QString("Bin %1 %2%3").arg(m_profile->binWidth / Units::ThinFilmUnit, 0, 'g', 6).arg(ThinFilmText, intervals));
+    m_plot->setInfoText(QString("Bin %1 %2").arg(m_profile->binWidth / Units::ThinFilmUnit, 0, 'g', 6).arg(ThinFilmText));
     updateAverages();
 }
 

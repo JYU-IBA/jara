@@ -21,10 +21,6 @@
 #include <QVBoxLayout>
 
 namespace {
-const QString ZoomHint = QStringLiteral(
-        "Drag to zoom, double-click to show everything. Scroll the mouse wheel or pinch to zoom, "
-        "scroll with two fingers to move. Drag the legend to another corner.");
-const QString MoveHint = QStringLiteral("Drag to move the view. Scroll the mouse wheel or pinch to zoom.");
 constexpr int CutIdRole = Qt::UserRole;
 }
 
@@ -55,8 +51,8 @@ EnergySpectrumView::EnergySpectrumView(Measurement *measurement, EnergySpectrum 
         m_spectrum->legendPosition = legendPosition(corner);
         emit modified();
     });
-    m_hint = ZoomHint;
-    m_statusLabel = new QLabel(m_hint);
+    m_statusLabel = new QLabel;
+    m_statusLabel->setMinimumHeight(m_statusLabel->fontMetrics().height()); // Cursor info, or the hint of the mode
     m_errorLabel = new QLabel;
     m_errorLabel->setStyleSheet("color: red");
     m_errorLabel->setWordWrap(true);
@@ -114,8 +110,10 @@ QWidget *EnergySpectrumView::createToolBar() {
         });
         return action;
     };
-    addMode("Zoom Box", SpectrumPlotWidget::Mode::Zoom, ZoomHint)->setChecked(true);
-    addMode("Move", SpectrumPlotWidget::Mode::Move, MoveHint);
+    QAction *zoomMode = addMode("Zoom Box", SpectrumPlotWidget::Mode::Zoom, {});
+    zoomMode->setChecked(true);
+    zoomMode->setToolTip("Drag to zoom, double-click to show everything");
+    addMode("Move", SpectrumPlotWidget::Mode::Move, {})->setToolTip("Drag to move the view");
     toolBar->addSeparator();
 
     QAction *logScale = toolBar->addAction("Log Scale");
@@ -151,8 +149,10 @@ QWidget *EnergySpectrumView::createStaleBar() {
     palette.setColor(QPalette::Window, QColor(0xff, 0xe0, 0x82));
     palette.setColor(QPalette::WindowText, Qt::black);
     m_staleBar->setPalette(palette);
-    auto *label = new QLabel("The spectrum is out of date: the selections, the selection that divides the measurement, the ToF calibration, the timing detector foil, the incident ion or the physics settings have changed since it was calculated.");
-    label->setWordWrap(true);
+    auto *label = new QLabel("Out of date.");
+    label->setToolTip("The selections, the selection that divides the measurement, the ToF calibration, the timing "
+                      "detector foil, the incident ion or the physics settings have changed since the spectrum was "
+                      "calculated.");
     auto *refresh = new QPushButton("Refresh");
     auto *layout = new QHBoxLayout(m_staleBar);
     layout->setContentsMargins(8, 4, 8, 4);

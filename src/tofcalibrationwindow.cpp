@@ -23,11 +23,7 @@
 #include <QVBoxLayout>
 
 namespace {
-const QString ZoomHint = QStringLiteral(
-        "Drag to zoom, double-click to show everything. Drag the dashed lines to change the fit window, the legend to "
-        "another corner.");
-const QString MoveHint = QStringLiteral("Drag to move the view. Scroll the mouse wheel or pinch to zoom.");
-const QString PickHint = QStringLiteral("Click to set the edge by hand. Drag the dashed lines to fit again in another window.");
+const QString PickHint = QStringLiteral("Click to set the edge by hand.");
 constexpr int MeasurementRole = Qt::UserRole;
 constexpr int CutIdRole = Qt::UserRole + 1;
 constexpr double OverlayStep = 0.25; // Channels between the points of the fitted curve
@@ -123,8 +119,10 @@ QWidget *ToFCalibrationWindow::createSpectrumPanel() {
         });
         return action;
     };
-    addMode("Zoom Box", SpectrumPlotWidget::Mode::Zoom, ZoomHint)->setChecked(true);
-    addMode("Move", SpectrumPlotWidget::Mode::Move, MoveHint);
+    QAction *zoomMode = addMode("Zoom Box", SpectrumPlotWidget::Mode::Zoom, {});
+    zoomMode->setChecked(true);
+    zoomMode->setToolTip("Drag to zoom, double-click to show everything, drag the dashed lines to change the fit window");
+    addMode("Move", SpectrumPlotWidget::Mode::Move, {})->setToolTip("Drag to move the view");
     addMode("Set Edge", SpectrumPlotWidget::Mode::Pick, PickHint);
     toolBar->addSeparator();
     QAction *logScale = toolBar->addAction("Log Scale");
@@ -153,8 +151,8 @@ QWidget *ToFCalibrationWindow::createSpectrumPanel() {
     infoRow->addWidget(m_infoLabel, 1);
     infoRow->addLayout(buttons);
 
-    m_hint = ZoomHint;
-    m_statusLabel = new QLabel(m_hint);
+    m_statusLabel = new QLabel;
+    m_statusLabel->setMinimumHeight(m_statusLabel->fontMetrics().height()); // Cursor info, or the hint of the mode
     connect(m_plot, &SpectrumPlotWidget::cursorInfoChanged, this, [this](const QString &text) {
         m_statusLabel->setText(text.isEmpty() ? m_hint : text);
     });
