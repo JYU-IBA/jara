@@ -1096,7 +1096,9 @@ void DepthProfileView::exportProfile() {
         averages.append(text);
     }
     table.comments.append(QStringLiteral("Averages (at.%): ") + averages.join(QStringLiteral(", ")));
-    table.columns = QStringList{QStringLiteral("Depth (1e15 at/cm2)"), QStringLiteral("Depth (ug/cm2)"),
+    // Edges and centres of the bins in 1e15 at/cm2, centres in the other units
+    table.columns = QStringList{QStringLiteral("Depth min (1e15 at/cm2)"), QStringLiteral("Depth (1e15 at/cm2)"),
+                                QStringLiteral("Depth max (1e15 at/cm2)"), QStringLiteral("Depth (ug/cm2)"),
                                 QStringLiteral("Depth (nm)")};
     for(const DepthProfileCurve &curve : m_result.curves) {
         const QString label = curve.label(false);
@@ -1107,7 +1109,8 @@ void DepthProfileView::exportProfile() {
     for(size_t i = 0; i < m_result.bins(); i++) {
         const double depth = m_result.binStart(i) + m_result.binWidth / 2;
         const double mass = m_calculation->massDepth(depth);
-        QStringList row{number(depth / thinFilm, 8), number(mass / Units::MicrogramPerSquareCentimetre),
+        QStringList row{number(m_result.binStart(i) / thinFilm, 8), number(depth / thinFilm, 8),
+                        number(m_result.binStart(i + 1) / thinFilm, 8), number(mass / Units::MicrogramPerSquareCentimetre),
                         number(mass / m_profile->density / Nanometre)};
         for(const DepthProfileCurve &curve : m_result.curves) {
             row.append({value(curve.concentrations[i]), value(curve.uncertainties[i]), QString::number(curve.counts[i])});

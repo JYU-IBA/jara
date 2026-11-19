@@ -298,13 +298,16 @@ void EnergySpectrumView::exportSpectrum() {
     if(m_stale) {
         table.comments.append(QStringLiteral("Out of date"));
     }
-    table.columns.append(QStringLiteral("E (MeV)"));
+    // Edges and centres of the bins
+    table.columns = QStringList{QStringLiteral("E min (MeV)"), QStringLiteral("E (MeV)"), QStringLiteral("E max (MeV)")};
     for(const EnergyHistogram &histogram : m_result.histograms) {
         table.columns.append(cutLabel(histogram.z, histogram.a, histogram.type, false));
     }
     const size_t bins = m_result.histograms.front().counts.size();
     for(size_t i = 0; i < bins; i++) {
-        QStringList row{number((static_cast<double>(i) + 0.5) * m_result.binWidth / Units::Megaelectronvolt)};
+        const double width = m_result.binWidth / Units::Megaelectronvolt;
+        const auto bin = static_cast<double>(i);
+        QStringList row{number(bin * width), number((bin + 0.5) * width), number((bin + 1) * width)};
         for(const EnergyHistogram &histogram : m_result.histograms) {
             row.append(QString::number(histogram.counts[i]));
         }
