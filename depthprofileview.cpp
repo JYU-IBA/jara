@@ -18,6 +18,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSaveFile>
@@ -72,6 +73,22 @@ QString percent(double fraction) {
     return std::isnan(fraction) ? QStringLiteral("—") : QString::number(fraction * 100, 'f', ConcentrationDecimals);
 }
 
+// In at.%, the uncertainty rounded to one significant digit, or two when they are 15 or less, and the value to the same
+// precision
+QString percentWithUncertainty(double fraction, double uncertainty) {
+    const double value = fraction * 100;
+    const double deviation = uncertainty * 100;
+    if(!std::isfinite(deviation) || deviation <= 0) {
+        return QString("%1 at.%").arg(percent(fraction));
+    }
+    const int exponent = static_cast<int>(std::floor(std::log10(deviation)));
+    const bool twoDigits = std::round(deviation / std::pow(10.0, exponent - 1)) <= 15;
+    const int decimals = (twoDigits ? 1 : 0) - exponent;
+    const double step = std::pow(10.0, -decimals);
+    const auto rounded = [&](double x) { return QString::number(std::round(x / step) * step, 'f', std::max(decimals, 0)); };
+    return QString("%1 ± %2 at.%").arg(rounded(value), rounded(deviation));
+}
+
 // Largest change of the latest iteration in at.%
 QString changeText(double change) {
     if(std::isnan(change)) {
@@ -116,6 +133,32 @@ DepthProfileView::DepthProfileView(Measurement *measurement, DepthProfile *profi
     m_iterationTimer->setSingleShot(true);
     connect(m_iterationTimer, &QTimer::timeout, this, &DepthProfileView::iterationStep);
     connect(m_plot, &SpectrumPlotWidget::markerMoved, this, &DepthProfileView::markerMoved);
+    // The default position is set in the preferences
+    auto *legendMenu = new QMenu("Legend", this);
+    m_legendGroup = new QActionGroup(this);
+    for(const LegendPosition position : {LegendPosition::Default, LegendPosition::TopRight, LegendPosition::TopLeft}) {
+        QAction *action = legendMenu->addAction(legendPositionName(position));
+        action->setCheckable(true);
+        action->setData(static_cast<int>(position));
+        m_legendGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [this, position]() {
+            m_profile->legendPosition = position;
+            emit modified();
+            updateLegendPosition();
+        });
+    }
+    legendMenu->addSeparator();
+    QAction *concentrations = legendMenu->addAction("Show Concentrations");
+    concentrations->setCheckable(true);
+    concentrations->setChecked(m_profile->showLegendConcentrations);
+    concentrations->setToolTip("The renormalized average concentrations after the names");
+    connect(concentrations, &QAction::toggled, this, [this](bool checked) {
+        m_profile->showLegendConcentrations = checked;
+        emit modified();
+        updateProfile(SpectrumPlotWidget::ViewChange::Keep);
+    });
+    m_plot->setContextActions({legendMenu->menuAction()});
+    updateLegendPosition();
     m_hint = ZoomHint;
     m_statusLabel = new QLabel(m_hint);
     m_statusLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred); // Long texts do not move anything
@@ -673,7 +716,8 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
     }
     QList<SpectrumPlotWidget::Curve> curves;
     size_t events = 0;
-    for(const DepthProfileCurve &curve : m_result.curves) {
+    for(size_t c = 0; c < m_result.curves.size(); c++) {
+        const DepthProfileCurve &curve = m_result.curves[c];
         events += curve.events;
         if(m_profile->cutIdsHiddenFromPlot.contains(curve.cutId)) {
             continue;
@@ -681,6 +725,12 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
         const Cut *cut = m_measurement->cut(curve.cutId);
         SpectrumPlotWidget::Curve plotCurve{curve.label(), cut ? cut->color : QColor(Qt::gray),
                                             curve.events, {}};
+        const DepthProfileResult::Average &average = m_result.averages[c];
+        // Left out selections have no renormalized average
+        if(m_profile->showLegendConcentrations && !std::isnan(average.renormalized)) {
+            plotCurve.legendSuffix = QString(": %1").arg(percentWithUncertainty(average.renormalized,
+                                                                                average.renormalizedUncertainty));
+        }
         for(const double concentration : curve.concentrations) {
             plotCurve.values.push_back(concentration * 100);
         }
@@ -721,6 +771,26 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
                                 .arg(m_profile->binWidth / Units::ThinFilmUnit, 0, 'g', 6).arg(ThinFilmText)
                                 .arg(m_profile->showNormalization ? QStringLiteral(", total 100 % over the blue one") : QString()));
     updateAverages();
+}
+
+void DepthProfileView::applyPreferences() {
+    if(m_plot) {
+        updateLegendPosition();
+    }
+}
+
+void DepthProfileView::updateLegendPosition() {
+    const LegendPosition preferred = Defaults::depthProfilePreferences().legendPosition;
+    for(QAction *action : m_legendGroup->actions()) {
+        const auto position = static_cast<LegendPosition>(action->data().toInt());
+        action->setChecked(position == m_profile->legendPosition);
+        if(position == LegendPosition::Default) {
+            action->setText(QString("Default (%1)").arg(legendPositionName(preferred)));
+        }
+    }
+    const LegendPosition position =
+            m_profile->legendPosition == LegendPosition::Default ? preferred : m_profile->legendPosition;
+    m_plot->setLegendCorner(position == LegendPosition::TopLeft ? Qt::TopLeftCorner : Qt::TopRightCorner);
 }
 
 void DepthProfileView::updateAverages() {

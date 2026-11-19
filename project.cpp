@@ -88,7 +88,9 @@ QJsonObject depthProfileToJson(const DepthProfile &profile) {
             {"autoMaxDepth", profile.autoMaxDepth},
             {"plot", QJsonObject{{"hiddenCuts", idsToJson(profile.cutIdsHiddenFromPlot)},
                                  {"total", profile.showTotal},
-                                 {"normalization", profile.showNormalization}}}};
+                                 {"normalization", profile.showNormalization},
+                                 {"legend", legendPositionId(profile.legendPosition)},
+                                 {"legendConcentrations", profile.showLegendConcentrations}}}};
 }
 
 // Missing or invalid values are left at their defaults
@@ -119,6 +121,8 @@ std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
     profile->cutIdsHiddenFromPlot = idsFromJson(plot["hiddenCuts"]);
     profile->showTotal = plot["total"].toBool(profile->showTotal);
     profile->showNormalization = plot["normalization"].toBool(profile->showNormalization);
+    profile->legendPosition = legendPositionFromId(plot["legend"].toString(), profile->legendPosition);
+    profile->showLegendConcentrations = plot["legendConcentrations"].toBool(profile->showLegendConcentrations);
     return profile;
 }
 
@@ -494,6 +498,39 @@ DetectorSettings detectorFromJson(const QJsonObject &json) {
         }
     }
     return detector;
+}
+
+QString legendPositionName(LegendPosition position) {
+    switch(position) {
+        case LegendPosition::Default:
+            return QStringLiteral("Default");
+        case LegendPosition::TopRight:
+            return QStringLiteral("Top Right");
+        case LegendPosition::TopLeft:
+            return QStringLiteral("Top Left");
+    }
+    return {};
+}
+
+QString legendPositionId(LegendPosition position) {
+    switch(position) {
+        case LegendPosition::Default:
+            return QStringLiteral("default");
+        case LegendPosition::TopRight:
+            return QStringLiteral("topRight");
+        case LegendPosition::TopLeft:
+            return QStringLiteral("topLeft");
+    }
+    return {};
+}
+
+LegendPosition legendPositionFromId(const QString &id, LegendPosition fallback) {
+    for(const LegendPosition position : {LegendPosition::Default, LegendPosition::TopRight, LegendPosition::TopLeft}) {
+        if(id == legendPositionId(position)) {
+            return position;
+        }
+    }
+    return fallback;
 }
 
 QString screeningModelName(ScreeningModel model) {

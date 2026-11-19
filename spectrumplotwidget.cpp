@@ -64,6 +64,15 @@ void SpectrumPlotWidget::setInfoText(const QString &text) {
     update();
 }
 
+void SpectrumPlotWidget::setLegendCorner(Qt::Corner corner) {
+    m_legendCorner = corner;
+    update();
+}
+
+void SpectrumPlotWidget::setContextActions(const QList<QAction *> &actions) {
+    m_contextActions = actions;
+}
+
 double SpectrumPlotWidget::binStart(size_t bin) const {
     if(!m_edges.empty()) {
         return m_edges[std::min(bin, m_edges.size() - 1)];
@@ -451,12 +460,14 @@ void SpectrumPlotWidget::drawLegend(QPainter &painter, const QRect &plot) const 
     QStringList labels;
     int textWidth = 0;
     for(const Curve &curve : m_curves) {
-        labels.append(m_yAxis.legendEvents ? QString("%1 — %2 events").arg(curve.name).arg(curve.events) : curve.name);
+        labels.append((m_yAxis.legendEvents ? QString("%1 — %2 events").arg(curve.name).arg(curve.events) : curve.name)
+                      + curve.legendSuffix);
         textWidth = std::max(textWidth, metrics.horizontalAdvance(labels.last()));
     }
     const int lineHeight = metrics.height();
-    const QRect box(plot.right() - Padding * 3 - LineLength - textWidth - 10, plot.top() + 10,
-                    Padding * 3 + LineLength + textWidth, Padding * 2 + lineHeight * static_cast<int>(m_curves.size()));
+    const int width = Padding * 3 + LineLength + textWidth;
+    const QRect box(m_legendCorner == Qt::TopLeftCorner ? plot.left() + 10 : plot.right() - width - 10, plot.top() + 10,
+                    width, Padding * 2 + lineHeight * static_cast<int>(m_curves.size()));
     painter.save();
     painter.setPen(palette().color(QPalette::Mid));
     painter.setBrush(QColor(255, 255, 255, 220));
@@ -481,6 +492,10 @@ void SpectrumPlotWidget::contextMenuEvent(QContextMenuEvent *event) {
     linear->setChecked(!m_logScale);
     menu.addSeparator();
     menu.addAction("Show All", this, &SpectrumPlotWidget::resetZoom);
+    if(!m_contextActions.isEmpty()) {
+        menu.addSeparator();
+        menu.addActions(m_contextActions);
+    }
     menu.exec(event->globalPos());
 }
 

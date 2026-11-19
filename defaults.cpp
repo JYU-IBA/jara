@@ -199,6 +199,11 @@ DepthProfilePreferences Defaults::depthProfilePreferences() {
     positive("maxDepth", preferences.maxDepth);
     preferences.smoothingEvents = std::max(1, json["smoothingEvents"].toInt(preferences.smoothingEvents));
     preferences.autoMaxDepth = json["autoMaxDepth"].toBool(preferences.autoMaxDepth);
+    preferences.legendPosition = legendPositionFromId(json["legendPosition"].toString(), preferences.legendPosition);
+    preferences.showLegendConcentrations = json["legendConcentrations"].toBool(preferences.showLegendConcentrations);
+    if(preferences.legendPosition == LegendPosition::Default) {
+        preferences.legendPosition = LegendPosition::TopRight;
+    }
     return preferences;
 }
 
@@ -209,7 +214,9 @@ void Defaults::setDepthProfilePreferences(const DepthProfilePreferences &prefere
                                        {"stoppingBinWidth", preferences.stoppingBinWidth},
                                        {"smoothingEvents", preferences.smoothingEvents},
                                        {"maxDepth", preferences.maxDepth},
-                                       {"autoMaxDepth", preferences.autoMaxDepth}});
+                                       {"autoMaxDepth", preferences.autoMaxDepth},
+                                       {"legendPosition", legendPositionId(preferences.legendPosition)},
+                                       {"legendConcentrations", preferences.showLegendConcentrations}});
 }
 
 DepthProfile Defaults::depthProfile() {
@@ -220,5 +227,6 @@ DepthProfile Defaults::depthProfile() {
     profile.minStoppingBinEvents = preferences.smoothingEvents;
     profile.maxDepth = preferences.maxDepth;
     profile.autoMaxDepth = preferences.autoMaxDepth;
+    profile.showLegendConcentrations = preferences.showLegendConcentrations;
     return profile;
 }

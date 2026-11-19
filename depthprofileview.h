@@ -11,6 +11,7 @@
 #include "tofedata.h"
 
 class QCheckBox;
+class QActionGroup;
 class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
@@ -38,6 +39,7 @@ public:
 public slots:
     void recalculate(); // Iterates from the beginning
     void checkStale(); // Call after the project has changed, also updates the selections shown
+    void applyPreferences(); // Call after the preferences have changed
 
 signals:
     void modified();
@@ -65,6 +67,7 @@ private:
     void updateProfile(SpectrumPlotWidget::ViewChange viewChange);
     void updateAverages();
     void updateIterationStatus();
+    void updateLegendPosition(); // From the profile or the preferences
     void setStale(bool stale);
     void setInterval(Interval interval, double min, double max); // Stored in the profile, depths in atoms/m²
     void setAutoNormalization(bool automatic); // A manual interval starts from the automatic one
@@ -100,6 +103,7 @@ private:
     QDoubleSpinBox *m_averageMaxSpin = nullptr;
     QTreeWidget *m_averageTable = nullptr;
     QPushButton *m_iterateButton = nullptr;
+    QActionGroup *m_legendGroup = nullptr; // Of the legend positions in the context menu of the plot
     QWidget *m_staleBar = nullptr;
     QLabel *m_errorLabel = nullptr;
     QLabel *m_statusLabel = nullptr;

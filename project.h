@@ -181,6 +181,12 @@ constexpr double DefaultAverageMin = 0;
 constexpr double DefaultAverageMax = 500 * Units::ThinFilmUnit;
 constexpr double DefaultDensity = 2000; // kg/m³, converts depths to nm
 
+// Corner of the plot with the legend of a depth profile. Default follows the preferences.
+enum class LegendPosition { Default, TopRight, TopLeft };
+QString legendPositionName(LegendPosition position); // As shown to the user
+QString legendPositionId(LegendPosition position); // In files and the preferences
+LegendPosition legendPositionFromId(const QString &id, LegendPosition fallback);
+
 // Depth profile of some of a measurement's selections from single scattering (slab analysis), see depthprofile.h
 struct DepthProfile {
     QString name;
@@ -201,6 +207,8 @@ struct DepthProfile {
     QList<int> cutIdsHiddenFromPlot;
     bool showTotal = false;
     bool showNormalization = false; // The interval where the total is 100 %
+    LegendPosition legendPosition = LegendPosition::Default;
+    bool showLegendConcentrations = true; // The renormalized averages in the legend
 };
 
 struct Measurement {

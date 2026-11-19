@@ -193,10 +193,24 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
     newForm->addRow("Smoothing events:", smoothing);
     newForm->addRow("Maximum depth:", maxDepthRow);
 
+    auto *legend = new QComboBox;
+    for(const LegendPosition position : {LegendPosition::TopRight, LegendPosition::TopLeft}) {
+        legend->addItem(legendPositionName(position), static_cast<int>(position));
+    }
+    legend->setCurrentIndex(legend->findData(static_cast<int>(m_depthProfile.legendPosition)));
+    auto *plotGroup = new QGroupBox("Plot");
+    auto *plotForm = new QFormLayout(plotGroup);
+    legend->setToolTip("Each depth profile can also have its own position");
+    plotForm->addRow("Legend:", legend);
+    auto *legendConcentrations = new QCheckBox("Renormalized concentrations in the legend of new depth profiles");
+    legendConcentrations->setChecked(m_depthProfile.showLegendConcentrations);
+    plotForm->addRow(legendConcentrations);
+
     auto *page = new QWidget;
     auto *layout = new QVBoxLayout(page);
     layout->addWidget(iterationGroup);
     layout->addWidget(newGroup);
+    layout->addWidget(plotGroup);
     layout->addStretch();
     connect(iterations, &QSpinBox::valueChanged, this, [this](int value) { m_depthProfile.maxIterations = value; });
     connect(tolerance, &QDoubleSpinBox::valueChanged, this, [this](double value) { m_depthProfile.tolerance = value / 100; });
@@ -210,6 +224,12 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
     connectDepth(maxDepth, &DepthProfilePreferences::maxDepth);
     connect(smoothing, &QSpinBox::valueChanged, this, [this](int value) { m_depthProfile.smoothingEvents = value; });
     connect(autoMaxDepth, &QCheckBox::toggled, this, [this](bool checked) { m_depthProfile.autoMaxDepth = checked; });
+    connect(legend, &QComboBox::currentIndexChanged, this, [this, legend]() {
+        m_depthProfile.legendPosition = static_cast<LegendPosition>(legend->currentData().toInt());
+    });
+    connect(legendConcentrations, &QCheckBox::toggled, this, [this](bool checked) {
+        m_depthProfile.showLegendConcentrations = checked;
+    });
     return page;
 }
 

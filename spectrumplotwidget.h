@@ -3,6 +3,7 @@
 
 #include <vector>
 
+#include <QAction>
 #include <QColor>
 #include <QList>
 #include <QPointF>
@@ -66,6 +67,7 @@ public:
         size_t events; // Shown in the legend
         std::vector<double> values; // Of the bins
         Qt::PenStyle style = Qt::SolidLine;
+        QString legendSuffix; // After the name in the legend only
     };
 
     // What happens to the view when the curves are replaced
@@ -84,6 +86,8 @@ public:
     void setCurves(double binWidth, const QList<Curve> &curves, ViewChange viewChange); // Bin width in x axis units
     void setRegions(const QList<Region> &regions);
     void setInfoText(const QString &text); // Above the plot instead of the bin width and the highest value
+    void setLegendCorner(Qt::Corner corner); // Top left or top right
+    void setContextActions(const QList<QAction *> &actions); // Added to the end of the context menu, not owned
     void setOverlay(const QList<QPointF> &points, const QColor &color); // Line through the points, x and counts
     void setMarkers(const QList<Marker> &markers);
     void setXView(double min, double max); // The counts axis is kept
@@ -145,6 +149,8 @@ private:
     std::vector<double> m_edges;
     QList<Region> m_regions;
     QString m_infoText;
+    Qt::Corner m_legendCorner = Qt::TopRightCorner;
+    QList<QAction *> m_contextActions;
     QList<Curve> m_curves;
     QList<QPointF> m_overlay;
     QColor m_overlayColor;

@@ -28,6 +28,8 @@ struct DepthProfilePreferences {
     int smoothingEvents = DefaultMinStoppingBinEvents;
     double maxDepth = DefaultMaxDepth;
     bool autoMaxDepth = true;
+    LegendPosition legendPosition = LegendPosition::TopRight; // Of depth profiles that use the default, never Default
+    bool showLegendConcentrations = true; // Of new depth profiles
 };
 
 // Program-wide default settings, used for new projects and new settings sets. Stored with QSettings.

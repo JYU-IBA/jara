@@ -173,6 +173,9 @@ void MainWindow::createActions() {
             for(HistogramWidget *histogram : findChildren<HistogramWidget *>()) { // Also in the tab windows
                 histogram->applyPreferences(preferences);
             }
+            for(DepthProfileView *view : findChildren<DepthProfileView *>()) {
+                view->applyPreferences();
+            }
         }
     });
 
