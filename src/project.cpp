@@ -276,6 +276,14 @@ bool canRepresentElement(int z, int a) {
     return a > 0 && Elements::abundance(z, a) > 0;
 }
 
+double cutAbundance(const Cut &cut) {
+    return cut.abundance.value_or(Elements::abundance(cut.z, cut.a));
+}
+
+double abundanceCorrection(const Cut &cut) {
+    return cut.representsElement ? 1 / cutAbundance(cut) : 1;
+}
+
 QString cutLabel(int z, int a, CutType type, bool superscript) {
     const QString label = superscript ? Elements::displayLabel(z, a) : Elements::label(z, a);
     return type == CutType::Scattered ? label + QStringLiteral("*") : label;
@@ -364,6 +372,12 @@ QJsonArray cutsToJson(const QList<Cut> &cuts) {
         if(cut.representsElement) {
             object["representsElement"] = true;
         }
+        if(cut.abundance) {
+            object["abundance"] = *cut.abundance;
+        }
+        if(cut.weight != 1) {
+            object["weight"] = cut.weight;
+        }
         if(cut.tofEdge) {
             object["tofEdge"] = QJsonObject{{"channel", cut.tofEdge->channel}, {"sigma", cut.tofEdge->sigma},
                                             {"manual", cut.tofEdge->manual}};
@@ -387,6 +401,11 @@ QList<Cut> cutsFromJson(const QJsonArray &json) {
             cut.polygon.append({coordinates.at(0).toDouble(), coordinates.at(1).toDouble()});
         }
         cut.representsElement = object["representsElement"].toBool() && canRepresentElement(cut.z, cut.a);
+        const double abundance = object["abundance"].toDouble();
+        if(abundance > 0 && abundance <= 1 && canRepresentElement(cut.z, cut.a)) {
+            cut.abundance = abundance;
+        }
+        cut.weight = std::clamp(object["weight"].toDouble(1), MinCutWeight, MaxCutWeight);
         if(object.contains("tofEdge")) {
             const QJsonObject edge = object["tofEdge"].toObject();
             cut.tofEdge = ToFEdge{edge["channel"].toDouble(), edge["sigma"].toDouble(), edge["manual"].toBool()};

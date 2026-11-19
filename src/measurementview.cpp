@@ -165,7 +165,7 @@ QWidget *MeasurementView::createCutPanel() {
     connect(m_cutList, &QListWidget::itemSelectionChanged, this, [this]() {
         m_histogram->setSelectedCuts(selectedCutRows());
     });
-    connect(m_cutList, &QListWidget::itemDoubleClicked, this, &MeasurementView::changeCutElement);
+    connect(m_cutList, &QListWidget::itemDoubleClicked, this, &MeasurementView::editCut);
     connect(m_cutList, &QListWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
         // Right-clicking an unselected selection selects only it
         QListWidgetItem *item = m_cutList->itemAt(pos);
@@ -177,7 +177,7 @@ QWidget *MeasurementView::createCutPanel() {
         m_pasteAction->setEnabled(!cutsFromClipboard().isEmpty());
         QMenu menu;
         menu.setToolTipsVisible(true);
-        menu.addAction("Change Element...", this, &MeasurementView::changeCutElement)->setEnabled(count == 1);
+        menu.addAction("Properties...", this, &MeasurementView::editCut)->setEnabled(count == 1);
         menu.addAction("Change Color...", this, &MeasurementView::changeCutColor)->setEnabled(count > 0);
         const auto &cuts = m_measurement->cuts;
         const bool custom = std::any_of(cuts.begin(), cuts.end(), [](const Cut &cut) {
@@ -241,11 +241,17 @@ void MeasurementView::updateCutList() {
         auto *item = new QListWidgetItem(colorSwatch(cut.color), QString("%1 — %2 events")
                                                                       .arg(cutLabel(cut))
                                                                       .arg(countEventsIn(m_events, cut.polygon)));
+        QStringList toolTip;
         if(cut.representsElement) {
-            item->setToolTip(QString("Represents natural %1 in depth profiles, events weighted by 1 / %2")
-                                     .arg(Elements::symbol(cut.z))
-                                     .arg(Elements::abundance(cut.z, cut.a), 0, 'g', 4));
+            toolTip.append(QString("Represents natural %1 in depth profiles, events weighted by 1 / %2%3")
+                                   .arg(Elements::symbol(cut.z))
+                                   .arg(cutAbundance(cut), 0, 'g', 4)
+                                   .arg(cut.abundance ? QString(" (set by the user)") : QString()));
         }
+        if(cut.weight != 1) {
+            toolTip.append(QString("Additional weight %1 in depth profiles").arg(cut.weight));
+        }
+        item->setToolTip(toolTip.join(QLatin1Char('\n')));
         m_cutList->addItem(item);
     }
     m_cutList->setCurrentRow(std::min(row, static_cast<int>(m_cutList->count()) - 1));
@@ -254,27 +260,35 @@ void MeasurementView::updateCutList() {
 
 void MeasurementView::polygonCompleted(const QList<QPointF> &polygon) {
     ElementDialog dialog(0, 0, this);
+    dialog.setWindowTitle("New Selection");
     dialog.setColorSelectable(QColor(), true);
     dialog.setTypeSelectable(CutType::Recoil);
+    dialog.setCutPropertiesSelectable(false, std::nullopt, 1);
     if(dialog.exec() != QDialog::Accepted) {
         return; // The selection is discarded
     }
-    m_measurement->cuts.append(Cut{m_measurement->newCutId(), dialog.z(), dialog.a(), polygon, dialog.color(), dialog.type()});
+    Cut cut{m_measurement->newCutId(), dialog.z(), dialog.a(), polygon, dialog.color(), dialog.type()};
+    cut.representsElement = dialog.representsElement();
+    cut.abundance = dialog.abundance();
+    cut.weight = dialog.weight();
+    m_measurement->cuts.append(cut);
     updateCutList();
     m_cutList->setCurrentRow(static_cast<int>(m_measurement->cuts.size()) - 1);
     emit modified();
 }
 
-void MeasurementView::changeCutElement() {
+void MeasurementView::editCut() {
     const int row = m_cutList->currentRow();
     if(row < 0) {
         return;
     }
     Cut &cut = m_measurement->cuts[row];
     ElementDialog dialog(cut.z, cut.a, this);
+    dialog.setWindowTitle(QString("%1 Selection").arg(cutLabel(cut)));
     // A selection with the default color of its element gets the default color of the new element
     dialog.setColorSelectable(cut.color, cut.color == Defaults::elementColor(cut.z));
     dialog.setTypeSelectable(cut.type);
+    dialog.setCutPropertiesSelectable(cut.representsElement, cut.abundance, cut.weight);
     if(dialog.exec() != QDialog::Accepted) {
         return;
     }
@@ -282,7 +296,9 @@ void MeasurementView::changeCutElement() {
     cut.a = dialog.a();
     cut.color = dialog.color();
     cut.type = dialog.type();
-    cut.representsElement = cut.representsElement && canRepresentElement(cut.z, cut.a);
+    cut.representsElement = dialog.representsElement();
+    cut.abundance = dialog.abundance();
+    cut.weight = dialog.weight();
     updateCutList();
     emit modified();
 }

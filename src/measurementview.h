@@ -28,7 +28,7 @@ signals:
 
 private slots:
     void polygonCompleted(const QList<QPointF> &polygon);
-    void changeCutElement();
+    void editCut(); // All properties of the current selection
     void changeCutColor();
     void resetCutColors(); // All selections get the colors of their elements from the preferences
     void setCutType(CutType type); // Of the selected cuts

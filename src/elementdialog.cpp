@@ -5,11 +5,16 @@
 
 #include <QAbstractButton>
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGridLayout>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QLineEdit>
+#include <QSignalBlocker>
 #include <QPushButton>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -46,6 +51,34 @@ ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
     m_typeCombo->addItem("Scattered (RBS)", static_cast<int>(CutType::Scattered));
     m_typeCombo->setToolTip("Scattered ions are labeled with the target atom and an asterisk, their energy is calculated "
                             "with the mass of the incident ion.");
+    m_representsCheck = new QCheckBox("Represents the natural element");
+    m_representsCheck->setToolTip("In depth profiles, the events of the isotope are weighted by 1 / its natural "
+                                  "abundance and the profile is labeled with the element. Only for isotopes that occur "
+                                  "naturally.");
+    m_abundanceSpin = new QDoubleSpinBox;
+    m_abundanceSpin->setDecimals(6);
+    m_abundanceSpin->setRange(1e-6, 100);
+    m_abundanceSpin->setSuffix(" %");
+    m_abundanceSpin->setToolTip("Natural abundance of the isotope used for the abundance correction");
+    m_abundanceResetButton = new QToolButton;
+    m_abundanceResetButton->setText("Use JIBAL");
+    m_abundanceResetButton->setToolTip("Use the natural abundance from JIBAL");
+    m_abundanceRow = new QWidget;
+    auto *abundanceLayout = new QHBoxLayout(m_abundanceRow);
+    abundanceLayout->setContentsMargins(0, 0, 0, 0);
+    abundanceLayout->addWidget(m_abundanceSpin, 1);
+    abundanceLayout->addWidget(m_abundanceResetButton);
+    m_jibalAbundanceLabel = new QLabel;
+    m_correctionLabel = new QLabel;
+    m_correctionLabel->setToolTip("Weight of the events for the isotope standing for its element: 1 / natural abundance "
+                                  "when the isotope represents its element, otherwise 1");
+    m_weightSpin = new QDoubleSpinBox;
+    m_weightSpin->setDecimals(3);
+    m_weightSpin->setRange(MinCutWeight, MaxCutWeight);
+    m_weightSpin->setSingleStep(0.1);
+    m_weightSpin->setValue(1);
+    m_weightSpin->setToolTip("The events of the selection are weighted by this in depth profiles, on top of the other "
+                             "weights");
     m_form = new QFormLayout;
     m_form->addRow("Element:", m_edit);
     m_form->addRow("Isotope:", m_isotopeCombo);
@@ -53,6 +86,15 @@ ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
     m_form->setRowVisible(m_colorButton, false);
     m_form->addRow("Type:", m_typeCombo);
     m_form->setRowVisible(m_typeCombo, false);
+    m_form->addRow(QString(), m_representsCheck);
+    m_form->addRow("Natural abundance:", m_abundanceRow);
+    m_form->addRow("JIBAL abundance:", m_jibalAbundanceLabel);
+    m_form->addRow("Abundance correction:", m_correctionLabel);
+    m_form->addRow("Additional weight:", m_weightSpin);
+    m_cutPropertyRows = {m_representsCheck, m_abundanceRow, m_jibalAbundanceLabel, m_correctionLabel, m_weightSpin};
+    for(QWidget *widget : m_cutPropertyRows) {
+        m_form->setRowVisible(widget, false);
+    }
 
     m_buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 
@@ -65,6 +107,17 @@ ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
     connect(m_edit, &QLineEdit::textEdited, this, &ElementDialog::textEdited);
     connect(m_isotopeCombo, &QComboBox::activated, this, &ElementDialog::isotopeChanged);
     connect(m_colorButton, &ColorButton::colorPicked, this, [this]() { m_colorFollowsElement = false; });
+    connect(m_representsCheck, &QCheckBox::toggled, this, &ElementDialog::updateAbundance);
+    connect(m_abundanceSpin, &QDoubleSpinBox::valueChanged, this, [this]() {
+        m_abundanceEdited = true;
+        updateAbundance();
+    });
+    connect(m_abundanceResetButton, &QToolButton::clicked, this, [this]() {
+        const QSignalBlocker blocker(m_abundanceSpin);
+        m_abundanceSpin->setValue(Elements::abundance(m_z, this->a()) * 100);
+        m_abundanceEdited = false;
+        updateAbundance();
+    });
     connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
@@ -94,6 +147,51 @@ void ElementDialog::setTypeSelectable(CutType type) {
 
 CutType ElementDialog::type() const {
     return static_cast<CutType>(m_typeCombo->currentData().toInt());
+}
+
+void ElementDialog::setCutPropertiesSelectable(bool representsElement, std::optional<double> abundance, double weight) {
+    for(QWidget *widget : m_cutPropertyRows) {
+        m_form->setRowVisible(widget, true);
+    }
+    m_representsCheck->setChecked(representsElement && m_representsCheck->isEnabled());
+    if(abundance) {
+        const QSignalBlocker blocker(m_abundanceSpin);
+        m_abundanceSpin->setValue(*abundance * 100);
+        m_abundanceEdited = true;
+    }
+    m_weightSpin->setValue(weight);
+    updateAbundance();
+}
+
+bool ElementDialog::representsElement() const {
+    return m_representsCheck->isEnabled() && m_representsCheck->isChecked();
+}
+
+std::optional<double> ElementDialog::abundance() const {
+    if(!m_abundanceEdited || !canRepresentElement(m_z, a())) {
+        return std::nullopt;
+    }
+    return m_abundanceSpin->value() / 100;
+}
+
+double ElementDialog::weight() const {
+    return m_weightSpin->value();
+}
+
+void ElementDialog::updateAbundance() {
+    const bool represents = representsElement();
+    m_abundanceRow->setEnabled(represents);
+    m_abundanceResetButton->setEnabled(m_abundanceEdited);
+    const double jibalAbundance = Elements::abundance(m_z, a());
+    if(m_z <= 0 || a() == 0) {
+        m_jibalAbundanceLabel->setText("No isotope selected");
+    } else if(jibalAbundance <= 0) {
+        m_jibalAbundanceLabel->setText("Does not occur naturally");
+    } else {
+        m_jibalAbundanceLabel->setText(QString("%1 %").arg(jibalAbundance * 100, 0, 'g', 6));
+    }
+    const double correction = represents ? 100 / m_abundanceSpin->value() : 1;
+    m_correctionLabel->setText(QString::number(correction, 'g', 6));
 }
 
 void ElementDialog::setElement(int z, int a) {
@@ -134,6 +232,7 @@ void ElementDialog::setElement(int z, int a) {
         m_isotopeCombo->setCurrentIndex(std::max(0, m_isotopeCombo->findData(a)));
     }
     m_isotopeCombo->setEnabled(m_z > 0);
+    isotopeSelected();
     if(m_colorFollowsElement) {
         m_colorButton->setColor(m_z > 0 ? Defaults::elementColor(m_z) : QColor());
     }
@@ -156,4 +255,19 @@ void ElementDialog::textEdited(const QString &text) {
 
 void ElementDialog::isotopeChanged() {
     m_edit->setText(Elements::label(m_z, a()));
+    isotopeSelected();
+}
+
+void ElementDialog::isotopeSelected() {
+    m_representsCheck->setEnabled(canRepresentElement(m_z, a()));
+    if(!m_representsCheck->isEnabled()) {
+        m_representsCheck->setChecked(false);
+    }
+    // A natural abundance set by the user is for the isotope it was set for
+    {
+        const QSignalBlocker blocker(m_abundanceSpin);
+        m_abundanceSpin->setValue(Elements::abundance(m_z, a()) * 100);
+        m_abundanceEdited = false;
+    }
+    updateAbundance();
 }

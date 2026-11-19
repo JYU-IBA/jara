@@ -66,7 +66,8 @@ DepthProfileInputs depthProfileInputs(const Measurement &measurement, const Dept
     inputs.minStoppingBinEvents = profile.minStoppingBinEvents;
     for(const Cut &cut : measurement.cuts) {
         if(profile.cutIds.contains(cut.id)) {
-            inputs.cuts.append({cut.id, cut.z, cut.a, cut.type, cut.polygon, cut.representsElement});
+            inputs.cuts.append({cut.id, cut.z, cut.a, cut.type, cut.polygon, cut.representsElement,
+                                abundanceCorrection(cut), cut.weight});
         }
     }
     return inputs;
@@ -232,8 +233,7 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         selection.type = cut.type;
         selection.representsElement = cut.representsElement;
         // An isotope representing its element stands for all of its isotopes
-        const double abundance = cut.representsElement ? Elements::abundance(cut.z, cut.a) : 1;
-        if(abundance <= 0) {
+        if(!std::isfinite(cut.abundanceCorrection) || cut.abundanceCorrection <= 0) {
             m_errorMessage = QString("%1 does not occur naturally, it cannot represent the element.")
                                      .arg(Elements::label(cut.z, cut.a));
             return;
@@ -271,7 +271,7 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
                 continue;
             }
             selection.energies.push_back(energy);
-            selection.efficiencyWeights.push_back(1 / (eff * abundance));
+            selection.efficiencyWeights.push_back(cut.weight * cut.abundanceCorrection / eff);
         }
         selection.depths.assign(selection.energies.size(), 0);
         selection.weights.assign(selection.energies.size(), 0);

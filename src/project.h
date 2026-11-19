@@ -60,10 +60,22 @@ struct Cut {
     // The isotope stands for the natural element in depth profiles: its events are weighted by 1 / natural abundance
     // and the profile is labeled with the element. Only for isotopes that occur naturally.
     bool representsElement = false;
+    // Natural abundance of the isotope set by the user, used instead of the one from JIBAL when the isotope represents
+    // its element
+    std::optional<double> abundance;
+    double weight = 1; // Additional weight of the events in depth profiles, MinCutWeight...MaxCutWeight
 };
+
+constexpr double MinCutWeight = 0;
+constexpr double MaxCutWeight = 100;
 
 // The selection can represent its natural element, see Cut::representsElement
 bool canRepresentElement(int z, int a);
+// Natural abundance of the cut's isotope: the one set by the user, or the one from JIBAL
+double cutAbundance(const Cut &cut);
+// Weight of the cut's events for its isotope standing for the element: 1 / natural abundance when the isotope represents
+// its element, otherwise 1
+double abundanceCorrection(const Cut &cut);
 
 // The element or isotope, with an asterisk for scattered ions. With superscript, the mass number is in Unicode
 // superscript digits.

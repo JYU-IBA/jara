@@ -1,16 +1,22 @@
 #ifndef JARA_ELEMENTDIALOG_H
 #define JARA_ELEMENTDIALOG_H
 
+#include <optional>
+
 #include <QDialog>
+#include <QList>
 
 #include "project.h"
 
 class ColorButton;
 class QButtonGroup;
+class QCheckBox;
 class QColor;
 class QComboBox;
 class QDialogButtonBox;
+class QDoubleSpinBox;
 class QFormLayout;
+class QLabel;
 class QLineEdit;
 class QToolButton;
 
@@ -29,6 +35,12 @@ public:
     QColor color() const;
     void setTypeSelectable(CutType type); // Shows a row for choosing between recoils and scattered ions
     CutType type() const;
+    // Shows the rows of the rest of a selection's properties, see Cut: whether the isotope represents its natural
+    // element, its natural abundance and the additional weight of the events
+    void setCutPropertiesSelectable(bool representsElement, std::optional<double> abundance, double weight);
+    bool representsElement() const; // False when the isotope cannot represent its element
+    std::optional<double> abundance() const; // Set by the user, nullopt for the one from JIBAL
+    double weight() const;
 
 private slots:
     void elementClicked(int z);
@@ -37,14 +49,25 @@ private slots:
 
 private:
     void setElement(int z, int a);
+    void isotopeSelected(); // Resets the natural abundance to the one from JIBAL
+    void updateAbundance(); // Shows the abundance correction and enables the rows of representing the element
 
     int m_z = 0;
     bool m_requireIsotope;
     bool m_colorFollowsElement = false;
+    bool m_abundanceEdited = false; // The abundance was set by the user instead of taken from JIBAL
     QLineEdit *m_edit;
     QComboBox *m_isotopeCombo;
     ColorButton *m_colorButton;
     QComboBox *m_typeCombo;
+    QCheckBox *m_representsCheck;
+    QWidget *m_abundanceRow;
+    QDoubleSpinBox *m_abundanceSpin; // %
+    QToolButton *m_abundanceResetButton;
+    QLabel *m_jibalAbundanceLabel;
+    QLabel *m_correctionLabel;
+    QDoubleSpinBox *m_weightSpin;
+    QList<QWidget *> m_cutPropertyRows; // Shown by setCutPropertiesSelectable()
     QFormLayout *m_form;
     QDialogButtonBox *m_buttonBox;
     QButtonGroup *m_elementGroup;
