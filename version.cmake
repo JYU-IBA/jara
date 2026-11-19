@@ -1,6 +1,8 @@
-# Version information from git. Releases are tagged as vX.Y.Z, like in JaBS.
+# Version information from git. Releases are tagged as vX.Y.Z, like in JaBS. version.txt holds the same number for
+# builds without git (e.g. from a source archive), release_scripts/bump_version.sh keeps the two in sync.
 #
-# When included from CMakeLists.txt this sets JARA_VERSION_TAG to the numeric version of the latest release tag.
+# When included from CMakeLists.txt this sets JARA_VERSION_TAG to the numeric version of the latest release tag, or
+# to the version in version.txt when there is no tag.
 # When run as a script (cmake -P) it writes VERSION_OUTPUT from VERSION_INPUT with the state of the git repository,
 # which is done on every build so that the version and dirtiness of the working tree stay up to date.
 
@@ -23,12 +25,17 @@ function(jara_git OUTPUT)
 endfunction()
 
 if(NOT CMAKE_SCRIPT_MODE_FILE)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/version.txt")
+    file(READ "${CMAKE_CURRENT_LIST_DIR}/version.txt" version_file)
+    string(STRIP "${version_file}" version_file)
     jara_git(tag describe --tags --abbrev=0 --match "v[0-9]*")
     if(tag MATCHES "^v([0-9]+\\.[0-9]+\\.[0-9]+)$")
         set(JARA_VERSION_TAG "${CMAKE_MATCH_1}")
+        if(NOT JARA_VERSION_TAG STREQUAL version_file)
+            message(WARNING "Latest git tag ${tag} does not match version.txt (${version_file})")
+        endif()
     else()
-        set(JARA_VERSION_TAG "0.0.0")
-        message(WARNING "No version tag (vX.Y.Z) found in git, using version ${JARA_VERSION_TAG}")
+        set(JARA_VERSION_TAG "${version_file}")
     endif()
     message(STATUS "JaRA version is ${JARA_VERSION_TAG}")
     return()
