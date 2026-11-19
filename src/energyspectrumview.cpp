@@ -23,7 +23,7 @@
 namespace {
 const QString ZoomHint = QStringLiteral(
         "Drag to zoom, double-click to show everything. Scroll the mouse wheel or pinch to zoom, "
-        "scroll with two fingers to move.");
+        "scroll with two fingers to move. Drag the legend to another corner.");
 const QString MoveHint = QStringLiteral("Drag to move the view. Scroll the mouse wheel or pinch to zoom.");
 constexpr int CutIdRole = Qt::UserRole;
 }
@@ -50,6 +50,11 @@ EnergySpectrumView::EnergySpectrumView(Measurement *measurement, EnergySpectrum 
     }
 
     m_plot = new SpectrumPlotWidget;
+    m_plot->setLegendCorner(legendCorner(m_spectrum->legendPosition));
+    connect(m_plot, &SpectrumPlotWidget::legendCornerChanged, this, [this](Qt::Corner corner) {
+        m_spectrum->legendPosition = legendPosition(corner);
+        emit modified();
+    });
     m_hint = ZoomHint;
     m_statusLabel = new QLabel(m_hint);
     m_errorLabel = new QLabel;

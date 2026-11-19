@@ -155,6 +155,16 @@ struct DetectorSettings {
     const EfficiencyCurve *efficiency(int z, int a) const { return findEfficiency(efficiencies, z, a); }
 };
 
+// Corner of the plot with the legend. Default follows the preferences of depth profiles.
+enum class LegendPosition { Default, TopRight, TopLeft, BottomRight, BottomLeft };
+constexpr LegendPosition LegendCorners[] = {LegendPosition::TopRight, LegendPosition::TopLeft, LegendPosition::BottomRight,
+                                            LegendPosition::BottomLeft}; // All but Default
+QString legendPositionName(LegendPosition position); // As shown to the user
+QString legendPositionId(LegendPosition position); // In files and the preferences
+LegendPosition legendPositionFromId(const QString &id, LegendPosition fallback);
+Qt::Corner legendCorner(LegendPosition position); // Default is the top right corner
+LegendPosition legendPosition(Qt::Corner corner);
+
 // Default bin width of new energy spectra
 constexpr double DefaultSpectrumBinWidth = 10 * Units::Kiloelectronvolt; // J
 
@@ -166,6 +176,7 @@ struct EnergySpectrum {
     // Part of the measurement used, as fractions of the counts of the measurement's reference, see split.h
     double rangeMin = 0;
     double rangeMax = 1;
+    LegendPosition legendPosition = LegendPosition::TopRight; // Corner of the plot, dragged there
 };
 
 // Counts of selections in consecutive parts of a measurement with equal counts of the measurement's reference, to
@@ -178,6 +189,7 @@ struct SplitAnalysis {
     int parts = DefaultSplitParts;
     QList<int> cutIds; // Shown selections, references included
     bool relative = false; // Counts shown relative to the mean of each selection
+    LegendPosition legendPosition = LegendPosition::TopRight; // Corner of the plot, dragged there
 };
 
 // Screening of the Rutherford cross sections of depth profiles
@@ -222,14 +234,6 @@ constexpr int DefaultMinStoppingBinEvents = 10;
 constexpr double DefaultAverageMin = 0;
 constexpr double DefaultAverageMax = 500 * Units::ThinFilmUnit;
 constexpr double DefaultDensity = 2000; // kg/m³, converts depths to nm
-
-// Corner of the plot with the legend of a depth profile. Default follows the preferences.
-enum class LegendPosition { Default, TopRight, TopLeft, BottomRight, BottomLeft };
-constexpr LegendPosition LegendCorners[] = {LegendPosition::TopRight, LegendPosition::TopLeft, LegendPosition::BottomRight,
-                                            LegendPosition::BottomLeft}; // All but Default
-QString legendPositionName(LegendPosition position); // As shown to the user
-QString legendPositionId(LegendPosition position); // In files and the preferences
-LegendPosition legendPositionFromId(const QString &id, LegendPosition fallback);
 
 // Depth profile of some of a measurement's selections from single scattering (slab analysis), see depthprofile.h
 struct DepthProfile {

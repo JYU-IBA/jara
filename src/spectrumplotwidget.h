@@ -104,8 +104,6 @@ public:
     void setRegions(const QList<Region> &regions);
     void setInfoText(const QString &text); // Above the plot instead of the bin width and the highest value
     void setLegendCorner(Qt::Corner corner);
-    // The legend can be dragged to another corner, which emits legendCornerChanged()
-    void setLegendDraggable(bool draggable);
     void setContextActions(const QList<QAction *> &actions); // Added to the end of the context menu, not owned
     void setOverlay(const QList<QPointF> &points, const QColor &color); // Line through the points, x and counts
     void setMarkers(const QList<Marker> &markers);
@@ -126,7 +124,7 @@ signals:
     void logScaleChanged(bool logScale);
     void picked(double x);
     void markerMoved(int index, double x);
-    void legendCornerChanged(Qt::Corner corner);
+    void legendCornerChanged(Qt::Corner corner); // The legend was dragged there
     void labelMoved(int index, QPointF position); // Of its centre, x in axis units and y as the values of the curves
 
 protected:
@@ -177,7 +175,6 @@ private:
     QList<Region> m_regions;
     QString m_infoText;
     Qt::Corner m_legendCorner = Qt::TopRightCorner;
-    bool m_legendDraggable = false;
     bool m_draggingLegend = false;
     QPoint m_legendGrab; // From the top left corner of the dragged legend to the mouse
     QPoint m_legendDragPos; // Of the mouse

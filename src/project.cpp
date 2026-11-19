@@ -244,7 +244,8 @@ QJsonObject sampleToJson(const Sample &sample, const std::function<QString(const
             for(int id : spectrum->cutIds) {
                 cutIds.append(id);
             }
-            QJsonObject spectrumObject{{"name", spectrum->name}, {"binWidth", spectrum->binWidth}, {"cuts", cutIds}};
+            QJsonObject spectrumObject{{"name", spectrum->name}, {"binWidth", spectrum->binWidth}, {"cuts", cutIds},
+                                       {"legend", legendPositionId(spectrum->legendPosition)}};
             rangeToJson(spectrumObject, spectrum->rangeMin, spectrum->rangeMax);
             spectra.append(spectrumObject);
         }
@@ -252,7 +253,7 @@ QJsonObject sampleToJson(const Sample &sample, const std::function<QString(const
         QJsonArray splits;
         for(const auto &split : measurement->splitAnalyses) {
             splits.append(QJsonObject{{"name", split->name}, {"parts", split->parts}, {"cuts", idsToJson(split->cutIds)},
-                                      {"relative", split->relative}});
+                                      {"relative", split->relative}, {"legend", legendPositionId(split->legendPosition)}});
         }
         object["splitAnalyses"] = splits;
         if(measurement->referenceCutId > 0) {
@@ -316,6 +317,7 @@ std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &base
                 spectrum->cutIds.append(id.toInt());
             }
             rangeFromJson(object, spectrum->rangeMin, spectrum->rangeMax);
+            spectrum->legendPosition = legendPositionFromId(object["legend"].toString(), spectrum->legendPosition);
             sample->measurements.back()->spectra.push_back(std::move(spectrum));
         }
         for(const auto &splitValue : measurement["splitAnalyses"].toArray()) {
@@ -325,6 +327,7 @@ std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &base
             split->parts = std::clamp(object["parts"].toInt(DefaultSplitParts), MinSplitParts, MaxSplitParts);
             split->cutIds = idsFromJson(object["cuts"]);
             split->relative = object["relative"].toBool();
+            split->legendPosition = legendPositionFromId(object["legend"].toString(), split->legendPosition);
             sample->measurements.back()->splitAnalyses.push_back(std::move(split));
         }
         const int referenceCutId = measurement["referenceCut"].toInt();
@@ -730,6 +733,32 @@ LegendPosition legendPositionFromId(const QString &id, LegendPosition fallback) 
         }
     }
     return fallback;
+}
+
+Qt::Corner legendCorner(LegendPosition position) {
+    switch(position) {
+        case LegendPosition::TopLeft:
+            return Qt::TopLeftCorner;
+        case LegendPosition::BottomRight:
+            return Qt::BottomRightCorner;
+        case LegendPosition::BottomLeft:
+            return Qt::BottomLeftCorner;
+        default:
+            return Qt::TopRightCorner;
+    }
+}
+
+LegendPosition legendPosition(Qt::Corner corner) {
+    switch(corner) {
+        case Qt::TopLeftCorner:
+            return LegendPosition::TopLeft;
+        case Qt::BottomRightCorner:
+            return LegendPosition::BottomRight;
+        case Qt::BottomLeftCorner:
+            return LegendPosition::BottomLeft;
+        default:
+            return LegendPosition::TopRight;
+    }
 }
 
 QString screeningModelName(ScreeningModel model) {

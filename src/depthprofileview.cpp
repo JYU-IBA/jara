@@ -140,22 +140,8 @@ DepthProfileView::DepthProfileView(Measurement *measurement, DepthProfile *profi
     connect(m_iterationTimer, &QTimer::timeout, this, &DepthProfileView::iterationStep);
     connect(m_plot, &SpectrumPlotWidget::markerMoved, this, &DepthProfileView::markerMoved);
     // The legend is dragged to a corner, until then it is where the preferences put it
-    m_plot->setLegendDraggable(true);
     connect(m_plot, &SpectrumPlotWidget::legendCornerChanged, this, [this](Qt::Corner corner) {
-        switch(corner) {
-            case Qt::TopLeftCorner:
-                m_profile->legendPosition = LegendPosition::TopLeft;
-                break;
-            case Qt::TopRightCorner:
-                m_profile->legendPosition = LegendPosition::TopRight;
-                break;
-            case Qt::BottomLeftCorner:
-                m_profile->legendPosition = LegendPosition::BottomLeft;
-                break;
-            case Qt::BottomRightCorner:
-                m_profile->legendPosition = LegendPosition::BottomRight;
-                break;
-        }
+        m_profile->legendPosition = legendPosition(corner);
         emit modified();
     });
     auto *concentrations = new QAction("Concentrations in the Legend", this);
@@ -920,23 +906,9 @@ void DepthProfileView::applyPreferences() {
 }
 
 void DepthProfileView::updateLegendPosition() {
-    const LegendPosition position = m_profile->legendPosition == LegendPosition::Default
-                                            ? Defaults::depthProfilePreferences().legendPosition
-                                            : m_profile->legendPosition;
-    switch(position) {
-        case LegendPosition::TopLeft:
-            m_plot->setLegendCorner(Qt::TopLeftCorner);
-            break;
-        case LegendPosition::BottomRight:
-            m_plot->setLegendCorner(Qt::BottomRightCorner);
-            break;
-        case LegendPosition::BottomLeft:
-            m_plot->setLegendCorner(Qt::BottomLeftCorner);
-            break;
-        default:
-            m_plot->setLegendCorner(Qt::TopRightCorner);
-            break;
-    }
+    m_plot->setLegendCorner(legendCorner(m_profile->legendPosition == LegendPosition::Default
+                                                 ? Defaults::depthProfilePreferences().legendPosition
+                                                 : m_profile->legendPosition));
 }
 
 void DepthProfileView::updateAverages() {

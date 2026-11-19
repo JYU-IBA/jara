@@ -110,9 +110,6 @@ void SpectrumPlotWidget::setLegendCorner(Qt::Corner corner) {
     update();
 }
 
-void SpectrumPlotWidget::setLegendDraggable(bool draggable) {
-    m_legendDraggable = draggable;
-}
 
 void SpectrumPlotWidget::setContextActions(const QList<QAction *> &actions) {
     m_contextActions = actions;
@@ -538,7 +535,7 @@ void SpectrumPlotWidget::updateIdleCursor(const QPoint &pos) {
     if(m_mode == Mode::Move) {
         return;
     }
-    if(labelAt(pos) >= 0 || (m_legendDraggable && legendRect().contains(pos))) {
+    if(labelAt(pos) >= 0 || legendRect().contains(pos)) {
         setCursor(Qt::OpenHandCursor);
     } else if(markerAt(pos) >= 0) {
         setCursor(Qt::SizeHorCursor);
@@ -688,7 +685,7 @@ void SpectrumPlotWidget::mousePressEvent(QMouseEvent *event) {
         setCursor(Qt::ClosedHandCursor);
         return;
     }
-    if(const QRect legend = legendRect(); m_legendDraggable && legend.contains(event->pos())) {
+    if(const QRect legend = legendRect(); legend.contains(event->pos())) {
         m_draggingLegend = true;
         m_legendGrab = event->pos() - legend.topLeft();
         m_legendDragPos = event->pos();

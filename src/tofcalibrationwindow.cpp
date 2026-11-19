@@ -24,7 +24,8 @@
 
 namespace {
 const QString ZoomHint = QStringLiteral(
-        "Drag to zoom, double-click to show everything. Drag the dashed lines to change the fit window.");
+        "Drag to zoom, double-click to show everything. Drag the dashed lines to change the fit window, the legend to "
+        "another corner.");
 const QString MoveHint = QStringLiteral("Drag to move the view. Scroll the mouse wheel or pinch to zoom.");
 const QString PickHint = QStringLiteral("Click to set the edge by hand. Drag the dashed lines to fit again in another window.");
 constexpr int MeasurementRole = Qt::UserRole;
