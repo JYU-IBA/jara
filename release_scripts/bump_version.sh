@@ -5,9 +5,10 @@ set -e
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 versionfile="version.txt"
 
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-    echo "There are uncommitted changes, clean up first!"
-    git status --short --untracked-files=no
+# Untracked files count as well, ignored ones do not
+if [ -n "$(git status --porcelain)" ]; then
+    echo "The repository is not clean, commit or remove these first!"
+    git status --short
     exit 1
 fi
 branch=$(git rev-parse --abbrev-ref HEAD)
