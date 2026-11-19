@@ -1,4 +1,5 @@
 #include "project.h"
+#include "archive.h"
 #include "defaults.h"
 #include "elements.h"
 
@@ -6,9 +7,11 @@
 #include <cmath>
 
 #include <QCollator>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -42,6 +45,26 @@ QString pathToJson(const QString &path, const QDir &baseDir) {
 QString pathFromJson(const QJsonValue &value, const QDir &baseDir) {
     const QString path = value.toString();
     return path.isEmpty() ? QString() : QDir::cleanPath(baseDir.absoluteFilePath(path));
+}
+
+// ISO 8601 in local time with the offset from UTC, to the second
+QString timeToJson(const QDateTime &time) {
+    return time.isValid() ? time.toOffsetFromUtc(time.offsetFromUtc()).toString(Qt::ISODate) : QString();
+}
+
+QDateTime timeFromJson(const QJsonValue &value) {
+    return QDateTime::fromString(value.toString(), Qt::ISODate);
+}
+
+// Fills in a missing checksum, files referenced several times are read once
+void fillChecksum(const QString &path, QString &sha256, QHash<QString, QString> &known) {
+    if(!sha256.isEmpty() || path.isEmpty()) {
+        return;
+    }
+    if(!known.contains(path)) {
+        known[path] = fileChecksum(path);
+    }
+    sha256 = known[path];
 }
 
 template<typename T>
@@ -128,21 +151,23 @@ std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
     return profile;
 }
 
-QJsonObject sampleToJson(const Sample &sample, const QDir &baseDir, const Project &project) {
+QJsonObject sampleToJson(const Sample &sample, const std::function<QString(const QString &)> &storedPath,
+                         const Project &project) {
     QJsonArray metadata;
     for(const auto &entry : sample.metadata) {
         metadata.append(QJsonObject{{"key", entry.key}, {"value", entry.value}});
     }
     QJsonArray files;
     for(const auto &file : sample.files) {
-        files.append(QJsonObject{{"path", pathToJson(file.path, baseDir)}, {"description", file.description}});
+        files.append(QJsonObject{{"path", storedPath(file.path)}, {"description", file.description}, {"sha256", file.sha256}});
     }
     QJsonArray measurements;
     for(const auto &measurement : sample.measurements) {
         QJsonObject object{
                 {"name", measurement->name},
                 {"description", measurement->description},
-                {"path", pathToJson(measurement->path, baseDir)},
+                {"path", storedPath(measurement->path)},
+                {"sha256", measurement->sha256},
                 {"cuts", cutsToJson(measurement->cuts)}};
         QJsonArray spectra;
         for(const auto &spectrum : measurement->spectra) {
@@ -192,7 +217,7 @@ std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &base
         if(path.isEmpty()) {
             continue;
         }
-        sample->files.append({path, file["description"].toString()});
+        sample->files.append({path, file["description"].toString(), file["sha256"].toString()});
     }
     for(const auto &value : json["measurements"].toArray()) {
         const QJsonObject measurement = value.toObject();
@@ -200,6 +225,7 @@ std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &base
                 measurement["name"].toString(), measurement["description"].toString(),
                 pathFromJson(measurement["path"], baseDir), cutsFromJson(measurement["cuts"].toArray())));
         sample->measurements.back()->assignCutIds(); // In case of missing or duplicate ids
+        sample->measurements.back()->sha256 = measurement["sha256"].toString();
         for(const auto &spectrumValue : measurement["spectra"].toArray()) {
             const QJsonObject object = spectrumValue.toObject();
             auto spectrum = std::make_unique<EnergySpectrum>();
@@ -315,6 +341,7 @@ QString Measurement::uniqueSpectrumName(const QString &name) const {
 std::unique_ptr<Measurement> copyMeasurement(const Measurement &measurement) {
     auto copy = std::make_unique<Measurement>(measurement.name, measurement.description, measurement.path, measurement.cuts,
                                               measurement.settings, measurement.detector, measurement.physics);
+    copy->sha256 = measurement.sha256;
     for(const auto &spectrum : measurement.spectra) {
         copy->spectra.push_back(std::make_unique<EnergySpectrum>(*spectrum));
     }
@@ -697,14 +724,125 @@ std::unique_ptr<Project> Project::load(const QString &fileName, QString &errorMe
     for(const auto &value : root["samples"].toArray()) {
         project->m_samples.push_back(sampleFromJson(value.toObject(), baseDir, *project));
     }
+    project->m_created = timeFromJson(root["created"]);
+    project->m_saved = timeFromJson(root["saved"]);
     project->m_fileName = fileInfo.absoluteFilePath();
     project->sortByName();
     return project;
 }
 
+QString fileChecksum(const QString &path) {
+    QFile file(path);
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if(!file.open(QIODevice::ReadOnly) || !hash.addData(&file)) {
+        return {};
+    }
+    return QString::fromLatin1(hash.result().toHex());
+}
+
+QStringList Project::referencedFiles() const {
+    QStringList files;
+    forEachMeasurement([&files](const Measurement *measurement) {
+        if(!measurement->path.isEmpty() && !files.contains(measurement->path)) {
+            files.append(measurement->path);
+        }
+    });
+    for(const auto &sample : m_samples) {
+        for(const AttachedFile &file : sample->files) {
+            if(!files.contains(file.path)) {
+                files.append(file.path);
+            }
+        }
+    }
+    return files;
+}
+
+QList<Project::FileProblem> Project::verifyFiles() {
+    QHash<QString, QString> current; // Checksums of the files now
+    for(const QString &path : referencedFiles()) {
+        current[path] = fileChecksum(path);
+    }
+    QList<FileProblem> problems;
+    auto verify = [&](const QString &path, QString &sha256) {
+        const QString &now = current[path];
+        const bool known = std::any_of(problems.begin(), problems.end(), [&path](const FileProblem &p) { return p.path == path; });
+        if(now.isEmpty()) {
+            if(!known) {
+                problems.append({path, true}); // The checksum is kept for when the file is found again
+            }
+            return;
+        }
+        if(sha256.isEmpty()) {
+            sha256 = now;
+        } else if(sha256 != now && !known) {
+            problems.append({path, false, now});
+        }
+    };
+    for(const auto &sample : m_samples) {
+        for(const auto &measurement : sample->measurements) {
+            if(!measurement->path.isEmpty()) {
+                verify(measurement->path, measurement->sha256);
+            }
+        }
+        for(AttachedFile &file : sample->files) {
+            verify(file.path, file.sha256);
+        }
+    }
+    return problems;
+}
+
+void Project::acceptChangedFiles(const QList<FileProblem> &problems) {
+    auto accept = [&problems, this](const QString &path, QString &sha256) {
+        for(const FileProblem &problem : problems) {
+            if(problem.path == path && !problem.missing) {
+                sha256 = problem.sha256;
+                m_modified = true;
+            }
+        }
+    };
+    for(const auto &sample : m_samples) {
+        for(const auto &measurement : sample->measurements) {
+            accept(measurement->path, measurement->sha256);
+        }
+        for(AttachedFile &file : sample->files) {
+            accept(file.path, file.sha256);
+        }
+    }
+}
+
 bool Project::save(const QString &fileName, QString &errorMessage) {
     const QFileInfo fileInfo(fileName);
     const QDir baseDir = fileInfo.absoluteDir();
+    const QDateTime previousSave = m_saved;
+    m_saved = QDateTime::currentDateTime();
+    const QByteArray json = toJson([&baseDir](const QString &path) { return pathToJson(path, baseDir); });
+    QSaveFile file(fileName);
+    if(!file.open(QIODevice::WriteOnly)) {
+        errorMessage = file.errorString();
+        m_saved = previousSave;
+        return false;
+    }
+    file.write(json);
+    if(!file.commit()) {
+        errorMessage = file.errorString();
+        m_saved = previousSave;
+        return false;
+    }
+    m_fileName = fileInfo.absoluteFilePath();
+    m_modified = false;
+    return true;
+}
+
+QByteArray Project::toJson(const std::function<QString(const QString &path)> &storedPath) {
+    QHash<QString, QString> checksums;
+    for(const auto &sample : m_samples) {
+        for(const auto &measurement : sample->measurements) {
+            fillChecksum(measurement->path, measurement->sha256, checksums);
+        }
+        for(AttachedFile &file : sample->files) {
+            fillChecksum(file.path, file.sha256, checksums);
+        }
+    }
     QJsonArray settings;
     for(const auto &s : m_settings) {
         settings.append(settingsToJson(*s));
@@ -719,28 +857,60 @@ bool Project::save(const QString &fileName, QString &errorMessage) {
     }
     QJsonArray samples;
     for(const auto &sample : m_samples) {
-        samples.append(sampleToJson(*sample, baseDir, *this));
+        samples.append(sampleToJson(*sample, storedPath, *this));
     }
-    const QJsonObject root{
+    QJsonObject root{
             {"format", FormatName},
             {"version", FormatVersion},
             {"experimentalSettings", settings},
             {"detectorSettings", detectors},
             {"physicsSettings", physics},
             {"samples", samples}};
+    // Unknown for projects saved before the times were stored
+    if(m_created.isValid()) {
+        root["created"] = timeToJson(m_created);
+    }
+    if(m_saved.isValid()) {
+        root["saved"] = timeToJson(m_saved);
+    }
+    return QJsonDocument(root).toJson();
+}
 
-    QSaveFile file(fileName);
-    if(!file.open(QIODevice::WriteOnly)) {
-        errorMessage = file.errorString();
+bool Project::exportArchive(const QString &archiveName, QString &errorMessage) {
+    // Everything goes in a directory named after the project, measurements in data and attached files in files. Files
+    // with the same name are numbered. Files that cannot be read are left out and keep their paths.
+    const QString name = m_fileName.isEmpty() ? QStringLiteral("project") : QFileInfo(m_fileName).completeBaseName();
+    QStringList measurementPaths;
+    forEachMeasurement([&measurementPaths](const Measurement *measurement) { measurementPaths.append(measurement->path); });
+    QHash<QString, QString> archived; // Path in the archive relative to the project file, by the path now
+    QSet<QString> taken; // In lower case, the archive may be extracted on a file system that ignores case
+    for(const QString &path : referencedFiles()) {
+        const QFileInfo info(path);
+        if(!info.isReadable() || !info.isFile()) {
+            continue;
+        }
+        const QString directory = measurementPaths.contains(path) ? QStringLiteral("data/") : QStringLiteral("files/");
+        QString candidate = directory + info.fileName();
+        for(int n = 2; taken.contains(candidate.toLower()); n++) {
+            const QString suffix = info.completeSuffix().isEmpty() ? QString() : "." + info.completeSuffix();
+            candidate = QString("%1%2 (%3)%4").arg(directory, info.baseName()).arg(n).arg(suffix);
+        }
+        taken.insert(candidate.toLower());
+        archived[path] = candidate;
+    }
+
+    const QByteArray json = toJson([&archived](const QString &path) { return archived.value(path, path); });
+    ArchiveWriter writer(archiveName, ArchiveWriter::formatOf(archiveName));
+    bool written = writer.open() && writer.addData(name + "/" + name + ".json", json, QDateTime::currentDateTime());
+    for(const QString &path : referencedFiles()) {
+        if(written && archived.contains(path)) {
+            written = writer.addFile(name + "/" + archived[path], path);
+        }
+    }
+    if(!written || !writer.close()) {
+        errorMessage = writer.errorString();
         return false;
     }
-    file.write(QJsonDocument(root).toJson());
-    if(!file.commit()) {
-        errorMessage = file.errorString();
-        return false;
-    }
-    m_fileName = fileInfo.absoluteFilePath();
-    m_modified = false;
     return true;
 }
 

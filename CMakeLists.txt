@@ -12,6 +12,7 @@ set(CMAKE_AUTORCC ON)
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 find_package(GSL REQUIRED)
 find_package(Jibal REQUIRED)
+find_package(ZLIB REQUIRED)
 
 add_executable(jara
         src/main.cpp
@@ -70,6 +71,8 @@ add_executable(jara
         src/depthprofileview.h
         src/efficiencydialog.cpp
         src/efficiencydialog.h
+        src/archive.cpp
+        src/archive.h
         src/version.h
         ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
@@ -88,7 +91,7 @@ add_dependencies(jara jara_version)
 
 target_compile_definitions(jara PRIVATE JARA_VERSION="${PROJECT_VERSION}")
 target_include_directories(jara PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(jara PRIVATE Qt6::Widgets GSL::gsl jibal)
+target_link_libraries(jara PRIVATE Qt6::Widgets GSL::gsl jibal ZLIB::ZLIB)
 
 # macOS refuses to show native file dialogs for an app bundle without an identifier
 set_target_properties(jara PROPERTIES

@@ -33,6 +33,8 @@ private slots:
     void openProject();
     bool saveProject();
     bool saveProjectAs();
+    void exportArchive();
+    void showFileProblems(const QList<Project::FileProblem> &problems); // Of a project just opened
     void closeProject();
     void projectModified();
     void openMeasurement(Measurement *measurement);
@@ -85,6 +87,7 @@ private:
     QTreeWidget *m_recentList; // On the start page
     QAction *m_saveAction;
     QAction *m_saveAsAction;
+    QAction *m_exportArchiveAction;
     QAction *m_closeAction;
     QAction *m_closeTabAction;
     QAction *m_preferencesAction;

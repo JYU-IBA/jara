@@ -219,6 +219,10 @@ void MainWindow::createActions() {
     m_saveAsAction->setShortcut(QKeySequence::SaveAs);
     connect(m_saveAsAction, &QAction::triggered, this, &MainWindow::saveProjectAs);
 
+    m_exportArchiveAction = new QAction("&Export Archive...", this);
+    m_exportArchiveAction->setToolTip("The project with copies of its measurements and files, to continue elsewhere");
+    connect(m_exportArchiveAction, &QAction::triggered, this, &MainWindow::exportArchive);
+
     m_closeAction = new QAction("&Close Project", this);
     m_closeAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_W));
     connect(m_closeAction, &QAction::triggered, this, &MainWindow::closeProject);
@@ -297,6 +301,7 @@ void MainWindow::createMenus(QMenuBar *menuBar) {
     updateRecentFilesMenu();
     fileMenu->addAction(m_saveAction);
     fileMenu->addAction(m_saveAsAction);
+    fileMenu->addAction(m_exportArchiveAction);
     fileMenu->addAction(m_closeTabAction);
     fileMenu->addAction(m_closeAction);
     fileMenu->addSeparator();
@@ -368,6 +373,7 @@ void MainWindow::updateWindowState() {
     const bool hasSample = open && m_projectPanel->currentSample();
     m_saveAction->setEnabled(open);
     m_saveAsAction->setEnabled(open);
+    m_exportArchiveAction->setEnabled(open);
     m_closeAction->setEnabled(open);
     m_addSampleAction->setEnabled(open);
     m_removeSampleAction->setEnabled(hasSample);
@@ -421,9 +427,48 @@ void MainWindow::openProjectFile(const QString &fileName) {
         QMessageBox::critical(this, "JaRA", QString("Could not open project %1:\n%2").arg(fileName, errorMessage));
         return;
     }
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const QList<Project::FileProblem> problems = project->verifyFiles();
+    QApplication::restoreOverrideCursor();
     setProject(std::move(project));
     addRecentFile(fileName);
     statusBar()->showMessage(QString("Opened %1").arg(fileName), 5000);
+    if(!problems.isEmpty()) {
+        showFileProblems(problems);
+    }
+}
+
+void MainWindow::showFileProblems(const QList<Project::FileProblem> &problems) {
+    QStringList changed;
+    QStringList missing;
+    for(const Project::FileProblem &problem : problems) {
+        (problem.missing ? missing : changed).append(QDir::toNativeSeparators(problem.path));
+    }
+    QString text;
+    if(!changed.isEmpty()) {
+        text += QString("These files have changed since they were added to the project (the SHA-256 checksum is "
+                        "different):\n\n%1").arg(changed.join('\n'));
+    }
+    if(!missing.isEmpty()) {
+        text += QString("%1These files cannot be read:\n\n%2").arg(text.isEmpty() ? QString() : QStringLiteral("\n\n"),
+                                                                   missing.join('\n'));
+    }
+    QMessageBox box(QMessageBox::Warning, "JaRA", text, QMessageBox::NoButton, this);
+    if(changed.isEmpty()) {
+        box.addButton(QMessageBox::Ok);
+        box.exec();
+        return;
+    }
+    box.setInformativeText("Accept the changed files as they are now? Otherwise the project keeps the old checksums "
+                           "and the files are reported again the next time the project is opened.");
+    QPushButton *accept = box.addButton("Accept Changes", QMessageBox::AcceptRole);
+    box.addButton("Keep Old Checksums", QMessageBox::RejectRole);
+    box.setDefaultButton(qobject_cast<QPushButton *>(box.buttons().last()));
+    box.exec();
+    if(box.clickedButton() == accept) {
+        m_project->acceptChangedFiles(problems); // Saved with the project
+        updateWindowState();
+    }
 }
 
 bool MainWindow::saveProject() {
@@ -463,6 +508,49 @@ bool MainWindow::saveProjectAs() {
     addRecentFile(fileName);
     statusBar()->showMessage(QString("Saved %1").arg(fileName), 5000);
     return true;
+}
+
+void MainWindow::exportArchive() {
+    if(!m_project) {
+        return;
+    }
+    QStringList missing;
+    for(const QString &path : m_project->referencedFiles()) {
+        if(!QFileInfo(path).isReadable()) {
+            missing.append(QDir::toNativeSeparators(path));
+        }
+    }
+    if(!missing.isEmpty()
+       && QMessageBox::warning(this, "Export Archive",
+                               QString("These files cannot be read and will be left out of the archive:\n\n%1\n\n"
+                                       "Export the archive anyway?").arg(missing.join('\n')),
+                               QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes) {
+        return;
+    }
+    const QFileInfo projectFile(m_project->fileName());
+    const QString suggested = m_project->fileName().isEmpty()
+                                      ? QStringLiteral("project.tar.gz")
+                                      : projectFile.absoluteDir().filePath(projectFile.completeBaseName() + ".tar.gz");
+    const QString zipFilter = QStringLiteral("Zip archives (*.zip)");
+    QString filter;
+    QString fileName = QFileDialog::getSaveFileName(this, "Export Archive", suggested,
+                                                    "Compressed tar archives (*.tar.gz);;" + zipFilter, &filter);
+    if(fileName.isEmpty()) {
+        return;
+    }
+    if(!fileName.endsWith(".zip", Qt::CaseInsensitive) && !fileName.endsWith(".tar.gz", Qt::CaseInsensitive)
+       && !fileName.endsWith(".tgz", Qt::CaseInsensitive)) {
+        fileName += filter == zipFilter ? ".zip" : ".tar.gz";
+    }
+    QString errorMessage;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const bool exported = m_project->exportArchive(fileName, errorMessage);
+    QApplication::restoreOverrideCursor();
+    if(!exported) {
+        QMessageBox::critical(this, "Export Archive", QString("Could not export the archive:\n%1").arg(errorMessage));
+        return;
+    }
+    statusBar()->showMessage(QString("Exported %1").arg(fileName), 5000);
 }
 
 void MainWindow::closeProject() {

@@ -1,10 +1,12 @@
 #ifndef JARA_PROJECT_H
 #define JARA_PROJECT_H
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
 
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QColor>
@@ -22,11 +24,18 @@ struct MetadataEntry {
 
 // Paths are absolute in memory. On disk they are stored relative to the project file when the file is in the
 // project directory or below it, otherwise absolute.
+//
+// Referenced files have the SHA-256 checksums they had when they were added to the project, so that changed files can
+// be noticed when the project is opened.
 
 struct AttachedFile {
     QString path;
     QString description;
+    QString sha256; // Hex, empty when not known yet
 };
+
+// SHA-256 of a file in hex, empty when it cannot be read
+QString fileChecksum(const QString &path);
 
 // Recoiled target atoms (ERD) or incident ions scattered from them (RBS). For both, the element of a cut is that of
 // the target atom. The energy of scattered ions is calculated with the mass of the incident ion.
@@ -222,6 +231,7 @@ struct Measurement {
     PhysicsSettings *physics = nullptr; // Same as above, without them the default physics settings are used
     std::vector<std::unique_ptr<EnergySpectrum>> spectra; // Pointers stay valid, spectrum views refer to them
     std::vector<std::unique_ptr<DepthProfile>> depthProfiles; // Same as above
+    QString sha256; // Of the data file, see AttachedFile
 
     // Exit angle from the surface, available when both experimental and detector settings are assigned
     bool hasExitAngle() const { return settings && detector; }
@@ -290,6 +300,28 @@ public:
 
     static std::unique_ptr<Project> load(const QString &fileName, QString &errorMessage);
     bool save(const QString &fileName, QString &errorMessage);
+    // The project as saved, with each referenced file stored as storedPath gives it. Files without a checksum get one.
+    QByteArray toJson(const std::function<QString(const QString &path)> &storedPath);
+
+    // Compares the checksums of the referenced files with the ones in the project. The checksums are kept until the
+    // changes are accepted, so a changed file is reported every time until then. Files without a checksum get one
+    // silently.
+    struct FileProblem {
+        QString path;
+        bool missing = false; // Cannot be read, otherwise the checksum has changed
+        QString sha256; // Of the file now, when it has changed
+    };
+    QList<FileProblem> verifyFiles();
+    void acceptChangedFiles(const QList<FileProblem> &problems); // The changed checksums replace the ones in the project
+    // Every file referenced once, measurements first
+    QStringList referencedFiles() const;
+    // Archive (.tar.gz or .zip, see archive.h) with the project file and copies of the referenced files, with the
+    // paths changed to the copies, so that the project can be opened elsewhere. Missing files are left out.
+    bool exportArchive(const QString &archiveName, QString &errorMessage);
+
+    // Local time with the offset from UTC, to the second
+    const QDateTime &created() const { return m_created; }
+    const QDateTime &saved() const { return m_saved; } // Invalid until saved
 
     const QString &fileName() const { return m_fileName; }
     bool isModified() const { return m_modified; }
@@ -333,6 +365,8 @@ public:
 private:
     QString m_fileName;
     bool m_modified = false;
+    QDateTime m_created = QDateTime::currentDateTime();
+    QDateTime m_saved;
     std::vector<std::unique_ptr<ExperimentalSettings>> m_settings; // Pointers stay valid, measurements refer to them
     std::vector<std::unique_ptr<DetectorSettings>> m_detectors; // Same as above
     std::vector<std::unique_ptr<PhysicsSettings>> m_physics; // Same as above

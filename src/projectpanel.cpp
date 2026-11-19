@@ -1438,9 +1438,11 @@ void ProjectPanel::addMeasurements() {
 void ProjectPanel::addMeasurementFiles(int sampleIndex, const QStringList &fileNames) {
     Sample *sample = m_project->sample(sampleIndex);
     const Measurement *last = nullptr;
+    QApplication::setOverrideCursor(Qt::WaitCursor); // Checksums of large files take a while
     for(const QString &fileName : fileNames) {
         const QFileInfo fileInfo(fileName);
         auto measurement = std::make_unique<Measurement>(fileInfo.fileName(), QString(), fileInfo.absoluteFilePath());
+        measurement->sha256 = fileChecksum(measurement->path);
         // When there is no choice to make, assign the settings right away
         if(m_project->settingsCount() == 1) {
             measurement->settings = m_project->settings(0);
@@ -1454,6 +1456,7 @@ void ProjectPanel::addMeasurementFiles(int sampleIndex, const QStringList &fileN
         last = measurement.get();
         sample->measurements.push_back(std::move(measurement));
     }
+    QApplication::restoreOverrideCursor();
     rebuildSampleItems(last);
     emit modified();
 }
@@ -1469,11 +1472,14 @@ void ProjectPanel::addFiles() {
         return;
     }
     QTreeWidgetItem *lastItem = nullptr;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
     for(const QString &fileName : fileNames) {
-        sample->files.append(AttachedFile{QFileInfo(fileName).absoluteFilePath(), {}});
+        const QString path = QFileInfo(fileName).absoluteFilePath();
+        sample->files.append(AttachedFile{path, {}, fileChecksum(path)});
         lastItem = createFileItem(sample->files.last(), static_cast<int>(sample->files.size() - 1));
         item->addChild(lastItem);
     }
+    QApplication::restoreOverrideCursor();
     item->setExpanded(true);
     m_tree->setCurrentItem(lastItem);
     emit modified();
