@@ -13,6 +13,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -71,6 +72,17 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
     m_slicesSpin->setValue(5);
     m_slicesSpin->setToolTip("The centre of the window is fitted in this many slices of ToF with equal counts, and a "
                              "straight line through them gives its shift with ToF. One slice for a constant centre.");
+    m_smoothingSpin = new QDoubleSpinBox;
+    m_smoothingSpin->setRange(0, 50);
+    m_smoothingSpin->setDecimals(1);
+    m_smoothingSpin->setSingleStep(0.5);
+    m_smoothingSpin->setPrefix("± ");
+    m_smoothingSpin->setSuffix(" ticks");
+    m_smoothingSpin->setSpecialValueText("None");
+    m_smoothingSpin->setToolTip("Each timing value is spread uniformly over this many ticks on both sides, in the plots "
+                                "and the fit. Evens out structure of the ticks, e.g. ticks of unequal widths. Widens "
+                                "the fitted resolution σ, not the window.");
+    m_smoothingSpin->setValue(detector->angleCalibration.timingSmoothing);
     m_reversedCheck = new QCheckBox("Larger timing is a smaller angle");
     m_reversedCheck->setToolTip("The direction of the angle, not known from the fit. The expected edges tell it: the "
                                 "solid one should follow the leading edge of the data.");
@@ -80,6 +92,7 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
 
     auto *form = new QFormLayout;
     form->addRow("Maximum ToF:", m_maxTofSpin);
+    form->addRow("Timing smoothing:", m_smoothingSpin);
     form->addRow("Bin width:", m_binWidthSpin);
     form->addRow("ToF slices:", m_slicesSpin);
     form->addRow("Expected edge of:", m_edgeCombo);
@@ -156,8 +169,12 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
     m_fitTimer->setSingleShot(true);
     m_fitTimer->setInterval(200);
     connect(m_fitTimer, &QTimer::timeout, this, [this]() {
+        if(m_smoothingSpin->value() != m_smoothedWith) {
+            smoothEvents();
+            return;
+        }
         QApplication::setOverrideCursor(Qt::WaitCursor);
-        m_fit = fitAngleCalibration(m_events, {static_cast<double>(m_maxTofSpin->value()),
+        m_fit = fitAngleCalibration(m_smoothedEvents, {static_cast<double>(m_maxTofSpin->value()),
                                                static_cast<double>(m_binWidthSpin->value()), m_slicesSpin->value(),
                                                m_fitMin, m_fitMax});
         QApplication::restoreOverrideCursor();
@@ -176,6 +193,7 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
     for(QSpinBox *spinBox : {m_maxTofSpin, m_binWidthSpin, m_slicesSpin}) {
         connect(spinBox, &QSpinBox::valueChanged, this, &AngleCalibrationWindow::fit);
     }
+    connect(m_smoothingSpin, &QDoubleSpinBox::valueChanged, this, &AngleCalibrationWindow::fit);
     connect(m_maxTofSpin, &QSpinBox::valueChanged, this, [this](int value) {
         m_histogram->setVerticalMarkers({value + 0.5});
     });
@@ -335,12 +353,6 @@ void AngleCalibrationWindow::collectEvents() {
     }
     m_list->setToolTip(problems.isEmpty() ? QStringLiteral("The events of the checked measurements are used together")
                                           : problems.join('\n'));
-    m_plotEvents.clear();
-    m_plotEvents.reserve(m_events.size());
-    for(const ToFEEvent &event : m_events) {
-        m_plotEvents.push_back({event.tof, event.timing});
-    }
-    m_histogram->setEvents(&m_plotEvents);
     m_minTof = 0;
     m_maxTof = 0;
     if(!m_events.empty()) {
@@ -361,15 +373,29 @@ void AngleCalibrationWindow::collectEvents() {
         std::nth_element(tofs.begin(), tofs.begin() + static_cast<std::ptrdiff_t>(tofs.size() / 2), tofs.end());
         m_maxTofSpin->setValue(static_cast<int>(tofs[tofs.size() / 2]));
     }
+    smoothEvents();
+}
+
+void AngleCalibrationWindow::smoothEvents() {
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    m_smoothedWith = m_smoothingSpin->value();
+    m_smoothedEvents = smoothTiming(m_events, m_smoothedWith);
+    m_plotEvents.clear();
+    m_plotEvents.reserve(m_smoothedEvents.size());
+    for(const ToFEEvent &event : m_smoothedEvents) {
+        m_plotEvents.push_back({event.tof, event.timing});
+    }
+    m_histogram->setEvents(&m_plotEvents);
     m_histogram->setVerticalMarkers({m_maxTofSpin->value() + 0.5});
     m_fitTimer->stop();
-    m_fit = fitAngleCalibration(m_events, {static_cast<double>(m_maxTofSpin->value()),
+    m_fit = fitAngleCalibration(m_smoothedEvents, {static_cast<double>(m_maxTofSpin->value()),
                                            static_cast<double>(m_binWidthSpin->value()), m_slicesSpin->value(), m_fitMin,
                                            m_fitMax});
     // The timing axis covers the distribution, without outliers
     if(!m_fit.histogram.counts.empty()) {
         m_histogram->setFullYRange(m_fit.histogram.binStart(0), m_fit.histogram.binStart(m_fit.histogram.counts.size()));
     }
+    QApplication::restoreOverrideCursor();
     showFit();
     m_distribution->resetZoom();
 }
@@ -518,6 +544,7 @@ void AngleCalibrationWindow::apply() {
     }
     AngleCalibration calibration = m_fit.calibration(m_reversedCheck->isChecked());
     calibration.maxTof = m_maxTofSpin->value();
+    calibration.timingSmoothing = m_smoothingSpin->value();
     m_detector->angleCalibration = calibration;
     emit calibrationApplied();
 }

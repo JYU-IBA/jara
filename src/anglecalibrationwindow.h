@@ -14,6 +14,7 @@ class HistogramWidget;
 class Project;
 class QCheckBox;
 class QComboBox;
+class QDoubleSpinBox;
 class QLabel;
 class QListWidget;
 class QPushButton;
@@ -56,6 +57,7 @@ private:
     void updateList();
     void updateEdgeChoices();
     void collectEvents(); // Of the checked measurements, the plots start over
+    void smoothEvents(); // Spreads their timing values, the plots start over
     void fit(); // With the current options, after a moment so that the controls can settle
     void showFit();
     void updateOverlay(); // Fitted window and expected edges in the timing against ToF plot
@@ -69,7 +71,9 @@ private:
     QStringList m_collectedPaths; // Of the checked measurements when the events were collected
     qsizetype m_collectedCount = -1;
     std::vector<ToFEEvent> m_events; // Pooled, with timing values
-    std::vector<ToFEEvent> m_plotEvents; // x the ToF channel, y the timing
+    std::vector<ToFEEvent> m_smoothedEvents; // The above with the timing smoothing, plotted and fitted
+    double m_smoothedWith = 0; // Smoothing of the events above, ticks
+    std::vector<ToFEEvent> m_plotEvents; // x the ToF channel, y the smoothed timing
     double m_minTof = 0; // Of the pooled events
     double m_maxTof = 0;
     AngleFit m_fit;
@@ -81,6 +85,7 @@ private:
     QSpinBox *m_maxTofSpin;
     QSpinBox *m_binWidthSpin;
     QSpinBox *m_slicesSpin;
+    QDoubleSpinBox *m_smoothingSpin;
     QCheckBox *m_reversedCheck;
     HistogramWidget *m_histogram;
     SpectrumPlotWidget *m_distribution;

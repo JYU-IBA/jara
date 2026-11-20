@@ -82,6 +82,11 @@ struct AngleFit {
 
 AngleFit fitAngleCalibration(std::span<const ToFEEvent> events, const AngleFitOptions &options);
 
+// Copies of the events with each timing value spread uniformly over ± smoothing ticks, which evens out structure of
+// the ticks, e.g. ticks of unequal widths. The spread uses a fixed seed, so the same events always give the same
+// result. Copies as they are without smoothing.
+std::vector<ToFEEvent> smoothTiming(std::span<const ToFEEvent> events, double smoothing);
+
 // Half of the angle the detector window covers seen from the sample, atan((width / 2) / distance), rad. Zero when the
 // distance or width is not set.
 double windowHalfAngle(const DetectorSettings &detector);

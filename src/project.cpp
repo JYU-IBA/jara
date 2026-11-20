@@ -806,7 +806,8 @@ QJsonObject angleCalibrationToJson(const AngleCalibration &calibration) {
                        {"halfWidth", calibration.halfWidth},
                        {"sigma", calibration.sigma},
                        {"reversed", calibration.reversed},
-                       {"maxTof", calibration.maxTof}};
+                       {"maxTof", calibration.maxTof},
+                       {"timingSmoothing", calibration.timingSmoothing}};
 }
 
 AngleCalibration angleCalibrationFromJson(const QJsonObject &json) {
@@ -817,6 +818,7 @@ AngleCalibration angleCalibrationFromJson(const QJsonObject &json) {
     calibration.sigma = std::max(0.0, json["sigma"].toDouble());
     calibration.reversed = json["reversed"].toBool();
     calibration.maxTof = json["maxTof"].toDouble();
+    calibration.timingSmoothing = std::max(0.0, json["timingSmoothing"].toDouble());
     calibration.valid = calibration.halfWidth > 0;
     return calibration;
 }

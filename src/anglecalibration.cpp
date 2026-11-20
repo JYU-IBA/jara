@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <random>
 
 #include <gsl/gsl_blas.h>
 #include <gsl/gsl_cdf.h>
@@ -415,6 +416,19 @@ AngleFit fitAngleCalibration(std::span<const ToFEEvent> events, const AngleFitOp
         fit.errorMessage += QStringLiteral(" The bins are too wide for the window, try narrower ones.");
     }
     return fit;
+}
+
+std::vector<ToFEEvent> smoothTiming(std::span<const ToFEEvent> events, double smoothing) {
+    std::vector<ToFEEvent> result(events.begin(), events.end());
+    if(smoothing <= 0) {
+        return result;
+    }
+    std::mt19937 random(1);
+    std::uniform_real_distribution<double> spread(-smoothing, smoothing);
+    for(ToFEEvent &event : result) {
+        event.timing += spread(random);
+    }
+    return result;
 }
 
 double windowHalfAngle(const DetectorSettings &detector) {
