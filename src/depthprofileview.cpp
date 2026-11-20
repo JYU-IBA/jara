@@ -677,6 +677,14 @@ void DepthProfileView::setAutoNormalization(bool automatic) {
 
 void DepthProfileView::updateIntervalSpins() {
     // The automatic interval is shown when there is one. The intervals are snapped to the bins, as they are used.
+    // A step of one bin, otherwise the snapping would undo it. No decimals when the bin width has none.
+    const double binWidth = m_profile->binWidth / Units::ThinFilmUnit;
+    const int decimals = std::fmod(std::round(binWidth * 10), 10) == 0 ? 0 : 1;
+    for(QDoubleSpinBox *spinBox : {m_normalizationMinSpin, m_normalizationMaxSpin, m_averageMinSpin, m_averageMaxSpin}) {
+        const QSignalBlocker blocker(spinBox); // Fewer decimals round the value
+        spinBox->setDecimals(decimals);
+        spinBox->setSingleStep(binWidth);
+    }
     const bool automatic = m_profile->autoNormalization && m_result.normalizationMax > m_result.normalizationMin;
     double normalizationMin = automatic ? m_result.normalizationMin : m_profile->normalizationMin;
     double normalizationMax = automatic ? m_result.normalizationMax : m_profile->normalizationMax;
