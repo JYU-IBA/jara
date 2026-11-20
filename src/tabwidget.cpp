@@ -7,6 +7,8 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPointer>
+#include <QAbstractButton>
+#include <QStyle>
 
 namespace {
 // The dragged tab is only known inside this process, the data identifies the process
@@ -23,6 +25,41 @@ bool acceptsDrag(const QMimeData *mimeData) {
     return currentDrag.page && mimeData->hasFormat(TabMimeType)
            && mimeData->data(TabMimeType) == QByteArray::number(QCoreApplication::applicationPid());
 }
+
+#ifdef Q_OS_MACOS
+// A thin cross in the text color, on a rounded background while the mouse is over it, like the close buttons of
+// Safari's tabs
+class TabCloseButton : public QAbstractButton {
+public:
+    TabCloseButton() {
+        setAttribute(Qt::WA_Hover); // Repainted when the mouse enters and leaves
+        setFocusPolicy(Qt::NoFocus);
+        setCursor(Qt::ArrowCursor);
+        setToolTip("Close Tab");
+    }
+    QSize sizeHint() const override { return {16, 16}; }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        QColor color = palette().color(QPalette::WindowText);
+        if(isDown() || underMouse()) {
+            QColor background = color;
+            background.setAlphaF(isDown() ? 0.25f : 0.13f);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(background);
+            painter.drawRoundedRect(QRectF(rect()), 3, 3);
+        } else {
+            color.setAlphaF(0.6f);
+        }
+        painter.setPen(QPen(color, 1.25, Qt::SolidLine, Qt::RoundCap));
+        const QRectF cross = QRectF(0, 0, 7, 7).translated(QRectF(rect()).center() - QPointF(3.5, 3.5));
+        painter.drawLine(cross.topLeft(), cross.bottomRight());
+        painter.drawLine(cross.topRight(), cross.bottomLeft());
+    }
+};
+#endif
 }
 
 DetachableTabBar::DetachableTabBar(QWidget *parent) : QTabBar(parent) {
@@ -96,6 +133,25 @@ bool DetachableTabWidget::isDragging() {
 
 void DetachableTabWidget::tabInserted(int index) {
     QTabWidget::tabInserted(index);
+#ifdef Q_OS_MACOS
+    // The macOS style draws the close button of a tab in document mode only while the mouse is over the tab (and keeps
+    // the last one hovered), so the tabs get close buttons of their own that are always shown
+    const auto side = static_cast<QTabBar::ButtonPosition>(style()->styleHint(QStyle::SH_TabBar_CloseButtonPosition, nullptr, tabBar()));
+    auto *button = new TabCloseButton;
+    button->resize(button->sizeHint());
+    connect(button, &QAbstractButton::clicked, this, [this, button, side]() {
+        for(int i = 0; i < count(); i++) {
+            if(tabBar()->tabButton(i, side) == button) {
+                emit tabCloseRequested(i);
+                return;
+            }
+        }
+    });
+    if(QWidget *previous = tabBar()->tabButton(index, side)) {
+        previous->deleteLater();
+    }
+    tabBar()->setTabButton(index, side, button);
+#endif
     emit countChanged(count());
 }
 
