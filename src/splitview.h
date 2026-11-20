@@ -47,6 +47,7 @@ private:
     void updatePlot(SpectrumPlotWidget::ViewChange viewChange);
     void updateTable();
     QString referenceText() const; // What divides the measurement
+    QString partsText() const; // The reference counts of the measurement and of its parts
 
     Measurement *m_measurement;
     SplitAnalysis *m_split;

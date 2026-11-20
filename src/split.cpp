@@ -109,7 +109,12 @@ SplitResult calculateSplit(const std::vector<ToFEEvent> &events, const SplitInpu
     }
     std::vector<std::span<const ToFEEvent>> parts;
     for(int i = 0; i < inputs.parts; i++) {
-        parts.push_back(division.range(static_cast<double>(i) / inputs.parts, static_cast<double>(i + 1) / inputs.parts));
+        const double min = static_cast<double>(i) / inputs.parts;
+        const double max = static_cast<double>(i + 1) / inputs.parts;
+        parts.push_back(division.range(min, max));
+        const size_t partCounts = division.referenceCountsIn(min, max);
+        result.minPartReferenceCounts = i == 0 ? partCounts : std::min(result.minPartReferenceCounts, partCounts);
+        result.maxPartReferenceCounts = std::max(result.maxPartReferenceCounts, partCounts);
     }
     for(const auto &cut : inputs.cuts) {
         SplitCounts counts;

@@ -213,6 +213,18 @@ QString SplitView::referenceText() const {
     return reference ? cutLabel(*reference) : QStringLiteral("all events");
 }
 
+// "12345 reference counts of ¹H in 10 parts, 1234–1235 counts per part"
+QString SplitView::partsText() const {
+    const QString perPart = m_result.minPartReferenceCounts == m_result.maxPartReferenceCounts
+            ? QString::number(m_result.maxPartReferenceCounts)
+            : QString("%1–%2").arg(m_result.minPartReferenceCounts).arg(m_result.maxPartReferenceCounts);
+    return QString("%1 reference counts of %2 in %3 parts, %4 counts per part")
+            .arg(m_result.referenceCounts)
+            .arg(referenceText())
+            .arg(m_result.parts)
+            .arg(perPart);
+}
+
 void SplitView::refresh() {
     if(!m_plot) {
         return;
@@ -277,10 +289,7 @@ void SplitView::updatePlot(SpectrumPlotWidget::ViewChange viewChange) {
         curves.append(curve);
     }
     m_plot->setCurves(100.0 / m_result.parts, curves, viewChange);
-    m_plot->setInfoText(QString("%1 parts of %2 counts of %3")
-                                .arg(m_result.parts)
-                                .arg(static_cast<double>(m_result.referenceCounts) / m_result.parts, 0, 'f', 1)
-                                .arg(referenceText()));
+    m_plot->setInfoText(partsText());
 }
 
 void SplitView::updateTable() {
@@ -316,11 +325,8 @@ void SplitView::exportSplit() {
     ExportTable table;
     table.comments.append(QString("JaRA split analysis: %1 / %2 (%3)").arg(m_measurement->name, m_split->name,
                                                                          m_measurement->path));
-    table.comments.append(QString("%1 parts of %2 counts of %3; lines fitted to the counts against the reference "
-                                  "counts (%), change over the measurement relative to the mean")
-                                  .arg(m_result.parts)
-                                  .arg(number(static_cast<double>(m_result.referenceCounts) / m_result.parts, 6))
-                                  .arg(referenceText()));
+    table.comments.append(partsText() + QStringLiteral("; lines fitted to the counts against the reference counts (%), "
+                                                       "change over the measurement relative to the mean"));
     QStringList changes;
     for(const SplitCounts &counts : m_result.selections) {
         const Cut *cut = m_measurement->cut(counts.cutId);

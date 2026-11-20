@@ -74,6 +74,9 @@ struct SplitCounts {
 struct SplitResult {
     size_t referenceCounts = 0;
     int parts = 0;
+    // Reference counts of the parts, which differ by one when they don't divide evenly
+    size_t minPartReferenceCounts = 0;
+    size_t maxPartReferenceCounts = 0;
     std::vector<SplitCounts> selections; // In the order of the inputs
     QString errorMessage; // Empty when the analysis could be calculated
     bool isValid() const { return errorMessage.isEmpty(); }
