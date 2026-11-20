@@ -1495,7 +1495,10 @@ void ProjectPanel::addMeasurementFiles(int sampleIndex, const QStringList &fileN
     QApplication::setOverrideCursor(Qt::WaitCursor); // Checksums of large files take a while
     for(const QString &fileName : fileNames) {
         const QFileInfo fileInfo(fileName);
-        auto measurement = std::make_unique<Measurement>(fileInfo.fileName(), QString(), fileInfo.absoluteFilePath());
+        // "erda2_666.asc" is named "erda2_666"
+        const bool asc = fileInfo.suffix().compare(QLatin1String("asc"), Qt::CaseInsensitive) == 0;
+        auto measurement = std::make_unique<Measurement>(asc ? fileInfo.completeBaseName() : fileInfo.fileName(),
+                                                         QString(), fileInfo.absoluteFilePath());
         measurement->sha256 = fileChecksum(measurement->path);
         // When there is no choice to make, assign the settings right away
         if(m_project->settingsCount() == 1) {

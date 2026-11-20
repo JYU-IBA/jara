@@ -24,7 +24,7 @@ The project information has the project's **name**, shown in the tree and in rep
 ## Samples and measurements
 
 - **Sample → Add Sample**, then **Add Measurements...** to add ToF-E event files (`*.asc`) to it. Files can also be
-  dropped on a sample in the tree.
+  dropped on a sample in the tree. Measurements are named after their files without the `.asc` extension.
 - **Add Files...** attaches any other files to a sample, e.g. notes or images. Double-click a file to open it in its own program.
 - A sample shows its name, description, metadata entries (right-click the table to add or
   remove them) and the descriptions of its attached files.

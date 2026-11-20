@@ -34,7 +34,8 @@ private:
     Measurement *m_measurement;
     QLineEdit *m_nameEdit;
     QLineEdit *m_descriptionEdit;
-    QLabel *m_pathLabel;
+    QLabel *m_fileLabel;
+    QLabel *m_folderLabel;
     QComboBox *m_settingsCombo;
     QComboBox *m_detectorCombo;
     QComboBox *m_physicsCombo;

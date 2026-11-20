@@ -3,6 +3,8 @@
 #include "project.h"
 
 #include <QComboBox>
+#include <QDir>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -20,9 +22,12 @@ MeasurementInfoView::MeasurementInfoView(Project *project, Measurement *measurem
     : QWidget(parent), m_project(project), m_measurement(measurement) {
     m_nameEdit = new QLineEdit(measurement->name);
     m_descriptionEdit = new QLineEdit(measurement->description);
-    m_pathLabel = new QLabel(measurement->path);
-    m_pathLabel->setWordWrap(true);
-    m_pathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    // The file name apart from its folder, so that a long path cannot hide it
+    m_fileLabel = new QLabel;
+    m_fileLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_folderLabel = new QLabel;
+    m_folderLabel->setWordWrap(true);
+    m_folderLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_settingsCombo = new QComboBox;
     m_detectorCombo = new QComboBox;
     m_physicsCombo = new QComboBox;
@@ -39,7 +44,8 @@ MeasurementInfoView::MeasurementInfoView(Project *project, Measurement *measurem
     auto *form = new QFormLayout;
     form->addRow("Name:", m_nameEdit);
     form->addRow("Description:", m_descriptionEdit);
-    form->addRow("Data file:", m_pathLabel);
+    form->addRow("Data file:", m_fileLabel);
+    form->addRow("Folder:", m_folderLabel);
     form->addRow("Experimental settings:", m_settingsCombo);
     form->addRow("Detector settings:", m_detectorCombo);
     form->addRow("Physics settings:", m_physicsCombo);
@@ -95,7 +101,9 @@ void MeasurementInfoView::refresh() {
     if(!m_descriptionEdit->hasFocus()) {
         m_descriptionEdit->setText(m_measurement->description);
     }
-    m_pathLabel->setText(m_measurement->path);
+    const QFileInfo file(m_measurement->path);
+    m_fileLabel->setText(file.fileName());
+    m_folderLabel->setText(QDir::toNativeSeparators(file.absolutePath()));
     updateSettingsCombos();
     showGeometry();
 }
