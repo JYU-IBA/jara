@@ -2,6 +2,7 @@
 #include "coincidencedialog.h"
 #include "defaults.h"
 #include "elements.h"
+#include "imageview.h"
 #include "projectimportdialog.h"
 #include "project.h"
 
@@ -182,8 +183,10 @@ QTreeWidgetItem *createMeasurementItem(const Measurement &measurement, int index
     return renamable(item);
 }
 
+// Images are shown in JaRA, see ImageView
 QTreeWidgetItem *createFileItem(const AttachedFile &file, int index) {
-    return createItem(QFileInfo(file.path).fileName(), FileNode, index, file.path, QStyle::SP_FileIcon);
+    return createItem(QFileInfo(file.path).fileName(), FileNode, index, file.path,
+                      isImageFile(file.path) ? QStyle::SP_DesktopIcon : QStyle::SP_FileIcon);
 }
 
 // Renumbers the nodes of one type after one of them has been removed
@@ -377,10 +380,10 @@ ProjectPanel::ProjectPanel(QWidget *parent) : QWidget(parent) {
     layout->addWidget(m_tree);
 
     connect(m_tree, &QTreeWidget::currentItemChanged, this, &ProjectPanel::currentItemChanged);
-    // Items open with a click or Enter, files outside JaRA with a double click
+    // Items open with a click or Enter, files other than images outside JaRA with a double click
     tree->clicked = [this](QTreeWidgetItem *item, bool newTab) { openItem(item, newTab); };
     connect(m_tree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *item) {
-        if(nodeType(item) == FileNode) {
+        if(nodeType(item) == FileNode && !isImageFile(sampleOf(item)->files[nodeIndex(item)].path)) {
             m_tree->setCurrentItem(item);
             openCurrentFile();
         }
@@ -649,7 +652,7 @@ void ProjectPanel::settingsEdited() {
 }
 
 void ProjectPanel::openItem(QTreeWidgetItem *item, bool newTab) {
-    if(nodeType(item) == FileNode) {
+    if(nodeType(item) == FileNode && !isImageFile(sampleOf(item)->files[nodeIndex(item)].path)) {
         return; // Opened outside JaRA with a double click
     }
     m_tree->setCurrentItem(item); // The actions below work on the current item
@@ -687,6 +690,9 @@ void ProjectPanel::openItem(QTreeWidgetItem *item, bool newTab) {
             break;
         case ProjectNode:
             emit projectInfoOpenRequested();
+            break;
+        case FileNode:
+            emit imageOpenRequested(currentSample(), currentFile().path);
             break;
         default:
             break;
@@ -764,7 +770,12 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
                 menu.addAction("Remove Split Analysis", this, &ProjectPanel::removeCurrentSplit);
                 menu.addSeparator();
             } else if(nodeType(item) == FileNode) {
-                menu.addAction("Open File", this, &ProjectPanel::openCurrentFile);
+                if(isImageFile(currentFile().path)) {
+                    menu.addAction("Open Image", this, [this]() { emit imageOpenRequested(currentSample(), currentFile().path); });
+                    menu.addAction("Open Externally", this, &ProjectPanel::openCurrentFile);
+                } else {
+                    menu.addAction("Open File", this, &ProjectPanel::openCurrentFile);
+                }
                 menu.addAction("Remove File", this, &ProjectPanel::removeCurrentFile);
                 menu.addSeparator();
             }
@@ -1856,6 +1867,7 @@ void ProjectPanel::openCurrentFile() {
 void ProjectPanel::removeCurrentFile() {
     QTreeWidgetItem *item = m_tree->currentItem();
     QTreeWidgetItem *parent = item->parent();
+    emit fileAboutToBeRemoved(currentSample(), currentFile().path);
     {
         const QSignalBlocker blocker(m_tree);
         currentSample()->files.removeAt(nodeIndex(item));

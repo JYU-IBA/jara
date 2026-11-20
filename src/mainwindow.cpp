@@ -8,6 +8,7 @@
 #include "splitview.h"
 #include "energyspectrumview.h"
 #include "histogramwidget.h"
+#include "imageview.h"
 #include "measurementview.h"
 #include "preferencesdialog.h"
 #include "projectpanel.h"
@@ -198,6 +199,10 @@ QWidget *MainWindow::createProjectView() {
     connect(m_projectPanel, &ProjectPanel::aboutToOpen, this, [this](bool newTab) { m_openInNewTab = newTab; });
     connect(m_projectPanel, &ProjectPanel::projectInfoOpenRequested, this, &MainWindow::openProjectInfo);
     connect(m_projectPanel, &ProjectPanel::sampleOpenRequested, this, &MainWindow::openSample);
+    connect(m_projectPanel, &ProjectPanel::imageOpenRequested, this, &MainWindow::openImage);
+    connect(m_projectPanel, &ProjectPanel::fileAboutToBeRemoved, this, [this](Sample *sample, const QString &path) {
+        closeTab(findView<ImageView>([sample, &path](ImageView *view) { return view->sample() == sample && view->path() == path; }));
+    });
     connect(m_projectPanel, &ProjectPanel::projectRenamed, this, &MainWindow::projectSaved); // Shows the name
     connect(m_projectPanel, &ProjectPanel::settingsRenamed, this, [this]() {
         for(QWidget *page : tabPages()) {
@@ -762,6 +767,14 @@ void MainWindow::openSample(Sample *sample) {
     showTab(view, sample->name, "Sample");
 }
 
+void MainWindow::openImage(Sample *sample, const QString &path) {
+    auto *view = findView<ImageView>([sample, &path](ImageView *view) { return view->sample() == sample && view->path() == path; });
+    if(!view) {
+        view = new ImageView(sample, path);
+    }
+    showTab(view, QFileInfo(path).fileName(), path);
+}
+
 void MainWindow::openMeasurementInfo(Measurement *measurement) {
     auto *view = findView<MeasurementInfoView>([measurement](MeasurementInfoView *view) { return view->measurement() == measurement; });
     if(!view) {
@@ -973,6 +986,9 @@ void MainWindow::measurementRenamed(Measurement *measurement) {
 
 void MainWindow::closeSampleTabs(Sample *sample) {
     closeTab(findView<SampleView>([sample](SampleView *view) { return view->sample() == sample; }));
+    while(ImageView *view = findView<ImageView>([sample](ImageView *view) { return view->sample() == sample; })) {
+        closeTab(view);
+    }
     for(const auto &measurement : sample->measurements) {
         closeMeasurementTab(measurement.get());
     }
