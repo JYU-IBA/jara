@@ -299,23 +299,34 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     angleLayout->addWidget(m_angleCalibrationLabel, 1);
     angleLayout->addWidget(m_angleCalibrateButton);
 
-    auto *layout = new QFormLayout(this);
-    m_layout = layout;
+    // The detector as a whole, then groups of the time of flight, the angle and list-mode files
+    auto *general = new QFormLayout;
+    general->addRow("Name:", m_nameEdit);
+    general->addRow("Scattering/recoil angle:", m_scatteringAngleSpin);
+    general->addRow("Efficiencies:", efficiencyLayout);
+    auto *tofGroup = new QGroupBox("Time of flight");
+    auto *tofLayout = new QFormLayout(tofGroup);
+    tofLayout->addRow("Length:", m_tofLengthSpin);
+    tofLayout->addRow("Timing detector foil:", foilLayout);
+    tofLayout->addRow("Calibration slope:", m_tofSlopeSpin);
+    tofLayout->addRow("Calibration offset:", m_tofOffsetSpin);
+    tofLayout->addRow(QString(), m_calibrateButton);
+    auto *angleGroup = new QGroupBox("Detection angle");
+    m_angleLayout = new QFormLayout(angleGroup);
+    m_angleLayout->addRow("Detector distance:", m_distanceSpin);
+    m_angleLayout->addRow("Window width:", m_windowWidthSpin);
+    m_angleLayout->addRow("Calibration:", m_angleCalibrationRow);
+    m_angleLayout->setRowVisible(m_angleCalibrationRow, false);
+    m_coincidenceGroup = new QGroupBox("List-mode files");
+    auto *coincidenceForm = new QFormLayout(m_coincidenceGroup);
+    coincidenceForm->addRow("Coincidences:", m_coincidenceRow);
+    coincidenceForm->labelForField(m_coincidenceRow)->setToolTip("Coincidence parameters for importing list-mode files");
+    auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addRow("Name:", m_nameEdit);
-    layout->addRow("Scattering/recoil angle:", m_scatteringAngleSpin);
-    layout->addRow("ToF length:", m_tofLengthSpin);
-    layout->addRow("Timing detector foil:", foilLayout);
-    layout->addRow("Efficiencies:", efficiencyLayout);
-    layout->addRow("ToF calibration slope:", m_tofSlopeSpin);
-    layout->addRow("ToF calibration offset:", m_tofOffsetSpin);
-    layout->addRow(QString(), m_calibrateButton);
-    layout->addRow("Detector distance:", m_distanceSpin);
-    layout->addRow("Window width:", m_windowWidthSpin);
-    layout->addRow("Angle calibration:", m_angleCalibrationRow);
-    layout->setRowVisible(m_angleCalibrationRow, false);
-    layout->addRow("Coincidences:", m_coincidenceRow);
-    layout->labelForField(m_coincidenceRow)->setToolTip("Coincidence parameters for importing list-mode files");
+    layout->addLayout(general);
+    layout->addWidget(tofGroup);
+    layout->addWidget(angleGroup);
+    layout->addWidget(m_coincidenceGroup);
 
     connect(m_nameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         m_detector->name = text;
@@ -427,7 +438,7 @@ void DetectorSettingsEditor::refresh() {
 
 void DetectorSettingsEditor::setCalibrationAvailable(bool available) {
     m_calibrateButton->setVisible(available);
-    m_layout->setRowVisible(m_angleCalibrationRow, available);
+    m_angleLayout->setRowVisible(m_angleCalibrationRow, available);
 }
 
 void DetectorSettingsEditor::showAngleCalibration() {
@@ -455,7 +466,7 @@ void DetectorSettingsEditor::showAngleCalibration() {
 }
 
 void DetectorSettingsEditor::setCoincidenceVisible(bool visible) {
-    m_layout->setRowVisible(m_coincidenceRow, visible);
+    m_coincidenceGroup->setVisible(visible);
 }
 
 namespace {

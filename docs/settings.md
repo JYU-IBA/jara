@@ -18,21 +18,30 @@ incident angle.
 ## Detector settings
 
 - **Scattering/recoil angle**
-- **ToF length**: the flight path between the timing detectors
-- **Timing detector foil**: material and thickness (as mass or atoms per area) of the foil of the first timing
-  detector. Particles lose energy in it before their time of flight is measured; spectra and profiles add this loss
-  back. The default is a 3 µg/cm² carbon foil.
 - **Efficiencies**: detection efficiency curves of isotopes, imported from text files with the energy (MeV) and the
   efficiency in two columns. The isotope is taken from the file name (e.g. `1H.eff` or `H-1.eff`) or asked for. The
   efficiency is that of the particle's energy before the foil, interpolated linearly and zero outside the curve.
   Isotopes without a curve are detected fully.
-- **ToF calibration**: t = slope × channel + offset, set by hand or with the
+
+**Time of flight**
+
+- **Length**: the flight path between the timing detectors
+- **Timing detector foil**: material and thickness (as mass or atoms per area) of the foil of the first timing
+  detector. Particles lose energy in it before their time of flight is measured; spectra and profiles add this loss
+  back. The default is a 3 µg/cm² carbon foil.
+- **Calibration slope** and **offset**: t = slope × channel + offset, set by hand or with the
   [ToF calibration tool](tof-calibration.md) (**ToF Calibration...**).
+
+**Detection angle**
+
 - **Detector distance** and **Window width**: from the sample to the window of the energy detector, and the width of
   the window in the scattering plane. With the angle calibration they give each event its angle.
-- **Angle calibration**: the timing coordinate of the events against the detection angle, made with the
+- **Calibration**: the timing coordinate of the events against the detection angle, made with the
   [angle calibration tool](angle-calibration.md) (**Angle Calibration...**). With it, the distance and the width,
   depth profiles can correct each event kinematically, see [Depth profiles](depth-profiles.md#calculation).
+
+**List-mode files**
+
 - **Coincidences**: a summary of the coincidence parameters used when
   [importing event data](coincidences.md#coincidence-parameters); **Edit...** opens all of them: the ToF and E ADCs,
   the trigger, the timing window, the reorder span and the pairing. The defaults are on the Coincidences page of the
