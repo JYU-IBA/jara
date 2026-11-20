@@ -4,6 +4,7 @@
 
 #include <QLabel>
 #include <QListWidget>
+#include <QScrollArea>
 #include <QVBoxLayout>
 
 namespace {
@@ -52,15 +53,26 @@ void SettingsView::createLayout(QWidget *editor) {
     font.setBold(true);
     title->setFont(font);
 
-    // The form keeps its natural width, the list of measurements may be long
+    // The form keeps its natural size, the list of measurements takes the rest of the height. When the tab is too small
+    // for them, it scrolls.
+    editor->setSizePolicy(editor->sizePolicy().horizontalPolicy(), QSizePolicy::Fixed);
+    m_assignedList->setMinimumHeight(m_assignedList->fontMetrics().height() * 6);
+    auto *content = new QWidget;
     auto *column = new QVBoxLayout;
     column->addWidget(title);
     column->addWidget(editor);
     column->addWidget(new QLabel("Assigned measurements (double-click to open):"));
     column->addWidget(m_assignedList, 1);
-    auto *layout = new QHBoxLayout(this);
-    layout->addLayout(column);
-    layout->addStretch(1);
+    auto *row = new QHBoxLayout(content);
+    row->addLayout(column);
+    row->addStretch(1);
+    auto *scrollArea = new QScrollArea;
+    scrollArea->setWidget(content);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(scrollArea);
 
     connect(m_assignedList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *item) {
         emit measurementActivated(reinterpret_cast<Measurement *>(item->data(MeasurementRole).value<quintptr>()));

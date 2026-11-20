@@ -1,4 +1,5 @@
 #include "measurementinfoview.h"
+#include "formlayout.h"
 #include "elements.h"
 #include "project.h"
 
@@ -41,7 +42,7 @@ MeasurementInfoView::MeasurementInfoView(Project *project, Measurement *measurem
     m_exitAngleLabel = new QLabel;
     m_exitAngleLabel->setToolTip(QString("%1. Scattering angle minus incident angle (IBM geometry).").arg(FromSurface));
 
-    auto *form = new QFormLayout;
+    auto *form = createFormLayout();
     form->addRow("Name:", m_nameEdit);
     form->addRow("Description:", m_descriptionEdit);
     form->addRow("Data file:", m_fileLabel);

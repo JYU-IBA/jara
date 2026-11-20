@@ -1,4 +1,5 @@
 #include "settingseditors.h"
+#include "formlayout.h"
 #include "anglecalibration.h"
 #include "elementdialog.h"
 #include "efficiencydialog.h"
@@ -79,7 +80,7 @@ ExperimentalSettingsEditor::ExperimentalSettingsEditor(QWidget *parent) : QWidge
     m_incidentAngleSpin = createSpinBox(MinIncidentAngle, MaxIncidentAngle, Units::Degree, 2, "°");
     m_incidentAngleSpin->setToolTip(FromSurface);
 
-    auto *layout = new QFormLayout(this);
+    auto *layout = createFormLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addRow("Name:", m_nameEdit);
     layout->addRow("Beam energy:", m_beamEnergySpin);
@@ -174,7 +175,7 @@ CoincidenceSettingsEditor::CoincidenceSettingsEditor(QWidget *parent) : QWidget(
     m_pairingCombo->setToolTip("How triggers with several signals in their window, or signals in the window of several "
                                "triggers, are paired");
 
-    m_layout = new QFormLayout(this);
+    m_layout = createFormLayout(this);
     m_layout->setContentsMargins(0, 0, 0, 0);
     m_layout->addRow("ToF ADC:", m_tofAdcSpin);
     m_layout->addRow("E ADC:", m_energyAdcSpin);
@@ -274,17 +275,12 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     coincidenceLayout->addWidget(coincidenceButton);
     m_foilLabel = new QLabel;
     auto *foilButton = new QPushButton("Edit...");
-    auto *foilLayout = new QHBoxLayout;
-    foilLayout->addWidget(m_foilLabel, 1);
-    foilLayout->addWidget(foilButton);
+    QWidget *foilField = buttonField(m_foilLabel, foilButton);
     m_efficiencyLabel = new QLabel;
     auto *efficiencyButton = new QPushButton("Edit...");
-    auto *efficiencyLayout = new QHBoxLayout;
-    efficiencyLayout->addWidget(m_efficiencyLabel, 1);
-    efficiencyLayout->addWidget(efficiencyButton);
+    QWidget *efficiencyField = buttonField(m_efficiencyLabel, efficiencyButton);
     m_calibrateButton = new QPushButton("ToF Calibration...");
     m_calibrateButton->setToolTip("Find the slope and offset from the leading edges of the ToF spectra of selections");
-    m_calibrateButton->hide();
     m_distanceSpin = createSpinBox(0, 10, Units::Millimetre, 1, " mm");
     m_distanceSpin->setToolTip("From the sample to the window of the energy detector, for the angle calibration");
     m_windowWidthSpin = createSpinBox(0, 1, Units::Millimetre, 2, " mm");
@@ -299,31 +295,36 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     angleLayout->addWidget(m_angleCalibrationLabel, 1);
     angleLayout->addWidget(m_angleCalibrateButton);
 
-    // The detector as a whole, then groups of the time of flight, the angle and list-mode files
-    auto *general = new QFormLayout;
+    // The detector as a whole, the time of flight, the angle and list-mode files, each in a group
+    auto *generalGroup = new QGroupBox("General");
+    auto *general = createFormLayout(generalGroup);
     general->addRow("Name:", m_nameEdit);
     general->addRow("Scattering/recoil angle:", m_scatteringAngleSpin);
-    general->addRow("Efficiencies:", efficiencyLayout);
+    general->addRow("Efficiencies:", efficiencyField);
     auto *tofGroup = new QGroupBox("Time of flight");
-    auto *tofLayout = new QFormLayout(tofGroup);
+    m_tofLayout = createFormLayout(tofGroup);
+    QFormLayout *tofLayout = m_tofLayout;
     tofLayout->addRow("Length:", m_tofLengthSpin);
-    tofLayout->addRow("Timing detector foil:", foilLayout);
+    tofLayout->addRow("Timing detector foil:", foilField);
     tofLayout->addRow("Calibration slope:", m_tofSlopeSpin);
     tofLayout->addRow("Calibration offset:", m_tofOffsetSpin);
-    tofLayout->addRow(QString(), m_calibrateButton);
+    m_calibrateRow = buttonField(nullptr, m_calibrateButton);
+    tofLayout->addRow(QString(), m_calibrateRow);
+    tofLayout->setRowVisible(m_calibrateRow, false);
     auto *angleGroup = new QGroupBox("Detection angle");
-    m_angleLayout = new QFormLayout(angleGroup);
+    m_angleLayout = createFormLayout(angleGroup);
     m_angleLayout->addRow("Detector distance:", m_distanceSpin);
     m_angleLayout->addRow("Window width:", m_windowWidthSpin);
     m_angleLayout->addRow("Calibration:", m_angleCalibrationRow);
     m_angleLayout->setRowVisible(m_angleCalibrationRow, false);
     m_coincidenceGroup = new QGroupBox("List-mode files");
-    auto *coincidenceForm = new QFormLayout(m_coincidenceGroup);
+    auto *coincidenceForm = createFormLayout(m_coincidenceGroup);
     coincidenceForm->addRow("Coincidences:", m_coincidenceRow);
     coincidenceForm->labelForField(m_coincidenceRow)->setToolTip("Coincidence parameters for importing list-mode files");
+    alignFormLabels({general, tofLayout, m_angleLayout, coincidenceForm});
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addLayout(general);
+    layout->addWidget(generalGroup);
     layout->addWidget(tofGroup);
     layout->addWidget(angleGroup);
     layout->addWidget(m_coincidenceGroup);
@@ -437,7 +438,7 @@ void DetectorSettingsEditor::refresh() {
 }
 
 void DetectorSettingsEditor::setCalibrationAvailable(bool available) {
-    m_calibrateButton->setVisible(available);
+    m_tofLayout->setRowVisible(m_calibrateRow, available);
     m_angleLayout->setRowVisible(m_angleCalibrationRow, available);
 }
 
@@ -535,7 +536,7 @@ PhysicsSettingsEditor::PhysicsSettingsEditor(QWidget *parent) : QWidget(parent) 
                                   "remove pairs.");
     m_correctionTable->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    auto *layout = new QFormLayout(this);
+    auto *layout = createFormLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addRow("Name:", m_nameEdit);
     layout->addRow("Screening:", m_screeningCombo);

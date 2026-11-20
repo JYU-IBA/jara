@@ -1,4 +1,5 @@
 #include "coincidencedialog.h"
+#include "formlayout.h"
 #include "defaults.h"
 #include "histogramwidget.h"
 #include "settingseditors.h"
@@ -129,7 +130,7 @@ CoincidenceDialog::CoincidenceDialog(Project &project, const Sample *currentSamp
     m_marginSpin->setToolTip("The plot shows this much more on both sides of the window");
     auto *parametersGroup = new QGroupBox("Coincidence parameters");
     auto *parametersLayout = new QVBoxLayout(parametersGroup);
-    auto *detectorForm = new QFormLayout;
+    auto *detectorForm = createFormLayout();
     detectorForm->setContentsMargins(0, 0, 0, 0);
     detectorForm->addRow("Detector:", m_detectorCombo);
     detectorForm->addRow(m_detectorNote);
@@ -138,7 +139,7 @@ CoincidenceDialog::CoincidenceDialog(Project &project, const Sample *currentSamp
     auto *savedNote = new QLabel("Stored in the detector settings when the files are converted.");
     savedNote->setWordWrap(true);
     parametersLayout->addWidget(savedNote);
-    auto *plotForm = new QFormLayout;
+    auto *plotForm = createFormLayout();
     plotForm->setContentsMargins(0, 0, 0, 0);
     plotForm->addRow("Plot shown around the window:", m_marginSpin);
 

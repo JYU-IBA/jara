@@ -1,4 +1,5 @@
 #include "preferencesdialog.h"
+#include "formlayout.h"
 #include "defaults.h"
 #include "elements.h"
 #include "settingseditors.h"
@@ -121,7 +122,7 @@ QWidget *PreferencesDialog::createHistogramPage() {
     note->setWordWrap(true);
 
     auto *page = new QWidget;
-    auto *form = new QFormLayout;
+    auto *form = createFormLayout();
     form->addRow("Minimum bin size:", binRow(minX, minY));
     form->addRow("Maximum bin size:", binRow(maxX, maxY));
     form->addRow("Color scheme:", schemeCombo);
@@ -184,7 +185,7 @@ QWidget *PreferencesDialog::createCoincidencePage() {
     note->setWordWrap(true);
 
     auto *page = new QWidget;
-    auto *form = new QFormLayout;
+    auto *form = createFormLayout();
     form->addRow("Shown around the window:", margin);
     form->addRow("Events in the preview:", preview);
     form->addRow("Time difference counts:", scaleCombo);
@@ -216,7 +217,7 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
                             "each depth profile.");
     note->setWordWrap(true);
     auto *iterationGroup = new QGroupBox("Iterations");
-    auto *iterationForm = new QFormLayout(iterationGroup);
+    auto *iterationForm = createFormLayout(iterationGroup);
     iterationForm->addRow(note);
     iterationForm->addRow("Maximum iterations:", iterations);
     iterationForm->addRow("Tolerance:", tolerance);
@@ -243,7 +244,7 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
     smoothing->setValue(m_depthProfile.smoothingEvents);
     smoothing->setToolTip("Each stopping bin gets this many events with the composition of the bin above it");
     auto *newGroup = new QGroupBox("New depth profiles (depths in 10¹⁵ at./cm²)");
-    auto *newForm = new QFormLayout(newGroup);
+    auto *newForm = createFormLayout(newGroup);
     newForm->addRow("Profile bin:", binWidth);
     newForm->addRow("Stopping bin:", stoppingBinWidth);
     newForm->addRow("Smoothing events:", smoothing);
@@ -255,7 +256,7 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
     }
     legend->setCurrentIndex(legend->findData(static_cast<int>(m_depthProfile.legendPosition)));
     auto *plotGroup = new QGroupBox("Plot");
-    auto *plotForm = new QFormLayout(plotGroup);
+    auto *plotForm = createFormLayout(plotGroup);
     legend->setToolTip("Dragging the legend of a depth profile to another corner gives it its own position");
     plotForm->addRow("Legend:", legend);
     auto *legendConcentrations = new QCheckBox("Renormalized concentrations in the legend of new depth profiles");
@@ -271,6 +272,7 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
     roundTable->setChecked(m_depthProfile.roundTableConcentrations);
     roundTable->setToolTip(roundTip + QStringLiteral(", also in the export and reports"));
     plotForm->addRow(roundTable);
+    alignFormLabels({iterationForm, newForm, plotForm});
 
     auto *page = new QWidget;
     auto *layout = new QVBoxLayout(page);

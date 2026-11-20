@@ -76,6 +76,8 @@ add_executable(jara
         src/materialeditor.cpp
         src/materialeditor.h
         src/foildialog.cpp
+        src/formlayout.cpp
+        src/formlayout.h
         src/foildialog.h
         src/depthprofile.cpp
         src/depthprofile.h

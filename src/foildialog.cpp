@@ -1,4 +1,5 @@
 #include "foildialog.h"
+#include "formlayout.h"
 #include "materialeditor.h"
 
 #include <algorithm>
@@ -44,7 +45,7 @@ FoilDialog::FoilDialog(const Material &material, double thickness, QWidget *pare
     auto *thicknessRow = new QHBoxLayout;
     thicknessRow->addWidget(m_thicknessSpin, 1);
     thicknessRow->addWidget(m_unitCombo);
-    auto *form = new QFormLayout;
+    auto *form = createFormLayout();
     form->addRow("Thickness:", thicknessRow);
     form->addRow(QString(), m_conversionLabel);
     auto *note = new QLabel("Particles lose energy in the foil of the first timing detector before their time of "

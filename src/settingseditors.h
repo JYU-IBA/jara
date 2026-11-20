@@ -111,6 +111,8 @@ private:
     QLabel *m_foilLabel;
     QLabel *m_efficiencyLabel;
     QPushButton *m_calibrateButton;
+    QFormLayout *m_tofLayout;
+    QWidget *m_calibrateRow;
     QFormLayout *m_angleLayout;
     QGroupBox *m_coincidenceGroup;
     QDoubleSpinBox *m_distanceSpin;

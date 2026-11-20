@@ -1,4 +1,5 @@
 #include "sampleview.h"
+#include "formlayout.h"
 #include "project.h"
 
 #include <algorithm>
@@ -43,7 +44,7 @@ SampleView::SampleView(Sample *sample, QWidget *parent) : QWidget(parent), m_sam
     auto *fileLayout = new QVBoxLayout(fileGroup);
     fileLayout->addWidget(m_fileTable);
 
-    auto *form = new QFormLayout;
+    auto *form = createFormLayout();
     form->addRow("Name:", m_nameEdit);
     form->addRow("Description:", m_descriptionEdit);
     auto *layout = new QVBoxLayout(this);

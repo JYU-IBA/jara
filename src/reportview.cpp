@@ -1,4 +1,5 @@
 #include "reportview.h"
+#include "formlayout.h"
 #include "project.h"
 #include "reportpdf.h"
 
@@ -109,7 +110,7 @@ QWidget *ReportView::createOptions() {
         m_report->measurementNames = static_cast<Report::NameMode>(m_namesCombo->currentData().toInt());
         changed();
     });
-    auto *general = new QFormLayout;
+    auto *general = createFormLayout();
     general->addRow("Title:", m_titleEdit);
     general->addRow("Measurement names:", m_namesCombo);
 

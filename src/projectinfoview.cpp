@@ -1,4 +1,5 @@
 #include "projectinfoview.h"
+#include "formlayout.h"
 #include "project.h"
 
 #include <QFormLayout>
@@ -18,7 +19,7 @@ ProjectInfoView::ProjectInfoView(Project *project, QWidget *parent) : QWidget(pa
     m_notesEdit = new QPlainTextEdit(project->notes());
     m_notesEdit->setPlaceholderText("Notes of the project");
 
-    auto *form = new QFormLayout;
+    auto *form = createFormLayout();
     form->addRow("Name:", m_nameEdit);
     form->addRow("File:", m_fileLabel);
     form->addRow("Created:", m_createdLabel);

@@ -1,4 +1,5 @@
 #include "anglecalibrationwindow.h"
+#include "formlayout.h"
 #include "colorbutton.h"
 #include "defaults.h"
 #include "histogramwidget.h"
@@ -91,7 +92,7 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
     m_edgeNote = new QLabel;
     m_edgeNote->setWordWrap(true);
 
-    auto *form = new QFormLayout;
+    auto *form = createFormLayout();
     form->addRow("Maximum ToF:", m_maxTofSpin);
     form->addRow("Timing smoothing:", m_smoothingSpin);
     form->addRow("Bin width:", m_binWidthSpin);

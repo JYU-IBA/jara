@@ -1,4 +1,5 @@
 #include "elementdialog.h"
+#include "formlayout.h"
 #include "colorbutton.h"
 #include "defaults.h"
 #include "elements.h"
@@ -82,7 +83,7 @@ ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
     m_weightSpin->setValue(1);
     m_weightSpin->setToolTip("The events of the selection are weighted by this in depth profiles, on top of the other "
                              "weights");
-    m_form = new QFormLayout;
+    m_form = createFormLayout();
     m_form->addRow("Element:", m_edit);
     m_form->addRow("Isotope:", m_isotopeCombo);
     m_form->addRow("Color:", m_colorButton);
