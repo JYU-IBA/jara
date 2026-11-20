@@ -52,7 +52,8 @@ The table lists the average concentration of each curve with its uncertainty and
 
 - **Over**: the averaging interval. With **Normalization** checked (the default) it is the normalization interval,
   where the total is already 100 %. Otherwise the averages are also **renormalized** to 100 % among the checked
-  selections of the Renorm. column, e.g. to leave out the substrate.
+  selections of the Renorm. column, e.g. to leave out the substrate. The renormalized averages are also shown as
+  areal densities in 10¹⁵ at./cm², integrated over the averaging interval, e.g. the amount of an element in a layer.
 - The checkbox in the Selection column shows or hides the curve in the plot.
 
 ## Plot
