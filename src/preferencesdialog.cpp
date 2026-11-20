@@ -29,7 +29,9 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
     setWindowTitle("Preferences");
 
     auto *tabs = new QTabWidget;
-    tabs->addTab(createSettingsPage(), "Settings");
+    tabs->addTab(createExperimentalPage(), "Experimental");
+    tabs->addTab(createDetectorPage(), "Detector");
+    tabs->addTab(createPhysicsPage(), "Physics");
     tabs->addTab(createHistogramPage(), "Histogram");
     tabs->addTab(createDepthProfilePage(), "Depth Profiles");
     tabs->addTab(createCoincidencePage(), "Coincidences");
@@ -44,37 +46,43 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
 
-QWidget *PreferencesDialog::createSettingsPage() {
-    auto *experimentalEditor = new ExperimentalSettingsEditor;
-    experimentalEditor->setSettings(&m_experimental);
-    auto *experimentalGroup = new QGroupBox("Default experimental settings");
-    auto *experimentalLayout = new QVBoxLayout(experimentalGroup);
-    experimentalLayout->addWidget(experimentalEditor);
-
-    auto *detectorEditor = new DetectorSettingsEditor;
-    detectorEditor->setDetector(&m_detector);
-    detectorEditor->setCoincidenceVisible(false); // On the coincidence page
-    auto *detectorGroup = new QGroupBox("Default detector settings");
-    auto *detectorLayout = new QVBoxLayout(detectorGroup);
-    detectorLayout->addWidget(detectorEditor);
-
-    auto *physicsEditor = new PhysicsSettingsEditor;
-    physicsEditor->setPhysics(&m_physics);
-    auto *physicsGroup = new QGroupBox("Default physics settings");
-    auto *physicsLayout = new QVBoxLayout(physicsGroup);
-    physicsLayout->addWidget(physicsEditor);
-
+namespace {
+// A page of default settings, the editor stretched when it can use the space
+QWidget *settingsPage(const QString &title, QWidget *editor, bool stretch) {
+    auto *group = new QGroupBox(title);
+    auto *groupLayout = new QVBoxLayout(group);
+    groupLayout->addWidget(editor);
     auto *note = new QLabel("New projects start with these settings, and new settings sets are created from them.");
     note->setWordWrap(true);
 
     auto *page = new QWidget;
     auto *layout = new QVBoxLayout(page);
     layout->addWidget(note);
-    layout->addWidget(experimentalGroup);
-    layout->addWidget(detectorGroup);
-    layout->addWidget(physicsGroup);
-    layout->addStretch();
+    layout->addWidget(group, stretch ? 1 : 0);
+    if(!stretch) {
+        layout->addStretch();
+    }
     return page;
+}
+}
+
+QWidget *PreferencesDialog::createExperimentalPage() {
+    auto *editor = new ExperimentalSettingsEditor;
+    editor->setSettings(&m_experimental);
+    return settingsPage("Default experimental settings", editor, false);
+}
+
+QWidget *PreferencesDialog::createDetectorPage() {
+    auto *editor = new DetectorSettingsEditor;
+    editor->setDetector(&m_detector);
+    editor->setCoincidenceVisible(false); // On the coincidence page
+    return settingsPage("Default detector settings", editor, false);
+}
+
+QWidget *PreferencesDialog::createPhysicsPage() {
+    auto *editor = new PhysicsSettingsEditor;
+    editor->setPhysics(&m_physics);
+    return settingsPage("Default physics settings", editor, true);
 }
 
 QWidget *PreferencesDialog::createHistogramPage() {

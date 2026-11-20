@@ -10,8 +10,8 @@
 
 class QButtonGroup;
 
-// Edits the program-wide default experimental and detector settings, histogram, depth profile and coincidence preferences
-// and the default colors of elements. They are stored when the dialog is accepted.
+// Edits the program-wide default experimental, detector and physics settings, histogram, depth profile and
+// coincidence preferences and the default colors of elements. They are stored when the dialog is accepted.
 class PreferencesDialog : public QDialog {
     Q_OBJECT
 
@@ -20,7 +20,9 @@ public:
     void accept() override;
 
 private:
-    QWidget *createSettingsPage();
+    QWidget *createExperimentalPage();
+    QWidget *createDetectorPage();
+    QWidget *createPhysicsPage();
     QWidget *createHistogramPage();
     QWidget *createElementColorsPage();
     QWidget *createDepthProfilePage();
