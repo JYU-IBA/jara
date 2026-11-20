@@ -116,6 +116,8 @@ target_sources(jara PRIVATE icons/icons.qrc)
 if(APPLE)
     target_sources(jara PRIVATE icons/jara.icns)
     set_source_files_properties(icons/jara.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    # Finder and the Dock cache the icon until the bundle itself changes
+    add_custom_command(TARGET jara POST_BUILD COMMAND touch $<TARGET_BUNDLE_DIR:jara> VERBATIM)
 elseif(WIN32)
     target_sources(jara PRIVATE icons/jara.rc)
 endif()
