@@ -152,6 +152,7 @@ QJsonObject reportSettingsToJson(const ReportSettings &settings) {
     return QJsonObject{{"ion", settings.ion}, {"energy", settings.energy}, {"incidentAngle", settings.incidentAngle},
                        {"scatteringAngle", settings.scatteringAngle}, {"tofLength", settings.tofLength},
                        {"foil", settings.foil}, {"tofCalibration", settings.tofCalibration},
+                       {"angleCalibration", settings.angleCalibration},
                        {"efficiencies", settings.efficiencies}, {"physics", settings.physics},
                        {"profileParameters", settings.profileParameters}};
 }
@@ -166,6 +167,7 @@ ReportSettings reportSettingsFromJson(const QJsonObject &json) {
     read("tofLength", settings.tofLength);
     read("foil", settings.foil);
     read("tofCalibration", settings.tofCalibration);
+    read("angleCalibration", settings.angleCalibration);
     read("efficiencies", settings.efficiencies);
     read("physics", settings.physics);
     read("profileParameters", settings.profileParameters);

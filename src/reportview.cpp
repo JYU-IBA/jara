@@ -123,6 +123,7 @@ QWidget *ReportView::createOptions() {
             {"ToF length", &ReportSettings::tofLength},
             {"Timing foil", &ReportSettings::foil},
             {"ToF calibration", &ReportSettings::tofCalibration},
+            {"Angle calibration", &ReportSettings::angleCalibration},
             {"Efficiencies", &ReportSettings::efficiencies},
             {"Physics", &ReportSettings::physics},
             {"Depth profile parameters", &ReportSettings::profileParameters}};

@@ -398,6 +398,7 @@ struct ReportSettings {
     bool tofLength = false;
     bool foil = false;
     bool tofCalibration = false;
+    bool angleCalibration = false; // With the kinematic correction of the profile
     bool efficiencies = false;
     bool physics = false;
     bool profileParameters = false;

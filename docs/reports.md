@@ -16,7 +16,10 @@ includes all depth profiles and no split analyses.
 - **Measurement names** in the rows: **Automatic** shows them when a sample has several rows, **Always** or **Never**.
   When a measurement has several included depth profiles, the profile name is added as well.
 - **Settings**: the items shown. Incident ion, beam energy, incident angle and scattering angle are on by default;
-  ToF length, timing foil, ToF calibration, efficiencies, physics settings and depth profile parameters can be added.
+  ToF length, timing foil, ToF calibration, angle calibration, efficiencies, physics settings and depth profile
+  parameters can be added. The angle calibration gives the half angle of the window, the window and the distance,
+  the timing calibration, the direction and smoothing when set, and whether the profile uses the kinematic
+  correction.
   Values shared by all rows are listed once, the others are given in a table by row.
 - **Plot ranges**:
   - **As in the depth profile tabs**: the zoom of each depth profile, which the tabs remember in the project, or

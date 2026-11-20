@@ -1,4 +1,5 @@
 #include "reportpdf.h"
+#include "anglecalibration.h"
 #include "depthprofile.h"
 #include "depthprofileview.h"
 #include "efficiencydialog.h"
@@ -97,6 +98,26 @@ QString settingsText(const QString &item, const Measurement &measurement, const 
         return detector ? QString("%1 ns/ch, %2 ns").arg(number(detector->tofSlope / Units::Nanosecond, 6),
                                                          number(detector->tofOffset / Units::Nanosecond, 6))
                         : none;
+    }
+    if(item == "Angle calibration") {
+        if(!detector || !detector->hasAngleCalibration()) {
+            return QStringLiteral("none");
+        }
+        const AngleCalibration &calibration = detector->angleCalibration;
+        QString text = QString("± %1° (window %2 mm at %3 mm), timing %4 %5 %6 ticks/ch × ToF ± %7 ticks")
+                               .arg(number(windowHalfAngle(*detector) / Units::Degree),
+                                    number(detector->windowWidth / Units::Millimetre),
+                                    number(detector->detectorDistance / Units::Millimetre),
+                                    number(calibration.centre, 6), calibration.centreSlope < 0 ? "−" : "+",
+                                    number(std::abs(calibration.centreSlope), 3), number(calibration.halfWidth));
+        if(calibration.reversed) {
+            text += QStringLiteral(", larger timing is a smaller angle");
+        }
+        if(calibration.timingSmoothing > 0) {
+            text += QString(", smoothing ± %1 ticks").arg(number(calibration.timingSmoothing));
+        }
+        text += profile.kinematicCorrection ? QStringLiteral(", kinematic correction") : QStringLiteral(", not used");
+        return text;
     }
     if(item == "Efficiencies") {
         return detector ? efficiencyText(detector->efficiencies) : none;
@@ -269,7 +290,8 @@ bool writeReportPdf(Project &project, Report &report, const QString &fileName, Q
     const std::pair<bool, const char *> available[] = {
             {chosen.ion, "Incident ion"}, {chosen.energy, "Beam energy"}, {chosen.incidentAngle, "Incident angle"},
             {chosen.scatteringAngle, "Scattering angle"}, {chosen.tofLength, "ToF length"}, {chosen.foil, "Timing foil"},
-            {chosen.tofCalibration, "ToF calibration"}, {chosen.efficiencies, "Efficiencies"}, {chosen.physics, "Physics"},
+            {chosen.tofCalibration, "ToF calibration"}, {chosen.angleCalibration, "Angle calibration"},
+            {chosen.efficiencies, "Efficiencies"}, {chosen.physics, "Physics"},
             {chosen.profileParameters, "Depth profile"}};
     for(const auto &[on, item] : available) {
         if(on) {
