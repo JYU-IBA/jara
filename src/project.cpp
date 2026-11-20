@@ -189,6 +189,7 @@ QJsonObject depthProfileToJson(const DepthProfile &profile) {
                                     {"excludedCuts", idsToJson(profile.cutIdsExcludedFromAverage)}}},
             {"density", profile.density},
             {"separateIsotopes", profile.separateIsotopes},
+            {"kinematicCorrection", profile.kinematicCorrection},
             {"autoMaxDepth", profile.autoMaxDepth},
             {"plot", QJsonObject{{"hiddenCuts", idsToJson(profile.cutIdsHiddenFromPlot)},
                                  {"total", profile.showTotal},
@@ -246,6 +247,7 @@ std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
     profile->cutIdsExcludedFromAverage = idsFromJson(average["excludedCuts"]);
     profile->autoMaxDepth = json["autoMaxDepth"].toBool(profile->autoMaxDepth);
     profile->separateIsotopes = json["separateIsotopes"].toBool(profile->separateIsotopes);
+    profile->kinematicCorrection = json["kinematicCorrection"].toBool(profile->kinematicCorrection);
     const QJsonObject plot = json["plot"].toObject();
     profile->cutIdsHiddenFromPlot = idsFromJson(plot["hiddenCuts"]);
     profile->showTotal = plot["total"].toBool(profile->showTotal);
@@ -862,8 +864,7 @@ QJsonObject detectorToJson(const DetectorSettings &detector) {
             {"efficiencies", efficiencies},
             {"coincidence", coincidenceToJson(detector.coincidence)},
             {"detectorDistance", detector.detectorDistance},
-            {"windowWidth", detector.windowWidth},
-            {"kinematicCorrection", detector.kinematicCorrection}};
+            {"windowWidth", detector.windowWidth}};
     if(detector.angleCalibration.valid) {
         json["angleCalibration"] = angleCalibrationToJson(detector.angleCalibration);
     }
@@ -880,7 +881,6 @@ DetectorSettings detectorFromJson(const QJsonObject &json) {
     detector.coincidence = coincidenceFromJson(json["coincidence"].toObject());
     detector.detectorDistance = std::max(0.0, json["detectorDistance"].toDouble());
     detector.windowWidth = std::max(0.0, json["windowWidth"].toDouble());
-    detector.kinematicCorrection = json["kinematicCorrection"].toBool();
     if(json.contains("angleCalibration")) {
         detector.angleCalibration = angleCalibrationFromJson(json["angleCalibration"].toObject());
     }

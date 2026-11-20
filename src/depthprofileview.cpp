@@ -442,6 +442,15 @@ QWidget *DepthProfileView::createSidePanel() {
         emit modified();
         updateProfile(SpectrumPlotWidget::ViewChange::ShowAll);
     });
+    m_kinematicCheck = new QCheckBox("Kinematic correction");
+    m_kinematicCheck->setChecked(m_profile->kinematicCorrection);
+    grid->addWidget(m_kinematicCheck, 4, 0, 1, 4);
+    connect(m_kinematicCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        m_profile->kinematicCorrection = checked;
+        emit modified();
+        recalculate();
+    });
+    updateKinematicCheck();
     auto *normalizationLabel = new QLabel("100 % over:");
     normalizationLabel->setToolTip("The total concentration is 100 % on average over this interval");
     grid->addWidget(normalizationLabel, 2, 0);
@@ -1237,8 +1246,19 @@ void DepthProfileView::checkStale() {
     updateSelectionSummary();
     m_rangeWidget->refresh();
     updateCutRanges();
+    updateKinematicCheck();
     updateProfile(SpectrumPlotWidget::ViewChange::Keep);
     setStale(depthProfileInputs(*m_measurement, *m_profile) != m_calculatedInputs);
+}
+
+void DepthProfileView::updateKinematicCheck() {
+    const bool available = m_measurement->detector && m_measurement->detector->hasAngleCalibration();
+    m_kinematicCheck->setEnabled(available);
+    m_kinematicCheck->setToolTip(available ? QStringLiteral("Correct the energy of each event from its detection angle, "
+                                                            "from the angle calibration of the detector, to the "
+                                                            "scattering/recoil angle. Changes start the iterations again.")
+                                           : QStringLiteral("Needs an angle calibration of the detector, with the detector "
+                                                            "distance and window width"));
 }
 
 void DepthProfileView::setStale(bool stale) {

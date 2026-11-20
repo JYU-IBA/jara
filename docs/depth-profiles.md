@@ -9,8 +9,8 @@ detector settings with a [ToF calibration](tof-calibration.md).
 - The detected energy of each event is its energy from the time of flight with the loss in the timing detector foil
   added back. Events where the detection efficiency is below 10⁻⁶, which includes energies outside the efficiency
   curve, are left out.
-- With **Kinematic correction in depth profiles** set in the detector settings, each event has its own detection angle
-  from the [angle calibration](angle-calibration.md). Its detected energy is multiplied by K(θ) / K(θ + Δθ), K being
+- With **Kinematic correction** and an [angle calibration](angle-calibration.md) of the detector, each event has its
+  own detection angle. Its detected energy is multiplied by K(θ) / K(θ + Δθ), K being
   the kinematic factor, θ the scattering/recoil angle of the detector and Δθ the event's offset from it, as if it was
   detected at θ. The timing of each event is spread with the timing smoothing of the calibration first. The efficiency is that of the energy before the correction. Events at an angle no particles reach
   are not corrected.
@@ -51,6 +51,9 @@ Depths are areal densities, shown in 10¹⁵ at./cm², µg/cm² or nm (with the 
 - **Stopping bin**, **Max. depth** (or **Auto**, which follows the depth the events reach), **Smoothing**: changing
   them starts the iterations again.
 - **Profile bin**: the bins of the profile shown.
+- **Kinematic correction**: corrects each event from its own angle, see above. On by default, available when the
+  detector has an angle calibration with the detector distance and window width. Changing it starts the iterations
+  again.
 - **100 % over**: the normalization interval, found automatically (**Auto**) as the longest stretch where the
   smoothed total stays near its typical level, or set by hand.
 

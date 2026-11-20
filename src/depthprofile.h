@@ -34,7 +34,7 @@
 // efficiency is that of the selection's isotope, the incident ion for scattered ions, or of the most abundant isotope
 // when the selection is an element.
 //
-// With the kinematic correction of the detector, each event is detected at its own angle, from the timing coordinate,
+// With the kinematic correction of the profile and an angle calibration of the detector, each event is detected at its own angle, from the timing coordinate,
 // see anglecalibration.h. Its detected energy is multiplied by K(scattering angle) / K(angle of the event), K being the
 // kinematic factor, as if it was detected at the scattering/recoil angle of the detector. The timing of each event is
 // spread uniformly over the timing smoothing of the calibration first, with a fixed seed for each selection. The
@@ -78,7 +78,8 @@ struct DepthProfileInputs {
     Material foilMaterial;
     double foilThickness = 0; // kg/m²
     QList<EfficiencyCurve> efficiencies;
-    // Kinematic correction, see above. Only set when the detector has it, otherwise left at the defaults.
+    // Kinematic correction, see above. Only set when the profile has it and the detector has an angle calibration,
+    // otherwise left at the defaults.
     bool kinematicCorrection = false;
     AngleCalibration angleCalibration;
     double detectorDistance = 0; // m

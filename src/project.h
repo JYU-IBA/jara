@@ -171,8 +171,6 @@ struct DetectorSettings {
     double detectorDistance = 0; // m, from the sample to the window of the energy detector
     double windowWidth = 0; // m, of the detector window in the scattering plane
     AngleCalibration angleCalibration;
-    // Depth profiles correct the energy of each event to the scattering/recoil angle, see depthprofile.h
-    bool kinematicCorrection = false;
     // The calibration and the geometry give each event an angle, see anglecalibration.h
     bool hasAngleCalibration() const { return angleCalibration.valid && detectorDistance > 0 && windowWidth > 0; }
     const EfficiencyCurve *efficiency(int z, int a) const { return findEfficiency(efficiencies, z, a); }
@@ -290,6 +288,9 @@ struct DepthProfile {
     QList<int> cutIdsExcludedFromAverage; // Left out of the renormalized averages, e.g. the substrate
     double density = DefaultDensity; // kg/m³
     bool separateIsotopes = false; // Selections of an element are summed into one unless this is set, see depthprofile.h
+    // The energy of each event is corrected to the scattering/recoil angle when the detector has an angle calibration,
+    // see depthprofile.h
+    bool kinematicCorrection = true;
     // Part of the measurement used, as fractions of the counts of the measurement's reference, see split.h
     double rangeMin = 0;
     double rangeMax = 1;

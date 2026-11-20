@@ -7,7 +7,6 @@ struct CoincidenceSettings;
 struct DetectorSettings;
 struct ExperimentalSettings;
 struct PhysicsSettings;
-class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QFormLayout;
@@ -81,7 +80,7 @@ public:
     explicit DetectorSettingsEditor(QWidget *parent = nullptr);
     void setDetector(DetectorSettings *detector); // Not owned
     void refresh(); // Shows the values again after the detector was changed elsewhere
-    // Shows the buttons for the ToF and angle calibration tools and the angle calibration, hidden by default
+    // Shows the buttons of the ToF and angle calibration tools and the angle calibration, hidden by default
     void setCalibrationAvailable(bool available);
     void setCoincidenceVisible(bool visible); // The coincidence parameters, shown by default
 
@@ -117,7 +116,6 @@ private:
     QLabel *m_angleCalibrationLabel;
     QPushButton *m_angleCalibrateButton;
     QWidget *m_angleCalibrationRow;
-    QCheckBox *m_kinematicCheck;
 };
 
 // Stopping of all elements and corrections for pairs of incident and target elements, shown in a table

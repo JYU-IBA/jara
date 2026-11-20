@@ -49,5 +49,6 @@ again.
    measurement, the ToF calibration and the detector distance and window width.
 5. **Apply to Detector** stores the calibration, with the maximum ToF and the direction, in the detector settings.
 
-Then set **Kinematic correction in depth profiles** in the detector settings. Depth profiles of the detector are
-marked out of date and recalculated. As a check, the surface edge of a profile should be sharper with the correction.
+Depth profiles of the detector then use the kinematic correction, which each profile can turn off with
+**Kinematic correction**. They are marked out of date and recalculated. As a check, the surface edge of a profile
+should be sharper with the correction than without it.

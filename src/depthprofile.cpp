@@ -60,7 +60,7 @@ DepthProfileInputs depthProfileInputs(const Measurement &measurement, const Dept
         inputs.foilMaterial = detector->foilMaterial;
         inputs.foilThickness = detector->foilThickness;
         inputs.efficiencies = detector->efficiencies;
-        if(detector->kinematicCorrection && detector->hasAngleCalibration()) {
+        if(profile.kinematicCorrection && detector->hasAngleCalibration()) {
             inputs.kinematicCorrection = true;
             inputs.angleCalibration = detector->angleCalibration;
             inputs.detectorDistance = detector->detectorDistance;
