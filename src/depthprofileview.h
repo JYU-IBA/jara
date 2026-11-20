@@ -14,6 +14,7 @@ class MeasurementRangeWidget;
 class QCheckBox;
 class QDialog;
 class QGridLayout;
+class QAction;
 class QActionGroup;
 class QComboBox;
 class QDoubleSpinBox;

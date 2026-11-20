@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include <QActionGroup>
 #include <QApplication>
@@ -80,6 +81,11 @@ QString percent(double fraction) {
 QString arealDensity(double density) {
     return std::isnan(density) ? QStringLiteral("—")
                                : QString::number(density / Units::ThinFilmUnit, 'f', ConcentrationDecimals);
+}
+
+// "< 0.07" when the value is an upper limit, see upperLimit()
+QString limitText(double limit, double unit) {
+    return QString("< %1").arg(roundedUp(limit / unit, ConcentrationDecimals), 0, 'f', ConcentrationDecimals);
 }
 
 
@@ -160,7 +166,17 @@ DepthProfileView::DepthProfileView(Measurement *measurement, DepthProfile *profi
     m_labelMenu = new QMenu("Labels", this);
     connect(m_labelMenu, &QMenu::aboutToShow, this, &DepthProfileView::updateLabelMenu);
     connect(m_plot, &SpectrumPlotWidget::labelMoved, this, &DepthProfileView::labelMoved);
-    m_plot->setContextActions({concentrations, m_labelMenu->menuAction(), shadeAverage});
+    auto *roundLegend = new QAction("Round Concentrations", this);
+    roundLegend->setCheckable(true);
+    roundLegend->setChecked(m_profile->roundLegendConcentrations);
+    roundLegend->setToolTip("Averages in the legend rounded to their uncertainties, upper limits for those less than "
+                            "twice their uncertainty");
+    connect(roundLegend, &QAction::toggled, this, [this](bool checked) {
+        m_profile->roundLegendConcentrations = checked;
+        emit modified();
+        updateProfile(SpectrumPlotWidget::ViewChange::Keep);
+    });
+    m_plot->setContextActions({concentrations, roundLegend, m_labelMenu->menuAction(), shadeAverage});
     updateLegendPosition();
     m_statusLabel = new QLabel;
     m_statusLabel->setMinimumHeight(m_statusLabel->fontMetrics().height()); // Cursor info, or the hint of the mode
@@ -489,6 +505,18 @@ QWidget *DepthProfileView::createSidePanel() {
                                                                  "selections, e.g. leaving out the substrate");
     m_averageTable->headerItem()->setToolTip(ArealDensityColumn, "Averages integrated over the averaging interval");
     connect(m_averageTable, &QTreeWidget::itemChanged, this, &DepthProfileView::averageItemChanged);
+    auto *roundTable = new QAction("Round Concentrations", this);
+    roundTable->setCheckable(true);
+    roundTable->setChecked(m_profile->roundTableConcentrations);
+    roundTable->setToolTip("Averages rounded to their uncertainties, upper limits for those less than twice their "
+                           "uncertainty, also in the export");
+    connect(roundTable, &QAction::toggled, this, [this](bool checked) {
+        m_profile->roundTableConcentrations = checked;
+        emit modified();
+        updateAverages();
+    });
+    m_averageTable->setContextMenuPolicy(Qt::ActionsContextMenu);
+    m_averageTable->addAction(roundTable);
     auto *averageGroup = new QGroupBox("Average concentrations");
     auto *averageLayout = new QVBoxLayout(averageGroup);
     averageLayout->setContentsMargins(6, 6, 6, 6);
@@ -976,10 +1004,12 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
         // Over the normalization interval the averages need no renormalization. Otherwise left out selections have
         // no renormalized average.
         if(m_profile->showLegendConcentrations && m_profile->averageFollowsNormalization) {
-            plotCurve.legendSuffix = QString(": %1").arg(percentWithUncertainty(average.concentration, average.uncertainty));
+            plotCurve.legendSuffix = QString(": %1").arg(percentWithUncertainty(average.concentration, average.uncertainty,
+                                                                                m_profile->roundLegendConcentrations));
         } else if(m_profile->showLegendConcentrations && !std::isnan(average.renormalized)) {
             plotCurve.legendSuffix = QString(": %1").arg(percentWithUncertainty(average.renormalized,
-                                                                                average.renormalizedUncertainty));
+                                                                                average.renormalizedUncertainty,
+                                                                                m_profile->roundLegendConcentrations));
         }
         for(const double concentration : curve.concentrations) {
             plotCurve.values.push_back(concentration * 100);
@@ -1093,11 +1123,18 @@ void DepthProfileView::updateAverages() {
         item->setCheckState(AverageSelectionColumn, plotted ? Qt::Checked : Qt::Unchecked);
         const bool included = !curve.allIn(m_profile->cutIdsExcludedFromAverage);
         item->setCheckState(RenormalizedColumn, included ? Qt::Checked : Qt::Unchecked);
-        item->setText(AverageColumn, percent(average.concentration));
-        item->setText(UncertaintyColumn, percent(average.uncertainty));
-        item->setText(ArealDensityColumn, arealDensity(average.concentration * width));
-        item->setText(RenormalizedColumn, percent(average.renormalized));
-        item->setText(RenormalizedUncertaintyColumn, percent(average.renormalizedUncertainty));
+        // Rounded to the uncertainties, with upper limits in place of values that are not clearly above zero
+        const bool round = m_profile->roundTableConcentrations;
+        const PercentText text = percentText(average.concentration, average.uncertainty, round);
+        item->setText(AverageColumn, text.value);
+        item->setText(UncertaintyColumn, text.uncertainty);
+        const double limit = round ? upperLimit(average.concentration, average.uncertainty)
+                                   : std::numeric_limits<double>::quiet_NaN();
+        item->setText(ArealDensityColumn, std::isnan(limit) ? arealDensity(average.concentration * width)
+                                                            : limitText(limit * width, Units::ThinFilmUnit));
+        const PercentText renormalized = percentText(average.renormalized, average.renormalizedUncertainty, round);
+        item->setText(RenormalizedColumn, renormalized.value);
+        item->setText(RenormalizedUncertaintyColumn, renormalized.uncertainty);
         item->setText(EventsColumn, QString::number(average.counts));
         for(const int column : {AverageColumn, UncertaintyColumn, ArealDensityColumn, RenormalizedColumn,
                                 RenormalizedUncertaintyColumn, EventsColumn}) {
@@ -1261,12 +1298,26 @@ void DepthProfileView::exportProfile() {
     QStringList averages;
     for(size_t c = 0; c < m_result.curves.size(); c++) {
         const DepthProfileResult::Average &average = m_result.averages[c];
-        QString text = QString("%1 %2 +- %3 (%4 +- %5 1e15 at./cm2)")
-                               .arg(m_result.curves[c].label(false), value(average.concentration),
-                                    value(average.uncertainty), number(average.concentration * averageWidth),
-                                    number(average.uncertainty * averageWidth));
+        // With rounded concentrations, upper limits in place of values that are not clearly above zero, see upperLimit()
+        auto limitValue = [](double limit) {
+            return QString("< %1").arg(roundedUp(limit * 100, ExportConcentrationDecimals), 0, 'f', ExportConcentrationDecimals);
+        };
+        const double limit = m_profile->roundTableConcentrations ? upperLimit(average.concentration, average.uncertainty)
+                                                             : std::numeric_limits<double>::quiet_NaN();
+        QString text = std::isnan(limit) ? QString("%1 %2 +- %3 (%4 +- %5 1e15 at./cm2)")
+                                                   .arg(m_result.curves[c].label(false), value(average.concentration),
+                                                        value(average.uncertainty), number(average.concentration * averageWidth),
+                                                        number(average.uncertainty * averageWidth))
+                                         : QString("%1 %2 (< %3 1e15 at./cm2)")
+                                                   .arg(m_result.curves[c].label(false), limitValue(limit),
+                                                        number(limit * averageWidth));
         if(!m_profile->averageFollowsNormalization && !std::isnan(average.renormalized)) {
-            text += QString(" (renormalized %1 +- %2)").arg(value(average.renormalized), value(average.renormalizedUncertainty));
+            const double renormalizedLimit = m_profile->roundTableConcentrations
+                                                     ? upperLimit(average.renormalized, average.renormalizedUncertainty)
+                                                     : std::numeric_limits<double>::quiet_NaN();
+            text += std::isnan(renormalizedLimit)
+                            ? QString(" (renormalized %1 +- %2)").arg(value(average.renormalized), value(average.renormalizedUncertainty))
+                            : QString(" (renormalized %1)").arg(limitValue(renormalizedLimit));
         }
         averages.append(text);
     }

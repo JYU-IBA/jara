@@ -222,8 +222,24 @@ void snapToBins(double &min, double &max, double binWidth);
 
 DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, const DepthProfile &profile);
 
-// "12.3 ± 0.4 at.%": the uncertainty rounded to one significant digit, or two when they are 15 or less, and the value
-// to the same precision. Without an uncertainty, the value to 0.01 at.%; "—" for NaN. Optionally without the unit.
-QString percentWithUncertainty(double fraction, double uncertainty, bool unit = true);
+// The 84 % upper limit of a value less than twice its uncertainty, NaN for a larger value. The value is taken as a sum
+// of n = (value / uncertainty)² events of equal weight, whose upper limit is n + 1 + √(n + 3/4) events (Gehrels 1986).
+// With n < 1 the weight is at most the uncertainty.
+// Without a value, the uncertainty already is the upper limit, see DepthProfileCurve::uncertainties.
+double upperLimit(double value, double uncertainty);
+// Rounded up to the decimals
+double roundedUp(double value, int decimals);
+
+// A concentration and its uncertainty in at.%. Rounded, the uncertainty to one significant digit, or two when they
+// are 15 or less, and the value to the same precision; an upper limit "< 0.07" in place of a value less than twice its
+// uncertainty, see upperLimit(), rounded up in the same way, with an empty uncertainty. Otherwise both to 0.01 at.%.
+// Without an uncertainty, the value to 0.01 at.% and an empty uncertainty; "—" for NaN.
+struct PercentText {
+    QString value;
+    QString uncertainty;
+};
+PercentText percentText(double fraction, double uncertainty, bool rounded);
+// "12.3 ± 0.4 at.%" or "< 0.07 at.%" from percentText(), optionally without the unit
+QString percentWithUncertainty(double fraction, double uncertainty, bool rounded, bool unit = true);
 
 #endif // JARA_DEPTHPROFILE_H

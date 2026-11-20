@@ -205,6 +205,8 @@ DepthProfilePreferences Defaults::depthProfilePreferences() {
     preferences.autoMaxDepth = json["autoMaxDepth"].toBool(preferences.autoMaxDepth);
     preferences.legendPosition = legendPositionFromId(json["legendPosition"].toString(), preferences.legendPosition);
     preferences.showLegendConcentrations = json["legendConcentrations"].toBool(preferences.showLegendConcentrations);
+    preferences.roundTableConcentrations = json["roundTableConcentrations"].toBool(preferences.roundTableConcentrations);
+    preferences.roundLegendConcentrations = json["roundLegendConcentrations"].toBool(preferences.roundLegendConcentrations);
     if(preferences.legendPosition == LegendPosition::Default) {
         preferences.legendPosition = LegendPosition::TopRight;
     }
@@ -220,7 +222,9 @@ void Defaults::setDepthProfilePreferences(const DepthProfilePreferences &prefere
                                        {"maxDepth", preferences.maxDepth},
                                        {"autoMaxDepth", preferences.autoMaxDepth},
                                        {"legendPosition", legendPositionId(preferences.legendPosition)},
-                                       {"legendConcentrations", preferences.showLegendConcentrations}});
+                                       {"legendConcentrations", preferences.showLegendConcentrations},
+                                       {"roundTableConcentrations", preferences.roundTableConcentrations},
+                                       {"roundLegendConcentrations", preferences.roundLegendConcentrations}});
 }
 
 DepthProfile Defaults::depthProfile() {
@@ -232,6 +236,8 @@ DepthProfile Defaults::depthProfile() {
     profile.maxDepth = preferences.maxDepth;
     profile.autoMaxDepth = preferences.autoMaxDepth;
     profile.showLegendConcentrations = preferences.showLegendConcentrations;
+    profile.roundTableConcentrations = preferences.roundTableConcentrations;
+    profile.roundLegendConcentrations = preferences.roundLegendConcentrations;
     return profile;
 }
 

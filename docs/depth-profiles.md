@@ -28,6 +28,9 @@ detector settings with a [ToF calibration](tof-calibration.md).
   that part, whose binomial uncertainty is included as well. A bin or an average without events has 0 with the 84 %
   upper limit as its uncertainty: 1.84 events (the Poisson upper limit for none) with the weight of the events in the
   nearest bins.
+- With **Round Concentrations** (see Averages and Plot), averages less than twice their uncertainty are shown as 84 % upper
+  limits, e.g. "< 0.07 at.%". The average and its uncertainty are taken as n = (average / uncertainty)² events of
+  equal weight, whose Poisson upper limit is n + 1 + √(n + ¾) events (Gehrels' approximation).
 
 Depths are areal densities, shown in 10¹⁵ at./cm², µg/cm² or nm (with the density given in the panel).
 
@@ -59,6 +62,10 @@ averaging interval as an areal density in 10¹⁵ at./cm² (e.g. the amount of a
   where the total is already 100 %. Otherwise the averages are also **renormalized** to 100 % among the checked
   selections of the Renorm. column, e.g. to leave out the substrate.
 - The checkbox in the Selection column shows or hides the curve in the plot.
+- **Round Concentrations** in the context menu of the table rounds the averages to their uncertainties (one
+  significant digit, two when they are 15 or less) and shows those not clearly above zero as upper limits, see above,
+  in the table, the header of the export and reports. Otherwise they are shown as they are, to 0.01 at.%. New profiles
+  take it from the preferences, off by default. The concentrations of the bins in the export are never rounded.
 
 ## Plot
 
@@ -67,10 +74,11 @@ averaging interval as an areal density in 10¹⁵ at./cm² (e.g. the amount of a
 - The dashed orange lines are the averaging interval and can be dragged; with Normalization checked they move the
   normalization interval. **Normalization** in the toolbar also shows the normalization interval, **Total** the sum of
   the concentrations.
-- The context menu has **Concentrations in the Legend**, **Shade Averaging Interval** and **Labels**: the names of
-  the selections in the plot at their averages, in the middle of the averaging interval. Labels are spread apart so
-  they do not overlap; a dragged label stays at its depth and concentration. The submenu chooses which selections get
-  a label and resets dragged labels.
+- The context menu has **Concentrations in the Legend**, **Round Concentrations** (in the legend, as in the table of
+  averages, on by default for new profiles), **Shade Averaging Interval** and **Labels**: the names of the selections
+  in the plot at their averages, in the middle of the averaging interval. Labels are spread apart so they do not
+  overlap; a dragged label stays at its depth and concentration. The submenu chooses which selections get a label and
+  resets dragged labels.
 - **Export...** writes the bin edges and centres, the depths in µg/cm² and nm, and for each curve the concentration,
   its uncertainty and the events, with the averages, also as areal densities, in the header.
   Concentrations are written to 0.0001 at.%. See [Exporting](getting-started.md#exporting).

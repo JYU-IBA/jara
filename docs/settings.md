@@ -47,7 +47,8 @@ File → Preferences holds the program-wide defaults:
 
 - Default experimental and detector settings of new projects and new settings
 - ToF-E histogram binning and colour scheme
-- Depth profile iterations and convergence tolerance, the parameters of new depth profiles and the default legend
-  corner
+- Depth profile iterations and convergence tolerance, the parameters of new depth profiles, the default legend
+  corner, and whether new depth profiles show concentrations in the legend and round them in the legend and in the
+  table of averages
 - The plot margin and the size of the preview when [converting coincidence files](coincidences.md)
 - Colours of the elements, used for new selections

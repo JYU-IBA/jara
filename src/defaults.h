@@ -30,6 +30,8 @@ struct DepthProfilePreferences {
     bool autoMaxDepth = true;
     LegendPosition legendPosition = LegendPosition::TopRight; // Of depth profiles that use the default, never Default
     bool showLegendConcentrations = true; // Of new depth profiles
+    bool roundTableConcentrations = false; // Of new depth profiles
+    bool roundLegendConcentrations = true; // Of new depth profiles
 };
 
 // The dialog for converting list-mode files, see coincidence.h. The coincidence parameters are in the detector settings.

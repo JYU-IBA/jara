@@ -237,6 +237,16 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
     auto *legendConcentrations = new QCheckBox("Renormalized concentrations in the legend of new depth profiles");
     legendConcentrations->setChecked(m_depthProfile.showLegendConcentrations);
     plotForm->addRow(legendConcentrations);
+    const QString roundTip = QStringLiteral("Averages rounded to their uncertainties, upper limits for those less than "
+                                            "twice their uncertainty");
+    auto *roundLegend = new QCheckBox("Round the concentrations in the legend of new depth profiles");
+    roundLegend->setChecked(m_depthProfile.roundLegendConcentrations);
+    roundLegend->setToolTip(roundTip);
+    plotForm->addRow(roundLegend);
+    auto *roundTable = new QCheckBox("Round the concentrations in the table of averages of new depth profiles");
+    roundTable->setChecked(m_depthProfile.roundTableConcentrations);
+    roundTable->setToolTip(roundTip + QStringLiteral(", also in the export and reports"));
+    plotForm->addRow(roundTable);
 
     auto *page = new QWidget;
     auto *layout = new QVBoxLayout(page);
@@ -261,6 +271,12 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
     });
     connect(legendConcentrations, &QCheckBox::toggled, this, [this](bool checked) {
         m_depthProfile.showLegendConcentrations = checked;
+    });
+    connect(roundLegend, &QCheckBox::toggled, this, [this](bool checked) {
+        m_depthProfile.roundLegendConcentrations = checked;
+    });
+    connect(roundTable, &QCheckBox::toggled, this, [this](bool checked) {
+        m_depthProfile.roundTableConcentrations = checked;
     });
     return page;
 }

@@ -198,7 +198,9 @@ QJsonObject depthProfileToJson(const DepthProfile &profile) {
                                  {"unlabeledCuts", idsToJson(profile.cutIdsWithoutLabel)},
                                  {"labelPositions", labelPositionsToJson(profile.labelPositions)},
                                  {"legend", legendPositionId(profile.legendPosition)},
-                                 {"legendConcentrations", profile.showLegendConcentrations}}}};
+                                 {"legendConcentrations", profile.showLegendConcentrations},
+                                 {"roundLegendConcentrations", profile.roundLegendConcentrations}}},
+            {"roundTableConcentrations", profile.roundTableConcentrations}};
     rangeToJson(json, profile.rangeMin, profile.rangeMax);
     if(profile.view) {
         QJsonObject plot = json["plot"].toObject();
@@ -261,6 +263,8 @@ std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
     }
     profile->legendPosition = legendPositionFromId(plot["legend"].toString(), profile->legendPosition);
     profile->showLegendConcentrations = plot["legendConcentrations"].toBool(profile->showLegendConcentrations);
+    profile->roundLegendConcentrations = plot["roundLegendConcentrations"].toBool(profile->roundLegendConcentrations);
+    profile->roundTableConcentrations = json["roundTableConcentrations"].toBool(profile->roundTableConcentrations);
     rangeFromJson(json, profile->rangeMin, profile->rangeMax);
     for(const auto &value : json["cutRanges"].toArray()) {
         const QJsonObject range = value.toObject();

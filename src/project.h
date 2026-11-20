@@ -287,6 +287,10 @@ struct DepthProfile {
     QHash<int, QPointF> labelPositions;
     LegendPosition legendPosition = LegendPosition::Default;
     bool showLegendConcentrations = true; // The renormalized averages in the legend
+    // Averages rounded to their uncertainties and upper limits for those not clearly above zero, see upperLimit(): in
+    // the table of averages, also in the export and reports, and in the legend
+    bool roundTableConcentrations = false;
+    bool roundLegendConcentrations = true;
     std::optional<PlotView> view; // Zoomed by the user, otherwise everything is shown
 };
 

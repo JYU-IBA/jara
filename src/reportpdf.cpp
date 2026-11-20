@@ -326,7 +326,7 @@ bool writeReportPdf(Project &project, Report &report, const QString &fileName, Q
                 html += "<td align='right' style='white-space: nowrap'>"
                         + (element == row.elements.end()
                                    ? QString()
-                                   : escaped(percentWithUncertainty(element->first, std::sqrt(element->second), false)))
+                                   : escaped(percentWithUncertainty(element->first, std::sqrt(element->second), row.profile->roundTableConcentrations, false)))
                         + "</td>";
             }
             html += "</tr>";
@@ -337,6 +337,9 @@ bool writeReportPdf(Project &project, Report &report, const QString &fileName, Q
         }
     }
     QStringList notes{"Statistical uncertainties, including the normalization."};
+    if(std::any_of(rows.begin(), rows.end(), [](const Row &row) { return row.profile && row.profile->roundTableConcentrations; })) {
+        notes.append("< : 84 % upper limits of averages less than twice their uncertainty.");
+    }
     if(anyRenormalized) {
         notes.append("* Averages over an interval other than the normalization interval, renormalized to 100 % among "
                      "the selections included in the renormalization.");

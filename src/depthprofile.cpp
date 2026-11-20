@@ -946,20 +946,56 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     return result;
 }
 
-QString percentWithUncertainty(double fraction, double uncertainty, bool unit) {
-    const QString suffix = unit ? QStringLiteral(" at.%") : QString();
+double upperLimit(double value, double uncertainty) {
+    if(!std::isfinite(value) || !std::isfinite(uncertainty) || uncertainty <= 0 || value >= 2 * uncertainty) {
+        return NaN;
+    }
+    if(value <= 0) {
+        return uncertainty;
+    }
+    const double events = (value / uncertainty) * (value / uncertainty);
+    // Fewer than one event only when the uncertainty is not just counting statistics, e.g. of a sum with an upper limit
+    const double weight = std::min(uncertainty * uncertainty / value, uncertainty);
+    return (events + 1 + std::sqrt(events + 0.75)) * weight;
+}
+
+double roundedUp(double value, int decimals) {
+    const double step = std::pow(10.0, -decimals);
+    // Not up to the next step when the value is on a step but for rounding errors
+    return std::ceil(value / step * (1 - 1e-12)) * step;
+}
+
+PercentText percentText(double fraction, double uncertainty, bool rounded) {
     if(std::isnan(fraction)) {
-        return QStringLiteral("—");
+        return {QStringLiteral("—"), QString()};
     }
     const double value = fraction * 100;
     const double deviation = uncertainty * 100;
     if(!std::isfinite(deviation) || deviation <= 0) {
-        return QString::number(value, 'f', 2) + suffix;
+        return {QString::number(value, 'f', 2), QString()};
     }
-    const int exponent = static_cast<int>(std::floor(std::log10(deviation)));
-    const bool twoDigits = std::round(deviation / std::pow(10.0, exponent - 1)) <= 15;
-    const int decimals = (twoDigits ? 1 : 0) - exponent;
+    if(!rounded) {
+        return {QString::number(value, 'f', 2), QString::number(deviation, 'f', 2)};
+    }
+    // One significant digit, or two when they are 15 or less
+    auto decimalsOf = [](double x) {
+        const int exponent = static_cast<int>(std::floor(std::log10(x)));
+        const bool twoDigits = std::round(x / std::pow(10.0, exponent - 1)) <= 15;
+        return (twoDigits ? 1 : 0) - exponent;
+    };
+    const double limit = upperLimit(value, deviation);
+    if(!std::isnan(limit)) {
+        const int decimals = decimalsOf(limit);
+        return {QString("< %1").arg(roundedUp(limit, decimals), 0, 'f', std::max(decimals, 0)), QString()};
+    }
+    const int decimals = decimalsOf(deviation);
     const double step = std::pow(10.0, -decimals);
-    const auto rounded = [&](double x) { return QString::number(std::round(x / step) * step, 'f', std::max(decimals, 0)); };
-    return QString("%1 ± %2").arg(rounded(value), rounded(deviation)) + suffix;
+    const auto round = [&](double x) { return QString::number(std::round(x / step) * step, 'f', std::max(decimals, 0)); };
+    return {round(value), round(deviation)};
+}
+
+QString percentWithUncertainty(double fraction, double uncertainty, bool rounded, bool unit) {
+    const PercentText text = percentText(fraction, uncertainty, rounded);
+    const QString suffix = unit && !std::isnan(fraction) ? QStringLiteral(" at.%") : QString();
+    return (text.uncertainty.isEmpty() ? text.value : QString("%1 ± %2").arg(text.value, text.uncertainty)) + suffix;
 }

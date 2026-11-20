@@ -34,7 +34,9 @@ and writes the PDF:
 3. The average concentrations in at.%, one row per depth profile and one column per element in order of atomic number.
    Recoils, scattered ions and isotopes of an element are summed, and their uncertainties added in quadrature. The
    averages are those of each profile: over the normalization interval when its averaging follows it, otherwise
-   renormalized among its included selections (marked with *). Uncertainties are statistical. Wide tables are split
+   renormalized among its included selections (marked with *). Uncertainties are statistical. Profiles with
+   Round Concentrations in their table of averages show values less than twice their uncertainty as upper limits, see
+   [Depth profiles](depth-profiles.md). Wide tables are split
    into blocks of six elements.
 4. The depth profile plots, two per page, in 10¹⁵ at./cm².
 5. The appendix: the split analysis plots.
