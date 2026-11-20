@@ -59,7 +59,7 @@ private:
     QComboBox *m_namesCombo = nullptr;
     QComboBox *m_rangeCombo = nullptr;
     QWidget *m_commonRange = nullptr;
-    QDoubleSpinBox *m_depthMinSpin = nullptr; // Of the common range, 1e15 at/cm²
+    QDoubleSpinBox *m_depthMinSpin = nullptr; // Of the common range, 1e15 at./cm²
     QDoubleSpinBox *m_depthMaxSpin = nullptr;
     QDoubleSpinBox *m_concentrationMinSpin = nullptr; // at.%
     QDoubleSpinBox *m_concentrationMaxSpin = nullptr;

@@ -36,7 +36,7 @@ and writes the PDF:
    averages are those of each profile: over the normalization interval when its averaging follows it, otherwise
    renormalized among its included selections (marked with *). Uncertainties are statistical. Wide tables are split
    into blocks of six elements.
-4. The depth profile plots, two per page, in 10¹⁵ at/cm².
+4. The depth profile plots, two per page, in 10¹⁵ at./cm².
 5. The appendix: the split analysis plots.
 
 ## Out of date

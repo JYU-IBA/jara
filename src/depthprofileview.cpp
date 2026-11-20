@@ -34,8 +34,8 @@
 #include <QVBoxLayout>
 
 namespace {
-const QString ThinFilmText = QStringLiteral("10¹⁵ at/cm²");
-const QString ThinFilmValueText = QStringLiteral("e15 at/cm²"); // After a number, "20e15 at/cm²"
+const QString ThinFilmText = QStringLiteral("10¹⁵ at./cm²");
+const QString ThinFilmValueText = QStringLiteral("e15 at./cm²"); // After a number, "20e15 at./cm²"
 constexpr double Nanometre = 1e-9;
 constexpr double GramPerCubicCentimetre = 1000; // kg/m³
 constexpr int CutIdRole = Qt::UserRole;
@@ -43,7 +43,7 @@ constexpr int CutIdsRole = Qt::UserRole + 1; // Of the selections summed in a ro
 constexpr int ConcentrationDecimals = 2; // at.%
 constexpr int ExportConcentrationDecimals = 4; // at.%
 
-constexpr double MaxDepthSpin = 1e6; // 1e15 at/cm²
+constexpr double MaxDepthSpin = 1e6; // 1e15 at./cm²
 const QColor NormalizationColor(0x1f, 0x77, 0xb4);
 const QColor AverageColor(0xff, 0x7f, 0x0e);
 
@@ -907,8 +907,8 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
     SpectrumPlotWidget::XAxis axis;
     axis.title = QString("Depth (%1)").arg(depthUnitText());
     if(m_unit == DepthUnit::ThinFilm) {
-        axis.valueSuffix = QStringLiteral("e15"); // "20.0e15–40.0e15 at/cm²"
-        axis.unit = QStringLiteral("at/cm²");
+        axis.valueSuffix = QStringLiteral("e15"); // "20.0e15–40.0e15 at./cm²"
+        axis.unit = QStringLiteral("at./cm²");
     } else {
         axis.unit = depthUnitText();
     }
@@ -1219,7 +1219,7 @@ void DepthProfileView::exportProfile() {
                                        screeningModelName(m_calculatedInputs.physics.screening))
                                   .arg(m_calculation->iterations())
                                   .arg(changeText(m_calculation->lastChange())));
-    table.comments.append(QString("Depths in 1e15 at/cm2: stopping bins %1 with %2 smoothing events, maximum %3, 100 % "
+    table.comments.append(QString("Depths in 1e15 at./cm2: stopping bins %1 with %2 smoothing events, maximum %3, 100 % "
                                   "over %4-%5, averages over %6-%7; density %8 g/cm3 for nm")
                                   .arg(number(m_profile->stoppingBinWidth / thinFilm))
                                   .arg(m_profile->minStoppingBinEvents)
@@ -1248,9 +1248,9 @@ void DepthProfileView::exportProfile() {
         averages.append(text);
     }
     table.comments.append(QStringLiteral("Averages (at.%): ") + averages.join(QStringLiteral(", ")));
-    // Edges and centres of the bins in 1e15 at/cm2, centres in the other units
-    table.columns = QStringList{QStringLiteral("Depth min (1e15 at/cm2)"), QStringLiteral("Depth (1e15 at/cm2)"),
-                                QStringLiteral("Depth max (1e15 at/cm2)"), QStringLiteral("Depth (ug/cm2)"),
+    // Edges and centres of the bins in 1e15 at./cm2, centres in the other units
+    table.columns = QStringList{QStringLiteral("Depth min (1e15 at./cm2)"), QStringLiteral("Depth (1e15 at./cm2)"),
+                                QStringLiteral("Depth max (1e15 at./cm2)"), QStringLiteral("Depth (ug/cm2)"),
                                 QStringLiteral("Depth (nm)")};
     for(const DepthProfileCurve &curve : m_result.curves) {
         const QString label = curve.label(false);

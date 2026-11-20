@@ -25,7 +25,7 @@ detector settings with a [ToF calibration](tof-calibration.md).
 - The profile bins the events again with the profile bin width. The concentrations are normalized so that the total
   is 100 % on average over the normalization interval. Uncertainties are statistical and include the normalization.
 
-Depths are areal densities, shown in 10¹⁵ at/cm², µg/cm² or nm (with the density given in the panel).
+Depths are areal densities, shown in 10¹⁵ at./cm², µg/cm² or nm (with the density given in the panel).
 
 ## Parameters
 

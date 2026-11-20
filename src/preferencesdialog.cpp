@@ -165,7 +165,7 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
     iterationForm->addRow("Maximum iterations:", iterations);
     iterationForm->addRow("Tolerance:", tolerance);
 
-    // Depths are shown in 1e15 at/cm², stored in atoms/m²
+    // Depths are shown in 1e15 at./cm², stored in atoms/m²
     auto depthSpin = [](double value, double minimum) {
         auto *spinBox = new QDoubleSpinBox;
         spinBox->setDecimals(1);
@@ -186,7 +186,7 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
     smoothing->setRange(1, 100000);
     smoothing->setValue(m_depthProfile.smoothingEvents);
     smoothing->setToolTip("Each stopping bin gets this many events with the composition of the bin above it");
-    auto *newGroup = new QGroupBox("New depth profiles (depths in 10¹⁵ at/cm²)");
+    auto *newGroup = new QGroupBox("New depth profiles (depths in 10¹⁵ at./cm²)");
     auto *newForm = new QFormLayout(newGroup);
     newForm->addRow("Profile bin:", binWidth);
     newForm->addRow("Stopping bin:", stoppingBinWidth);

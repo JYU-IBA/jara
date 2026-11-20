@@ -114,7 +114,7 @@ QString settingsText(const QString &item, const Measurement &measurement, const 
         }
         return text;
     }
-    // Profile parameters, depths in 1e15 at/cm²
+    // Profile parameters, depths in 1e15 at./cm²
     const double thinFilm = Units::ThinFilmUnit;
     QString text = QString("bins %1, stopping bins %2, smoothing %3, 100 % over %4")
                            .arg(number(profile.binWidth / thinFilm), number(profile.stoppingBinWidth / thinFilm))

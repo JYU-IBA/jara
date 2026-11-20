@@ -17,8 +17,8 @@ namespace {
 enum Unit { MassUnit, AtomUnit };
 const QString UnitKey = QStringLiteral("foilDialog/unit"); // The unit last used is remembered
 const QString MassUnitText = QStringLiteral("µg/cm²");
-const QString AtomUnitText = QStringLiteral("10¹⁵ at/cm²");
-const QString AtomValueText = QStringLiteral("e15 at/cm²"); // After a number, "20e15 at/cm²"
+const QString AtomUnitText = QStringLiteral("10¹⁵ at./cm²");
+const QString AtomValueText = QStringLiteral("e15 at./cm²"); // After a number, "20e15 at./cm²"
 }
 
 QString foilText(const Material &material, double thickness) {

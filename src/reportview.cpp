@@ -176,7 +176,7 @@ QWidget *ReportView::createOptions() {
     m_commonRange = new QWidget;
     auto *commonLayout = new QGridLayout(m_commonRange);
     commonLayout->setContentsMargins(0, 0, 0, 0);
-    commonLayout->addWidget(new QLabel("Depth (10¹⁵ at/cm²):"), 0, 0);
+    commonLayout->addWidget(new QLabel("Depth (10¹⁵ at./cm²):"), 0, 0);
     commonLayout->addWidget(m_depthMinSpin, 0, 1);
     commonLayout->addWidget(new QLabel("–"), 0, 2);
     commonLayout->addWidget(m_depthMaxSpin, 0, 3);
@@ -190,7 +190,7 @@ QWidget *ReportView::createOptions() {
     m_viewTable->setHorizontalHeaderLabels({"Depth profile", "Depth min", "Depth max", "at.% min", "at.% max", "Log"});
     m_viewTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_viewTable->verticalHeader()->hide();
-    m_viewTable->setToolTip("Depths in 10¹⁵ at/cm², starting from the zoom of the depth profile tabs");
+    m_viewTable->setToolTip("Depths in 10¹⁵ at./cm², starting from the zoom of the depth profile tabs");
     connect(m_viewTable, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *item) {
         const auto *profile = reinterpret_cast<const DepthProfile *>(
                 m_viewTable->item(item->row(), ProfileColumn)->data(ObjectRole).value<quintptr>());

@@ -226,7 +226,7 @@ struct PhysicsSettings {
     const StoppingCorrection *correctionFor(int z1, int z2) const;
 };
 
-// Built-in defaults of new depth profiles, see also the preferences in defaults.h. Depths are areal densities in atoms/m², 1e15 at/cm² = Units::ThinFilmUnit.
+// Built-in defaults of new depth profiles, see also the preferences in defaults.h. Depths are areal densities in atoms/m², 1e15 at./cm² = Units::ThinFilmUnit.
 constexpr double DefaultDepthBinWidth = 20 * Units::ThinFilmUnit;
 constexpr double DefaultStoppingBinWidth = 20 * Units::ThinFilmUnit;
 constexpr double DefaultMaxDepth = 5000 * Units::ThinFilmUnit;
