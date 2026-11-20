@@ -69,6 +69,10 @@ add_executable(jara
         src/anglecalibration.h
         src/anglecalibrationwindow.cpp
         src/anglecalibrationwindow.h
+        src/massselection.cpp
+        src/massselection.h
+        src/massselectionwindow.cpp
+        src/massselectionwindow.h
         src/calibrationplotwidget.cpp
         src/calibrationplotwidget.h
         src/stopping.cpp

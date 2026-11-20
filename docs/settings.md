@@ -33,6 +33,8 @@ incident angle.
 - **Angle calibration**: the timing coordinate of the events against the detection angle, made with the
   [angle calibration tool](angle-calibration.md) (**Angle Calibration...**). With it, the distance and the width,
   depth profiles can correct each event kinematically, see [Depth profiles](depth-profiles.md#calculation).
+- **Mass calibration**: the E axis against the mass, made with the [automatic selections](mass-selection.md) of a
+  measurement and used for measurements whose bands cannot be identified by their leading edges.
 - **Coincidence parameters (list-mode files)**: the ToF and E ADCs, the trigger, the timing window, the reorder span
   and the pairing used when [importing event data](coincidences.md#coincidence-parameters). The defaults are on the
   Coincidences page of the preferences.

@@ -11,6 +11,7 @@
 #include "tofedata.h"
 
 class HistogramWidget;
+class MassSelectionWindow;
 class QAction;
 class QLabel;
 class QListWidget;
@@ -25,6 +26,7 @@ public:
 
 signals:
     void modified();
+    void detectorChanged(DetectorSettings *detector); // Its mass calibration was changed in the automatic selections
 
 private slots:
     void polygonCompleted(const QList<QPointF> &polygon);
@@ -37,6 +39,7 @@ private slots:
     void removeCuts();
     void copyCuts();
     void pasteCuts();
+    void openAutomaticSelections();
 
 private:
     QWidget *createToolBar();
@@ -51,6 +54,7 @@ private:
     QAction *m_copyAction = nullptr;
     QAction *m_pasteAction = nullptr;
     QLabel *m_statusLabel = nullptr;
+    MassSelectionWindow *m_massSelectionWindow = nullptr; // Created when first opened
     QString m_hint;
 };
 

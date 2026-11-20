@@ -747,6 +747,7 @@ void MainWindow::openMeasurement(Measurement *measurement) {
     if(!view) {
         view = new MeasurementView(measurement);
         connect(view, &MeasurementView::modified, this, &MainWindow::projectModified);
+        connect(view, &MeasurementView::detectorChanged, this, &MainWindow::calibrationApplied);
     }
     showTab(view, histogramTitle(measurement), measurement->path);
 }

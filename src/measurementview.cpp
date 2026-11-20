@@ -4,6 +4,7 @@
 #include "elementdialog.h"
 #include "elements.h"
 #include "histogramwidget.h"
+#include "massselectionwindow.h"
 #include "project.h"
 
 #include <QActionGroup>
@@ -93,7 +94,9 @@ MeasurementView::MeasurementView(Measurement *measurement, QWidget *parent) : QW
     });
     connect(m_histogram, &HistogramWidget::polygonCompleted, this, &MeasurementView::polygonCompleted);
     connect(m_histogram, &HistogramWidget::cutClicked, this, [this](int index) { m_cutList->setCurrentRow(index); });
-    connect(m_histogram, &HistogramWidget::cutEdited, this, [this]() {
+    connect(m_histogram, &HistogramWidget::cutEdited, this, [this](int index) {
+        // Edited by hand, not replaced by automatic selections any more
+        m_measurement->cuts[index].automatic = false;
         updateCutList();
         emit modified();
     });
@@ -134,6 +137,9 @@ QWidget *MeasurementView::createToolBar() {
     addMode("Move", HistogramWidget::Mode::Move, {})->setToolTip("Drag to move the view");
     addMode("Select", HistogramWidget::Mode::Select, SelectHint);
     addMode("Edit", HistogramWidget::Mode::Edit, EditHint);
+    toolBar->addSeparator();
+    toolBar->addAction("Automatic Selections...", this, &MeasurementView::openAutomaticSelections)
+            ->setToolTip("Find the mass bands, identify them and select them as deep as they do not overlap");
     return toolBar;
 }
 
@@ -271,11 +277,28 @@ void MeasurementView::updateCutList() {
         if(cut.weight != 1 && isAnalyzed(cut)) {
             toolTip.append(QString("Additional weight %1 in depth profiles").arg(cut.weight));
         }
+        if(cut.automatic) {
+            toolTip.append("Made by the automatic selections, which replace it when made again");
+        }
         item->setToolTip(toolTip.join(QLatin1Char('\n')));
         m_cutList->addItem(item);
     }
     m_cutList->setCurrentRow(std::min(row, static_cast<int>(m_cutList->count()) - 1));
     m_histogram->update();
+}
+
+void MeasurementView::openAutomaticSelections() {
+    if(!m_massSelectionWindow) {
+        m_massSelectionWindow = new MassSelectionWindow(m_measurement, &m_events, this);
+        connect(m_massSelectionWindow, &MassSelectionWindow::selectionsMade, this, [this]() {
+            updateCutList();
+            emit modified();
+        });
+        connect(m_massSelectionWindow, &MassSelectionWindow::calibrationApplied, this, &MeasurementView::detectorChanged);
+    }
+    m_massSelectionWindow->show();
+    m_massSelectionWindow->raise();
+    m_massSelectionWindow->activateWindow();
 }
 
 void MeasurementView::polygonCompleted(const QList<QPointF> &polygon) {

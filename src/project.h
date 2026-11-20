@@ -68,6 +68,9 @@ struct Cut {
     // its element
     std::optional<double> abundance;
     double weight = 1; // Additional weight of the events in depth profiles, MinCutWeight...MaxCutWeight
+    // Made by the automatic selections, see massselection.h, which replace such selections when made again. Editing the
+    // polygon by hand clears it.
+    bool automatic = false;
 };
 
 constexpr double MinCutWeight = 0;
@@ -156,6 +159,22 @@ struct AngleCalibration {
     bool operator==(const AngleCalibration &) const = default;
 };
 
+// Mass calibration of the E axis, see massselection.h. The proto-mass ln(E channel × (t / ns)²) of a particle of mass
+// m is ln(m / u) + Σ coefficient × ln(m / u)^massPower × ln(t / 100 ns)^timePower, t from the ToF calibration.
+struct MassCalibrationTerm {
+    int massPower = 0;
+    int timePower = 0;
+    double coefficient = 0;
+    bool operator==(const MassCalibrationTerm &) const = default;
+};
+struct MassCalibration {
+    QList<MassCalibrationTerm> terms; // Empty when not calibrated
+    double minMass = 0; // kg, the lightest and heaviest masses it was fitted to
+    double maxMass = 0;
+    bool isValid() const { return !terms.isEmpty(); }
+    bool operator==(const MassCalibration &) const = default;
+};
+
 // Parameters of the detector, shared by the measurements assigned to them
 struct DetectorSettings {
     QString name;
@@ -171,6 +190,7 @@ struct DetectorSettings {
     double detectorDistance = 0; // m, from the sample to the window of the energy detector
     double windowWidth = 0; // m, of the detector window in the scattering plane
     AngleCalibration angleCalibration;
+    MassCalibration massCalibration;
     // The calibration and the geometry give each event an angle, see anglecalibration.h
     bool hasAngleCalibration() const { return angleCalibration.valid && detectorDistance > 0 && windowWidth > 0; }
     const EfficiencyCurve *efficiency(int z, int a) const { return findEfficiency(efficiencies, z, a); }

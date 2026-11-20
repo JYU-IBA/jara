@@ -306,6 +306,11 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     layout->addRow("Detector distance:", m_distanceSpin);
     layout->addRow("Window width:", m_windowWidthSpin);
     layout->addRow("Angle calibration:", m_angleCalibrationRow);
+    m_massCalibrationLabel = new QLabel;
+    m_massCalibrationLabel->setWordWrap(true);
+    m_massCalibrationLabel->setToolTip("Made with the automatic selections of a measurement");
+    layout->addRow("Mass calibration:", m_massCalibrationLabel);
+    layout->setRowVisible(m_massCalibrationLabel, false);
     layout->setRowVisible(m_angleCalibrationRow, false);
     layout->addRow(m_coincidenceGroup);
 
@@ -397,6 +402,7 @@ void DetectorSettingsEditor::refresh() {
 void DetectorSettingsEditor::setCalibrationAvailable(bool available) {
     m_calibrateButton->setVisible(available);
     m_layout->setRowVisible(m_angleCalibrationRow, available);
+    m_layout->setRowVisible(m_massCalibrationLabel, available);
 }
 
 void DetectorSettingsEditor::showAngleCalibration() {
@@ -421,6 +427,12 @@ void DetectorSettingsEditor::showAngleCalibration() {
                               : QStringLiteral(" (the detector distance and window width are needed)");
     }
     m_angleCalibrationLabel->setText(text);
+    const MassCalibration &mass = m_detector->massCalibration;
+    m_massCalibrationLabel->setText(mass.isValid() ? QString("From %1–%2 u, %3 terms")
+                                                             .arg(mass.minMass / Units::AtomicMassUnit, 0, 'f', 1)
+                                                             .arg(mass.maxMass / Units::AtomicMassUnit, 0, 'f', 1)
+                                                             .arg(mass.terms.size())
+                                                   : QStringLiteral("Not calibrated (Automatic Selections... of a measurement)"));
 }
 
 void DetectorSettingsEditor::setCoincidenceVisible(bool visible) {

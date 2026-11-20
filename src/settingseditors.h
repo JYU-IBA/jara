@@ -116,6 +116,7 @@ private:
     QLabel *m_angleCalibrationLabel;
     QPushButton *m_angleCalibrateButton;
     QWidget *m_angleCalibrationRow;
+    QLabel *m_massCalibrationLabel;
 };
 
 // Stopping of all elements and corrections for pairs of incident and target elements, shown in a table

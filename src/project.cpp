@@ -675,6 +675,9 @@ QJsonArray cutsToJson(const QList<Cut> &cuts) {
         if(cut.weight != 1) {
             object["weight"] = cut.weight;
         }
+        if(cut.automatic) {
+            object["automatic"] = true;
+        }
         if(cut.tofEdge) {
             object["tofEdge"] = QJsonObject{{"channel", cut.tofEdge->channel}, {"sigma", cut.tofEdge->sigma},
                                             {"manual", cut.tofEdge->manual}};
@@ -707,6 +710,7 @@ QList<Cut> cutsFromJson(const QJsonArray &json) {
             cut.abundance = abundance;
         }
         cut.weight = std::clamp(object["weight"].toDouble(1), MinCutWeight, MaxCutWeight);
+        cut.automatic = object["automatic"].toBool();
         if(object.contains("tofEdge")) {
             const QJsonObject edge = object["tofEdge"].toObject();
             cut.tofEdge = ToFEdge{edge["channel"].toDouble(), edge["sigma"].toDouble(), edge["manual"].toBool()};
@@ -827,6 +831,27 @@ AngleCalibration angleCalibrationFromJson(const QJsonObject &json) {
     return calibration;
 }
 
+QJsonObject massCalibrationToJson(const MassCalibration &calibration) {
+    QJsonArray terms;
+    for(const MassCalibrationTerm &term : calibration.terms) {
+        terms.append(QJsonArray{term.massPower, term.timePower, term.coefficient});
+    }
+    return QJsonObject{{"terms", terms}, {"minMass", calibration.minMass}, {"maxMass", calibration.maxMass}};
+}
+
+MassCalibration massCalibrationFromJson(const QJsonObject &json) {
+    MassCalibration calibration;
+    for(const auto &value : json["terms"].toArray()) {
+        const QJsonArray term = value.toArray();
+        if(term.size() == 3 && term.at(0).toInt() >= 0 && term.at(1).toInt() >= 0) {
+            calibration.terms.append({term.at(0).toInt(), term.at(1).toInt(), term.at(2).toDouble()});
+        }
+    }
+    calibration.minMass = std::max(0.0, json["minMass"].toDouble());
+    calibration.maxMass = std::max(calibration.minMass, json["maxMass"].toDouble());
+    return calibration;
+}
+
 CoincidenceSettings coincidenceFromJson(const QJsonObject &json) {
     CoincidenceSettings settings;
     settings.tofAdc = std::max(-1, json["tofAdc"].toInt(-1));
@@ -870,6 +895,9 @@ QJsonObject detectorToJson(const DetectorSettings &detector) {
     if(detector.angleCalibration.valid) {
         json["angleCalibration"] = angleCalibrationToJson(detector.angleCalibration);
     }
+    if(detector.massCalibration.isValid()) {
+        json["massCalibration"] = massCalibrationToJson(detector.massCalibration);
+    }
     return json;
 }
 
@@ -885,6 +913,9 @@ DetectorSettings detectorFromJson(const QJsonObject &json) {
     detector.windowWidth = std::max(0.0, json["windowWidth"].toDouble());
     if(json.contains("angleCalibration")) {
         detector.angleCalibration = angleCalibrationFromJson(json["angleCalibration"].toObject());
+    }
+    if(json.contains("massCalibration")) {
+        detector.massCalibration = massCalibrationFromJson(json["massCalibration"].toObject());
     }
     if(json.contains("foil")) {
         const QJsonObject foil = json["foil"].toObject();

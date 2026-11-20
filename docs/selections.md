@@ -7,6 +7,8 @@ Open the ToF-E histogram under a measurement in the project tree. The toolbar sw
   removes the last vertex, Esc cancels.
 - **Edit**: drag vertices or whole selections, double-click an edge to add a vertex, right-click a vertex to remove it.
 
+**Automatic Selections...** finds, identifies and selects the mass bands, see [Automatic selections](mass-selection.md).
+
 ## Properties
 
 A completed polygon opens the properties dialog; double-click a selection in the list (or choose **Properties...**
