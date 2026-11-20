@@ -1,4 +1,5 @@
 #include "depthprofile.h"
+#include "anglecalibration.h"
 #include "elements.h"
 #include "energyspectrum.h"
 #include "split.h"
@@ -59,6 +60,12 @@ DepthProfileInputs depthProfileInputs(const Measurement &measurement, const Dept
         inputs.foilMaterial = detector->foilMaterial;
         inputs.foilThickness = detector->foilThickness;
         inputs.efficiencies = detector->efficiencies;
+        if(detector->kinematicCorrection && detector->hasAngleCalibration()) {
+            inputs.kinematicCorrection = true;
+            inputs.angleCalibration = detector->angleCalibration;
+            inputs.detectorDistance = detector->detectorDistance;
+            inputs.windowWidth = detector->windowWidth;
+        }
     }
     inputs.physics = measurement.physicsOrDefault();
     inputs.physics.name.clear();
@@ -170,23 +177,12 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         const double mass = scattered ? m_beamMass : targetMass;
         SelectionPhysics physics{};
         physics.targetMass = targetMass;
-        const double m1 = m_beamMass;
-        const double m2 = targetMass;
-        if(scattered) {
-            const double root = m2 * m2 - m1 * m1 * std::sin(angle) * std::sin(angle);
-            if(root < 0) {
-                m_errorMessage = QString("%1 cannot scatter from %2 to the detector angle.")
-                                         .arg(Elements::label(inputs.beamZ, inputs.beamA), Elements::label(cut.z, cut.a));
-                return;
-            }
-            const double k = (std::sqrt(root) + m1 * std::cos(angle)) / (m1 + m2);
-            physics.kinematicFactor = k * k;
-        } else {
-            if(angle >= 90 * Units::Degree) {
-                m_errorMessage = QStringLiteral("Recoils cannot reach a recoil angle of 90° or more.");
-                return;
-            }
-            physics.kinematicFactor = 4 * m1 * m2 * std::cos(angle) * std::cos(angle) / ((m1 + m2) * (m1 + m2));
+        physics.kinematicFactor = kinematicFactor(cut.type, m_beamMass, targetMass, angle);
+        if(std::isnan(physics.kinematicFactor)) {
+            m_errorMessage = scattered ? QString("%1 cannot scatter from %2 to the detector angle.")
+                                                 .arg(Elements::label(inputs.beamZ, inputs.beamA), Elements::label(cut.z, cut.a))
+                                       : QStringLiteral("Recoils cannot reach a recoil angle of 90° or more.");
+            return;
         }
         auto same = [z, mass](const Particle &particle) { return particle.z == z && particle.mass == mass; };
         auto found = std::find_if(m_particles.begin(), m_particles.end(), same);
@@ -261,7 +257,9 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         std::mt19937 random(static_cast<std::mt19937::result_type>(cut.id));
         std::uniform_real_distribution<double> dither(-0.5, 0.5);
         std::vector<double> energies;
+        std::vector<double> corrections; // Of the energies, with the kinematic correction
         double maxEnergy = 0;
+        const SelectionPhysics &selectionPhysics = m_physics[static_cast<size_t>(s)];
         forEachEventIn(range, cut.polygon, [&](const ToFEEvent &event) {
             selection.events++;
             const double energy = tofToEnergy(event.tof + dither(random), particle.mass, inputs.tofLength,
@@ -272,6 +270,11 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
             }
             energies.push_back(energy);
             maxEnergy = std::max(maxEnergy, energy);
+            if(inputs.kinematicCorrection) {
+                const double offset = angleOffset(inputs.angleCalibration, inputs.detectorDistance, inputs.windowWidth, event);
+                const double k = kinematicFactor(cut.type, m_beamMass, selectionPhysics.targetMass, angle + offset);
+                corrections.push_back(k > 0 ? selectionPhysics.kinematicFactor / k : 1);
+            }
         });
         const bool scattered = cut.type == CutType::Scattered;
         const EfficiencyCurve *curve = findEfficiency(inputs.efficiencies, scattered ? inputs.beamZ : cut.z,
@@ -283,14 +286,14 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
             return;
         }
         foil.tabulate(maxEnergy);
-        for(const double energyAfterFoil : energies) {
-            const double energy = foil.energyBefore(energyAfterFoil);
+        for(size_t i = 0; i < energies.size(); i++) {
+            const double energy = foil.energyBefore(energies[i]);
             const double eff = curve ? efficiency(*curve, energy) : 1;
             if(eff < MinEfficiency) {
                 selection.lowEfficiencyEvents++;
                 continue;
             }
-            selection.energies.push_back(energy);
+            selection.energies.push_back(corrections.empty() ? energy : energy * corrections[i]);
             selection.efficiencyWeights.push_back(cut.weight * selection.rangeWeight * cut.abundanceCorrection / eff);
         }
         selection.depths.assign(selection.energies.size(), 0);

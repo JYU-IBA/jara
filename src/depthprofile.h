@@ -34,6 +34,11 @@
 // efficiency is that of the selection's isotope, the incident ion for scattered ions, or of the most abundant isotope
 // when the selection is an element.
 //
+// With the kinematic correction of the detector, each event is detected at its own angle, from the timing coordinate,
+// see anglecalibration.h. Its detected energy is multiplied by K(scattering angle) / K(angle of the event), K being the
+// kinematic factor, as if it was detected at the scattering/recoil angle of the detector. The efficiency is that of
+// the energy before the correction, which the particle had. Events at an angle no particles reach are not corrected.
+//
 // Only the events in the range of the profile are used, see split.h. A selection can use a narrower part of it, e.g.
 // hydrogen only from the beginning of the measurement before it is lost. Its events are then weighted by the reference
 // counts in the profile's range / in its part, so that it stands for the same fluence as the others.
@@ -71,6 +76,11 @@ struct DepthProfileInputs {
     Material foilMaterial;
     double foilThickness = 0; // kg/m²
     QList<EfficiencyCurve> efficiencies;
+    // Kinematic correction, see above. Only set when the detector has it, otherwise left at the defaults.
+    bool kinematicCorrection = false;
+    AngleCalibration angleCalibration;
+    double detectorDistance = 0; // m
+    double windowWidth = 0; // m
     PhysicsSettings physics; // Without the name, which does not matter
     double stoppingBinWidth = 0; // atoms/m²
     double maxDepth = 0; // atoms/m², where an automatic one starts

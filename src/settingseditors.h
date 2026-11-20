@@ -7,6 +7,7 @@ struct CoincidenceSettings;
 struct DetectorSettings;
 struct ExperimentalSettings;
 struct PhysicsSettings;
+class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QFormLayout;
@@ -80,7 +81,8 @@ public:
     explicit DetectorSettingsEditor(QWidget *parent = nullptr);
     void setDetector(DetectorSettings *detector); // Not owned
     void refresh(); // Shows the values again after the detector was changed elsewhere
-    void setCalibrationAvailable(bool available); // Shows the button for the ToF calibration tool, hidden by default
+    // Shows the buttons for the ToF and angle calibration tools and the angle calibration, hidden by default
+    void setCalibrationAvailable(bool available);
     void setCoincidenceVisible(bool visible); // The coincidence parameters, shown by default
 
 signals:
@@ -88,12 +90,15 @@ signals:
     void nameChanged(const QString &name);
     void editingFinished(); // A field was left or Enter was pressed after changed() was emitted
     void calibrationRequested();
+    void angleCalibrationRequested();
 
 private slots:
     void editFoil();
     void editEfficiencies();
 
 private:
+    void showAngleCalibration();
+
     DetectorSettings *m_detector = nullptr;
     bool m_edited = false; // Since editingFinished() was emitted
     QLineEdit *m_nameEdit;
@@ -106,6 +111,13 @@ private:
     QLabel *m_foilLabel;
     QLabel *m_efficiencyLabel;
     QPushButton *m_calibrateButton;
+    QFormLayout *m_layout;
+    QDoubleSpinBox *m_distanceSpin;
+    QDoubleSpinBox *m_windowWidthSpin;
+    QLabel *m_angleCalibrationLabel;
+    QPushButton *m_angleCalibrateButton;
+    QWidget *m_angleCalibrationRow;
+    QCheckBox *m_kinematicCheck;
 };
 
 // Stopping of all elements and corrections for pairs of incident and target elements, shown in a table

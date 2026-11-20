@@ -1,4 +1,5 @@
 #include "settingseditors.h"
+#include "anglecalibration.h"
 #include "elementdialog.h"
 #include "efficiencydialog.h"
 #include "elements.h"
@@ -8,6 +9,7 @@
 
 #include <algorithm>
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QHeaderView>
@@ -277,8 +279,24 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     m_calibrateButton = new QPushButton("ToF Calibration...");
     m_calibrateButton->setToolTip("Find the slope and offset from the leading edges of the ToF spectra of selections");
     m_calibrateButton->hide();
+    m_distanceSpin = createSpinBox(0, 10, Units::Millimetre, 1, " mm");
+    m_distanceSpin->setToolTip("From the sample to the window of the energy detector, for the angle calibration");
+    m_windowWidthSpin = createSpinBox(0, 1, Units::Millimetre, 2, " mm");
+    m_windowWidthSpin->setToolTip("Width of the detector window in the scattering plane, for the angle calibration");
+    m_angleCalibrationLabel = new QLabel;
+    m_angleCalibrationLabel->setWordWrap(true);
+    m_angleCalibrateButton = new QPushButton("Angle Calibration...");
+    m_angleCalibrateButton->setToolTip("Calibrate the timing coordinate of the events to the detection angle");
+    m_angleCalibrationRow = new QWidget;
+    auto *angleLayout = new QHBoxLayout(m_angleCalibrationRow);
+    angleLayout->setContentsMargins(0, 0, 0, 0);
+    angleLayout->addWidget(m_angleCalibrationLabel, 1);
+    angleLayout->addWidget(m_angleCalibrateButton);
+    m_kinematicCheck = new QCheckBox("Kinematic correction in depth profiles");
+    m_kinematicCheck->setToolTip("Correct the energy of each event from its detection angle to the scattering/recoil angle");
 
     auto *layout = new QFormLayout(this);
+    m_layout = layout;
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addRow("Name:", m_nameEdit);
     layout->addRow("Scattering/recoil angle:", m_scatteringAngleSpin);
@@ -288,6 +306,12 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     layout->addRow("ToF calibration slope:", m_tofSlopeSpin);
     layout->addRow("ToF calibration offset:", m_tofOffsetSpin);
     layout->addRow(QString(), m_calibrateButton);
+    layout->addRow("Detector distance:", m_distanceSpin);
+    layout->addRow("Window width:", m_windowWidthSpin);
+    layout->addRow("Angle calibration:", m_angleCalibrationRow);
+    layout->addRow(QString(), m_kinematicCheck);
+    layout->setRowVisible(m_angleCalibrationRow, false);
+    layout->setRowVisible(m_kinematicCheck, false);
     layout->addRow(m_coincidenceGroup);
 
     connect(m_nameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
@@ -300,6 +324,18 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     connectSpinBox(this, m_tofSlopeSpin, m_detector, &DetectorSettings::tofSlope);
     connectSpinBox(this, m_tofOffsetSpin, m_detector, &DetectorSettings::tofOffset);
     connect(m_calibrateButton, &QPushButton::clicked, this, &DetectorSettingsEditor::calibrationRequested);
+    connectSpinBox(this, m_distanceSpin, m_detector, &DetectorSettings::detectorDistance);
+    connectSpinBox(this, m_windowWidthSpin, m_detector, &DetectorSettings::windowWidth);
+    for(QDoubleSpinBox *spinBox : {m_distanceSpin, m_windowWidthSpin}) {
+        connect(spinBox, &QDoubleSpinBox::valueChanged, this, &DetectorSettingsEditor::showAngleCalibration);
+    }
+    connect(m_angleCalibrateButton, &QPushButton::clicked, this, &DetectorSettingsEditor::angleCalibrationRequested);
+    connect(m_kinematicCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        m_detector->kinematicCorrection = checked;
+        emit changed();
+        m_edited = false;
+        emit editingFinished();
+    });
     connect(foilButton, &QPushButton::clicked, this, &DetectorSettingsEditor::editFoil);
     connect(efficiencyButton, &QPushButton::clicked, this, &DetectorSettingsEditor::editEfficiencies);
 
@@ -311,7 +347,8 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
         }
     };
     connect(m_nameEdit, &QLineEdit::editingFinished, this, finished);
-    for(QDoubleSpinBox *spinBox : {m_scatteringAngleSpin, m_tofLengthSpin, m_tofSlopeSpin, m_tofOffsetSpin}) {
+    for(QDoubleSpinBox *spinBox : {m_scatteringAngleSpin, m_tofLengthSpin, m_tofSlopeSpin, m_tofOffsetSpin, m_distanceSpin,
+                                   m_windowWidthSpin}) {
         connect(spinBox, &QDoubleSpinBox::editingFinished, this, finished);
     }
     connect(m_coincidenceEditor, &CoincidenceSettingsEditor::changed, this, &DetectorSettingsEditor::changed);
@@ -329,6 +366,9 @@ void DetectorSettingsEditor::setDetector(DetectorSettings *detector) {
     setValueSilently(m_tofLengthSpin, detector->tofLength);
     setValueSilently(m_tofSlopeSpin, detector->tofSlope);
     setValueSilently(m_tofOffsetSpin, detector->tofOffset);
+    setValueSilently(m_distanceSpin, detector->detectorDistance);
+    setValueSilently(m_windowWidthSpin, detector->windowWidth);
+    showAngleCalibration();
     m_coincidenceEditor->setSettings(&detector->coincidence);
     m_foilLabel->setText(foilText(detector->foilMaterial, detector->foilThickness));
     m_efficiencyLabel->setText(efficiencyText(detector->efficiencies));
@@ -366,6 +406,35 @@ void DetectorSettingsEditor::refresh() {
 
 void DetectorSettingsEditor::setCalibrationAvailable(bool available) {
     m_calibrateButton->setVisible(available);
+    m_layout->setRowVisible(m_angleCalibrationRow, available);
+    m_layout->setRowVisible(m_kinematicCheck, available);
+}
+
+void DetectorSettingsEditor::showAngleCalibration() {
+    if(!m_detector) {
+        return;
+    }
+    const AngleCalibration &calibration = m_detector->angleCalibration;
+    QString text;
+    if(!calibration.valid) {
+        text = QStringLiteral("Not calibrated");
+    } else {
+        text = QString("Centre %1 %2 %3 ticks/ch × ToF, ± %4 ticks")
+                       .arg(calibration.centre, 0, 'f', 2)
+                       .arg(calibration.centreSlope < 0 ? "−" : "+")
+                       .arg(std::abs(calibration.centreSlope), 0, 'g', 3)
+                       .arg(calibration.halfWidth, 0, 'f', 2);
+        if(calibration.reversed) {
+            text += QStringLiteral(", reversed");
+        }
+        const double halfAngle = windowHalfAngle(*m_detector);
+        text += halfAngle > 0 ? QString(", ± %1°").arg(halfAngle / Units::Degree, 0, 'f', 2)
+                              : QStringLiteral(" (the detector distance and window width are needed)");
+    }
+    m_angleCalibrationLabel->setText(text);
+    const QSignalBlocker blocker(m_kinematicCheck);
+    m_kinematicCheck->setChecked(m_detector->kinematicCorrection);
+    m_kinematicCheck->setEnabled(m_detector->hasAngleCalibration() || m_detector->kinematicCorrection);
 }
 
 void DetectorSettingsEditor::setCoincidenceVisible(bool visible) {

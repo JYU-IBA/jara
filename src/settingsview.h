@@ -35,6 +35,7 @@ signals:
     void editingFinished(); // Of detector or physics settings, a field was left after it was changed
     void measurementActivated(Measurement *measurement);
     void calibrationRequested(); // Of detector settings
+    void angleCalibrationRequested(); // Same as above
 
 private:
     void createLayout(QWidget *editor);

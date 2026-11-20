@@ -18,6 +18,7 @@ class QMenuBar;
 class QStackedWidget;
 class QTreeWidget;
 class SettingsView;
+class AngleCalibrationWindow;
 class ToFCalibrationWindow;
 
 class MainWindow : public QMainWindow {
@@ -53,6 +54,7 @@ private slots:
     void openDetector(DetectorSettings *detector);
     void openPhysics(PhysicsSettings *physics);
     void openToFCalibration(DetectorSettings *detector);
+    void openAngleCalibration(DetectorSettings *detector);
     void measurementRenamed(Measurement *measurement);
     void closeSampleTabs(Sample *sample);
     void closeMeasurementTab(Measurement *measurement);
@@ -72,7 +74,8 @@ private:
     void showTab(QWidget *page, const QString &title, const QString &toolTip); // Opened in the main window
     void connectSettingsView(SettingsView *view);
     void recalculateStaleSpectra(); // And depth profiles, after settings they depend on were edited
-    void closeToFCalibration(const DetectorSettings *detector); // nullptr closes all
+    void closeCalibrations(const DetectorSettings *detector); // The ToF and angle calibrations, nullptr closes all
+    void calibrationApplied(DetectorSettings *detector);
     void updateSpectrumTitle(EnergySpectrumView *view); // nullptr is ignored
     void updateDepthProfileTitle(DepthProfileView *view); // nullptr is ignored
     void updateSplitTitle(SplitView *view); // nullptr is ignored

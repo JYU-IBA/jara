@@ -65,6 +65,10 @@ add_executable(jara
         src/tofcalibration.h
         src/tofcalibrationwindow.cpp
         src/tofcalibrationwindow.h
+        src/anglecalibration.cpp
+        src/anglecalibration.h
+        src/anglecalibrationwindow.cpp
+        src/anglecalibrationwindow.h
         src/calibrationplotwidget.cpp
         src/calibrationplotwidget.h
         src/stopping.cpp

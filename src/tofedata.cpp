@@ -49,6 +49,10 @@ bool loadAscFile(const QString &fileName, std::vector<ToFEEvent> &events, QStrin
                 errorMessage = QString("Line %1: expected ToF and E channels in the first two columns.").arg(lineNumber);
                 return false;
             }
+            double timing;
+            if(parseNumber(next, lineEnd, timing)) {
+                event.timing = timing;
+            }
             events.push_back(event);
         }
         p = lineEnd + 1;

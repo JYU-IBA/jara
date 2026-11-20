@@ -70,6 +70,11 @@ EnergySpectrumInputs energySpectrumInputs(const Measurement &measurement, const 
 // incident ion for scattered ions. Zero when not known, or for scattered ions when there is no incident ion (beamZ = 0).
 double particleMass(CutType type, int z, int a, int beamZ, int beamA);
 
+// Kinematic factor at the angle (rad) of target atoms of mass m2 hit by incident ions of mass m1 (kg): the fraction of
+// the incident energy of recoils, or of the scattered ions. NaN when no particles go to the angle: recoils at 90° or
+// more, ions scattering from a lighter atom beyond the largest angle.
+double kinematicFactor(CutType type, double m1, double m2, double angle);
+
 // Energy in J of a particle with the given mass (kg), NaN when the time of flight is not positive
 double tofToEnergy(double tofChannel, double mass, double tofLength, double tofSlope, double tofOffset);
 

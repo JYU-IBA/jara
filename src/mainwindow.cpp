@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "anglecalibrationwindow.h"
 #include "defaults.h"
 #include "depthprofileview.h"
 #include "measurementinfoview.h"
@@ -239,7 +240,7 @@ QWidget *MainWindow::createProjectView() {
     });
     connect(m_projectPanel, &ProjectPanel::detectorAboutToBeRemoved, this, [this](DetectorSettings *detector) {
         closeTab(findView<SettingsView>([detector](SettingsView *view) { return view->detector() == detector; }));
-        closeToFCalibration(detector);
+        closeCalibrations(detector);
     });
     return splitter;
 }
@@ -434,7 +435,7 @@ void MainWindow::setProject(std::unique_ptr<Project> project) {
     for(QWidget *page : tabPages()) {
         closeTab(page);
     }
-    closeToFCalibration(nullptr);
+    closeCalibrations(nullptr);
     m_projectPanel->setProject(project.get());
     m_project = std::move(project);
     m_stack->setCurrentIndex(m_project ? 1 : 0);
@@ -682,6 +683,9 @@ void MainWindow::projectModified() {
     for(ToFCalibrationWindow *window : findChildren<ToFCalibrationWindow *>()) {
         window->refresh();
     }
+    for(AngleCalibrationWindow *window : findChildren<AngleCalibrationWindow *>()) {
+        window->refresh();
+    }
 }
 
 QList<QWidget *> MainWindow::tabPages() const {
@@ -906,6 +910,7 @@ void MainWindow::connectSettingsView(SettingsView *view) {
     // Spectra and depth profiles follow the ToF calibration, the foil or the physics settings once an edit is finished
     connect(view, &SettingsView::editingFinished, this, &MainWindow::recalculateStaleSpectra);
     connect(view, &SettingsView::calibrationRequested, this, [this, view]() { openToFCalibration(view->detector()); });
+    connect(view, &SettingsView::angleCalibrationRequested, this, [this, view]() { openAngleCalibration(view->detector()); });
 }
 
 void MainWindow::openPhysics(PhysicsSettings *physics) {
@@ -941,23 +946,47 @@ void MainWindow::openToFCalibration(DetectorSettings *detector) {
         window = new ToFCalibrationWindow(m_project.get(), detector, this);
         window->setAttribute(Qt::WA_DeleteOnClose);
         connect(window, &ToFCalibrationWindow::modified, this, &MainWindow::projectModified);
-        connect(window, &ToFCalibrationWindow::calibrationApplied, this, [this, detector]() {
-            if(auto *view = findView<SettingsView>([detector](SettingsView *view) { return view->detector() == detector; })) {
-                view->refresh();
-            }
-            m_projectPanel->settingsEdited();
-            projectModified();
-            recalculateStaleSpectra();
-        });
+        connect(window, &ToFCalibrationWindow::calibrationApplied, this, [this, detector]() { calibrationApplied(detector); });
     }
     window->show();
     window->raise();
     window->activateWindow();
 }
 
-void MainWindow::closeToFCalibration(const DetectorSettings *detector) {
+void MainWindow::openAngleCalibration(DetectorSettings *detector) {
+    AngleCalibrationWindow *window = nullptr;
+    for(AngleCalibrationWindow *existing : findChildren<AngleCalibrationWindow *>()) {
+        if(existing->detector() == detector) {
+            window = existing;
+        }
+    }
+    if(!window) {
+        window = new AngleCalibrationWindow(m_project.get(), detector, this);
+        window->setAttribute(Qt::WA_DeleteOnClose);
+        connect(window, &AngleCalibrationWindow::calibrationApplied, this, [this, detector]() { calibrationApplied(detector); });
+    }
+    window->show();
+    window->raise();
+    window->activateWindow();
+}
+
+void MainWindow::calibrationApplied(DetectorSettings *detector) {
+    if(auto *view = findView<SettingsView>([detector](SettingsView *view) { return view->detector() == detector; })) {
+        view->refresh();
+    }
+    m_projectPanel->settingsEdited();
+    projectModified();
+    recalculateStaleSpectra();
+}
+
+void MainWindow::closeCalibrations(const DetectorSettings *detector) {
     // Deleted right away, the windows refer to the project and the detector
     for(ToFCalibrationWindow *window : findChildren<ToFCalibrationWindow *>()) {
+        if(!detector || window->detector() == detector) {
+            delete window;
+        }
+    }
+    for(AngleCalibrationWindow *window : findChildren<AngleCalibrationWindow *>()) {
         if(!detector || window->detector() == detector) {
             delete window;
         }

@@ -30,6 +30,7 @@ SettingsView::SettingsView(Project *project, DetectorSettings *detector, QWidget
     connect(editor, &DetectorSettingsEditor::nameChanged, this, &SettingsView::nameChanged);
     connect(editor, &DetectorSettingsEditor::editingFinished, this, &SettingsView::editingFinished);
     connect(editor, &DetectorSettingsEditor::calibrationRequested, this, &SettingsView::calibrationRequested);
+    connect(editor, &DetectorSettingsEditor::angleCalibrationRequested, this, &SettingsView::angleCalibrationRequested);
     createLayout(editor);
 }
 

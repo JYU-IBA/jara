@@ -1,6 +1,7 @@
 #ifndef JARA_TOFEDATA_H
 #define JARA_TOFEDATA_H
 
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -12,9 +13,13 @@
 struct ToFEEvent {
     double tof; // Channels
     double energy; // Channels
+    // Third column, the coincidence time difference in ticks, which follows the position in the detector, see
+    // anglecalibration.h. NaN when the file has no third column.
+    double timing = std::numeric_limits<double>::quiet_NaN();
 };
 
-// Reads an N-column ASCII event file. The first two columns are ToF and E in channels, further columns are ignored.
+// Reads an N-column ASCII event file. The first two columns are ToF and E in channels, the third is the timing when
+// there is one, further columns are ignored.
 // Empty lines and lines starting with '#' are skipped.
 bool loadAscFile(const QString &fileName, std::vector<ToFEEvent> &events, QString &errorMessage);
 

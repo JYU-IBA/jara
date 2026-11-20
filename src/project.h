@@ -142,6 +142,19 @@ const EfficiencyCurve *findEfficiency(const QList<EfficiencyCurve> &curves, int 
 // Default foil of the first timing detector, a typical DLC foil
 constexpr double DefaultFoilThickness = 3 * Units::MicrogramPerSquareCentimetre; // kg/m²
 
+// Timing coordinate of the events (third column of event files, ticks) to the detection angle, see anglecalibration.h.
+// The detector window spans centre(tof) ± halfWidth, with centre(tof) = centre + centreSlope * ToF channel.
+struct AngleCalibration {
+    bool valid = false; // Fitted and applied in the angle calibration tool
+    double centre = 0; // Ticks, at ToF channel 0
+    double centreSlope = 0; // Ticks/ch
+    double halfWidth = 0; // Ticks
+    double sigma = 0; // Ticks, timing resolution, for information
+    bool reversed = false; // Larger timing is a smaller angle
+    double maxTof = 0; // ToF channel, the longest ToF used in the fit, remembered for the tool
+    bool operator==(const AngleCalibration &) const = default;
+};
+
 // Parameters of the detector, shared by the measurements assigned to them
 struct DetectorSettings {
     QString name;
@@ -154,6 +167,13 @@ struct DetectorSettings {
     double foilThickness = DefaultFoilThickness; // kg/m²
     QList<EfficiencyCurve> efficiencies; // At most one for each isotope, isotopes without one are detected fully
     CoincidenceSettings coincidence; // For converting list-mode (*.evnt) files
+    double detectorDistance = 0; // m, from the sample to the window of the energy detector
+    double windowWidth = 0; // m, of the detector window in the scattering plane
+    AngleCalibration angleCalibration;
+    // Depth profiles correct the energy of each event to the scattering/recoil angle, see depthprofile.h
+    bool kinematicCorrection = false;
+    // The calibration and the geometry give each event an angle, see anglecalibration.h
+    bool hasAngleCalibration() const { return angleCalibration.valid && detectorDistance > 0 && windowWidth > 0; }
     const EfficiencyCurve *efficiency(int z, int a) const { return findEfficiency(efficiencies, z, a); }
 };
 

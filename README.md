@@ -15,6 +15,8 @@ spectra and depth profiles. Stopping, masses and isotopes come from [JIBAL](http
   isotope can stand for its natural element, and the events of a selection can be given an extra weight. See
   [Selections](docs/selections.md).
 - **ToF calibration** from the leading edges of the selections' ToF spectra. See [ToF calibration](docs/tof-calibration.md).
+- **Angle calibration** of the timing coordinate of the events, for a kinematic correction of each event in depth
+  profiles. See [Angle calibration](docs/angle-calibration.md).
 - **Energy spectra** of selections, with the energy lost in the timing detector foil added back. See
   [Energy spectra](docs/energy-spectra.md).
 - **Depth profiles** from single scattering (slab analysis), iterated until the composition converges, with

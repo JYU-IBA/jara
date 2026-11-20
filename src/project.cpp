@@ -800,6 +800,27 @@ QJsonObject coincidenceToJson(const CoincidenceSettings &settings) {
                        {"pairing", coincidencePairingId(settings.pairing)}};
 }
 
+QJsonObject angleCalibrationToJson(const AngleCalibration &calibration) {
+    return QJsonObject{{"centre", calibration.centre},
+                       {"centreSlope", calibration.centreSlope},
+                       {"halfWidth", calibration.halfWidth},
+                       {"sigma", calibration.sigma},
+                       {"reversed", calibration.reversed},
+                       {"maxTof", calibration.maxTof}};
+}
+
+AngleCalibration angleCalibrationFromJson(const QJsonObject &json) {
+    AngleCalibration calibration;
+    calibration.centre = json["centre"].toDouble();
+    calibration.centreSlope = json["centreSlope"].toDouble();
+    calibration.halfWidth = json["halfWidth"].toDouble();
+    calibration.sigma = std::max(0.0, json["sigma"].toDouble());
+    calibration.reversed = json["reversed"].toBool();
+    calibration.maxTof = json["maxTof"].toDouble();
+    calibration.valid = calibration.halfWidth > 0;
+    return calibration;
+}
+
 CoincidenceSettings coincidenceFromJson(const QJsonObject &json) {
     CoincidenceSettings settings;
     settings.tofAdc = std::max(-1, json["tofAdc"].toInt(-1));
@@ -829,7 +850,7 @@ QJsonObject detectorToJson(const DetectorSettings &detector) {
         }
         efficiencies.append(QJsonObject{{"z", curve.z}, {"a", curve.a}, {"points", points}});
     }
-    return QJsonObject{
+    QJsonObject json{
             {"name", detector.name},
             {"scatteringAngle", detector.scatteringAngle},
             {"tofLength", detector.tofLength},
@@ -837,7 +858,14 @@ QJsonObject detectorToJson(const DetectorSettings &detector) {
             {"tofOffset", detector.tofOffset},
             {"foil", QJsonObject{{"thickness", detector.foilThickness}, {"material", material}}},
             {"efficiencies", efficiencies},
-            {"coincidence", coincidenceToJson(detector.coincidence)}};
+            {"coincidence", coincidenceToJson(detector.coincidence)},
+            {"detectorDistance", detector.detectorDistance},
+            {"windowWidth", detector.windowWidth},
+            {"kinematicCorrection", detector.kinematicCorrection}};
+    if(detector.angleCalibration.valid) {
+        json["angleCalibration"] = angleCalibrationToJson(detector.angleCalibration);
+    }
+    return json;
 }
 
 DetectorSettings detectorFromJson(const QJsonObject &json) {
@@ -848,6 +876,12 @@ DetectorSettings detectorFromJson(const QJsonObject &json) {
     detector.tofSlope = std::max(0.0, json["tofSlope"].toDouble());
     detector.tofOffset = json["tofOffset"].toDouble();
     detector.coincidence = coincidenceFromJson(json["coincidence"].toObject());
+    detector.detectorDistance = std::max(0.0, json["detectorDistance"].toDouble());
+    detector.windowWidth = std::max(0.0, json["windowWidth"].toDouble());
+    detector.kinematicCorrection = json["kinematicCorrection"].toBool();
+    if(json.contains("angleCalibration")) {
+        detector.angleCalibration = angleCalibrationFromJson(json["angleCalibration"].toObject());
+    }
     if(json.contains("foil")) {
         const QJsonObject foil = json["foil"].toObject();
         detector.foilThickness = std::max(0.0, foil["thickness"].toDouble());

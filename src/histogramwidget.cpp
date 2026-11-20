@@ -129,6 +129,16 @@ void HistogramWidget::setFullXRange(double min, double max) {
     resetZoom();
 }
 
+void HistogramWidget::setFullYRange(double min, double max) {
+    m_fullY = {std::floor(min), std::floor(max) + 1};
+    resetZoom();
+}
+
+void HistogramWidget::setOverlayLines(const QList<OverlayLine> &lines) {
+    m_overlayLines = lines;
+    update();
+}
+
 void HistogramWidget::setVerticalMarkers(const QList<double> &x) {
     m_markers = x;
     m_draggedMarker = -1;
@@ -368,6 +378,7 @@ void HistogramWidget::paintEvent(QPaintEvent *) {
         painter.drawImage(target, m_image);
     }
     painter.setRenderHint(QPainter::Antialiasing);
+    drawOverlayLines(painter);
     drawMarkers(painter);
     drawCuts(painter);
     drawPolygonInProgress(painter);
@@ -392,6 +403,21 @@ void HistogramWidget::drawMarkers(QPainter &painter) const {
         painter.drawLine(QPointF(px, plot.top()), QPointF(px, plot.bottom()));
         painter.setPen(QPen(Qt::red, 1.5, Qt::DashLine));
         painter.drawLine(QPointF(px, plot.top()), QPointF(px, plot.bottom()));
+    }
+}
+
+void HistogramWidget::drawOverlayLines(QPainter &painter) const {
+    painter.setBrush(Qt::NoBrush);
+    for(const OverlayLine &line : m_overlayLines) {
+        QPolygonF pixels;
+        for(const QPointF &point : line.points) {
+            pixels.append(dataToPixel(point));
+        }
+        // Light under dark, like the cuts
+        painter.setPen(QPen(QColor(255, 255, 255, 200), 3.5));
+        painter.drawPolyline(pixels);
+        painter.setPen(QPen(line.color, 1.5, line.style));
+        painter.drawPolyline(pixels);
     }
 }
 

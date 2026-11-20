@@ -3,6 +3,7 @@
 
 #include <vector>
 
+#include <QColor>
 #include <QImage>
 #include <QList>
 #include <QPointF>
@@ -24,6 +25,13 @@ class HistogramWidget : public QWidget {
 public:
     enum class Mode { Zoom, Move, Select, Edit };
 
+    // Line through points in data coordinates drawn on top of the histogram, e.g. a fit
+    struct OverlayLine {
+        QPolygonF points;
+        QColor color;
+        Qt::PenStyle style = Qt::SolidLine;
+    };
+
     explicit HistogramWidget(QWidget *parent = nullptr);
     void setEvents(const std::vector<ToFEEvent> *events); // Not owned, must outlive the widget
     void setCuts(QList<Cut> *cuts); // Not owned, edited in Edit mode. Call update() after changing them.
@@ -34,6 +42,8 @@ public:
     // Names and units of the axes, ToF and E in channels by default. Other data is passed in ToFEEvent as x and y.
     void setAxes(const QString &xName, const QString &xUnit, const QString &yName, const QString &yUnit);
     void setFullXRange(double min, double max); // Instead of the range of the events, call after setEvents()
+    void setFullYRange(double min, double max); // Same as above
+    void setOverlayLines(const QList<OverlayLine> &lines);
     void setVerticalMarkers(const QList<double> &x); // Dashed lines
     void setMarkersDraggable(bool draggable); // Except in Move mode, markerMoved() is emitted when one is released
 
@@ -89,6 +99,7 @@ private:
     void drawCutLabel(QPainter &painter, const Cut &cut, const QPolygonF &polygon) const;
     void drawPolygonInProgress(QPainter &painter) const;
     void drawMarkers(QPainter &painter) const;
+    void drawOverlayLines(QPainter &painter) const;
 
     const std::vector<ToFEEvent> *m_events = nullptr;
     QList<Cut> *m_cuts = nullptr;
@@ -99,6 +110,7 @@ private:
     QString m_yName = QStringLiteral("E");
     QString m_yUnit = QStringLiteral("ch");
     QList<double> m_markers;
+    QList<OverlayLine> m_overlayLines;
     bool m_markersDraggable = false;
     int m_draggedMarker = -1;
     Mode m_mode = Mode::Zoom;

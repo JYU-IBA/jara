@@ -48,6 +48,23 @@ double particleMass(CutType type, int z, int a, int beamZ, int beamA) {
     return Elements::mass(z, a);
 }
 
+double kinematicFactor(CutType type, double m1, double m2, double angle) {
+    if(type == CutType::Scattered) {
+        const double sine = std::sin(angle);
+        const double root = m2 * m2 - m1 * m1 * sine * sine;
+        if(root < 0) {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+        const double k = (std::sqrt(root) + m1 * std::cos(angle)) / (m1 + m2);
+        return k * k;
+    }
+    if(angle >= 90 * Units::Degree) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    const double cosine = std::cos(angle);
+    return 4 * m1 * m2 * cosine * cosine / ((m1 + m2) * (m1 + m2));
+}
+
 double tofToEnergy(double tofChannel, double mass, double tofLength, double tofSlope, double tofOffset) {
     const double t = tofSlope * tofChannel + tofOffset;
     if(t <= 0) {
