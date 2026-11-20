@@ -1,8 +1,10 @@
 #include "projectinfoview.h"
+#include "attachedfiletable.h"
 #include "formlayout.h"
 #include "project.h"
 
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
@@ -19,6 +21,13 @@ ProjectInfoView::ProjectInfoView(Project *project, QWidget *parent) : QWidget(pa
     m_notesEdit = new QPlainTextEdit(project->notes());
     m_notesEdit->setPlaceholderText("Notes of the project");
 
+    m_fileTable = new AttachedFileTable(&project->files());
+    m_fileTable->setToolTip("Files of the project as a whole. They are added and removed in the project tree, from the "
+                            "context menu of the project.");
+    auto *fileGroup = new QGroupBox("Attached files");
+    auto *fileLayout = new QVBoxLayout(fileGroup);
+    fileLayout->addWidget(m_fileTable);
+
     auto *form = createFormLayout();
     form->addRow("Name:", m_nameEdit);
     form->addRow("File:", m_fileLabel);
@@ -28,6 +37,8 @@ ProjectInfoView::ProjectInfoView(Project *project, QWidget *parent) : QWidget(pa
     layout->addLayout(form);
     layout->addWidget(new QLabel("Notes:"));
     layout->addWidget(m_notesEdit, 1);
+    layout->addWidget(fileGroup, 1);
+    connect(m_fileTable, &AttachedFileTable::modified, this, &ProjectInfoView::modified);
 
     connect(m_nameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         m_project->setName(text.trimmed());
@@ -52,4 +63,5 @@ void ProjectInfoView::refresh() {
     m_fileLabel->setText(m_project->fileName().isEmpty() ? QStringLiteral("Not saved yet") : m_project->fileName());
     m_createdLabel->setText(m_project->created().isValid() ? m_project->created().toString(format) : QStringLiteral("Unknown"));
     m_savedLabel->setText(m_project->saved().isValid() ? m_project->saved().toString(format) : QStringLiteral("Not saved yet"));
+    m_fileTable->refresh();
 }

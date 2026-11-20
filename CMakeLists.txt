@@ -99,6 +99,8 @@ add_executable(jara
         src/efficiencydialog.h
         src/archive.cpp
         src/archive.h
+        src/attachedfiletable.cpp
+        src/attachedfiletable.h
         src/coincidence.cpp
         src/coincidence.h
         src/coincidencedialog.cpp

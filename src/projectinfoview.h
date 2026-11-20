@@ -3,13 +3,14 @@
 
 #include <QWidget>
 
+class AttachedFileTable;
 class Project;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
 
 // Tab in the main work area with the project's information: its name, shown in reports, its file, when it was created
-// and saved, and notes.
+// and saved, notes and the files attached to the project.
 class ProjectInfoView : public QWidget {
     Q_OBJECT
 
@@ -30,6 +31,7 @@ private:
     QLabel *m_createdLabel;
     QLabel *m_savedLabel;
     QPlainTextEdit *m_notesEdit;
+    AttachedFileTable *m_fileTable;
 };
 
 #endif // JARA_PROJECTINFOVIEW_H

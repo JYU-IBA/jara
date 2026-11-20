@@ -13,7 +13,9 @@ File → New Tab adds an empty one. An item that is already open in a tab is sho
 windows of their own. Items are renamed in place in the tree: choose **Rename** in their context menu or press F2.
 
 The project information has the project's **name**, shown in the tree and in reports
-(the file name when empty), its file, when it was created and last saved, and **notes**.
+(the file name when empty), its file, when it was created and last saved, **notes**, and the files attached to the
+project as a whole: **Add Files...** in the context menu of the project information attaches them, e.g. a measurement
+plan or a log, and they are shown under it in the tree like the files of samples.
 
 - **File → New / Open / Save**. Recent projects are under File → Open Recent.
 - **File → Export Archive** writes the project and copies of its data files into a `.tar.gz` or `.zip`, so that it

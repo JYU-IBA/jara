@@ -281,16 +281,33 @@ std::unique_ptr<DepthProfile> depthProfileFromJson(const QJsonObject &json) {
     return profile;
 }
 
+QJsonArray attachedFilesToJson(const QList<AttachedFile> &files, const std::function<QString(const QString &)> &storedPath) {
+    QJsonArray json;
+    for(const auto &file : files) {
+        json.append(QJsonObject{{"path", storedPath(file.path)}, {"description", file.description}, {"sha256", file.sha256}});
+    }
+    return json;
+}
+
+QList<AttachedFile> attachedFilesFromJson(const QJsonArray &json, const QDir &baseDir) {
+    QList<AttachedFile> files;
+    for(const auto &value : json) {
+        const QJsonObject file = value.toObject();
+        const QString path = pathFromJson(file["path"], baseDir);
+        if(!path.isEmpty()) {
+            files.append({path, file["description"].toString(), file["sha256"].toString()});
+        }
+    }
+    return files;
+}
+
 QJsonObject sampleToJson(const Sample &sample, const std::function<QString(const QString &)> &storedPath,
                          const Project &project) {
     QJsonArray metadata;
     for(const auto &entry : sample.metadata) {
         metadata.append(QJsonObject{{"key", entry.key}, {"value", entry.value}});
     }
-    QJsonArray files;
-    for(const auto &file : sample.files) {
-        files.append(QJsonObject{{"path", storedPath(file.path)}, {"description", file.description}, {"sha256", file.sha256}});
-    }
+    const QJsonArray files = attachedFilesToJson(sample.files, storedPath);
     QJsonArray measurements;
     for(const auto &measurement : sample.measurements) {
         QJsonObject object{
@@ -353,14 +370,7 @@ std::unique_ptr<Sample> sampleFromJson(const QJsonObject &json, const QDir &base
         const QJsonObject entry = value.toObject();
         sample->metadata.append({entry["key"].toString(), entry["value"].toString()});
     }
-    for(const auto &value : json["files"].toArray()) {
-        const QJsonObject file = value.toObject();
-        const QString path = pathFromJson(file["path"], baseDir);
-        if(path.isEmpty()) {
-            continue;
-        }
-        sample->files.append({path, file["description"].toString(), file["sha256"].toString()});
-    }
+    sample->files = attachedFilesFromJson(json["files"].toArray(), baseDir);
     for(const auto &value : json["measurements"].toArray()) {
         const QJsonObject measurement = value.toObject();
         sample->measurements.push_back(std::make_unique<Measurement>(
@@ -1200,6 +1210,7 @@ std::unique_ptr<Project> Project::load(const QString &fileName, QString &errorMe
     }
     project->m_name = root["name"].toString();
     project->m_notes = root["notes"].toString();
+    project->m_files = attachedFilesFromJson(root["files"].toArray(), baseDir);
     project->m_created = timeFromJson(root["created"]);
     project->m_saved = timeFromJson(root["saved"]);
     project->m_fileName = fileInfo.absoluteFilePath();
@@ -1292,6 +1303,11 @@ QStringList Project::referencedFiles() const {
             }
         }
     }
+    for(const AttachedFile &file : m_files) {
+        if(!files.contains(file.path)) {
+            files.append(file.path);
+        }
+    }
     return files;
 }
 
@@ -1326,6 +1342,9 @@ QList<Project::FileProblem> Project::verifyFiles() {
             verify(file.path, file.sha256);
         }
     }
+    for(AttachedFile &file : m_files) {
+        verify(file.path, file.sha256);
+    }
     return problems;
 }
 
@@ -1345,6 +1364,9 @@ void Project::acceptChangedFiles(const QList<FileProblem> &problems) {
         for(AttachedFile &file : sample->files) {
             accept(file.path, file.sha256);
         }
+    }
+    for(AttachedFile &file : m_files) {
+        accept(file.path, file.sha256);
     }
 }
 
@@ -1380,6 +1402,9 @@ QByteArray Project::toJson(const std::function<QString(const QString &path)> &st
         for(AttachedFile &file : sample->files) {
             fillChecksum(file.path, file.sha256, checksums);
         }
+    }
+    for(AttachedFile &file : m_files) {
+        fillChecksum(file.path, file.sha256, checksums);
     }
     QJsonArray settings;
     for(const auto &s : m_settings) {
@@ -1462,6 +1487,9 @@ QByteArray Project::toJson(const std::function<QString(const QString &path)> &st
     }
     if(!m_notes.isEmpty()) {
         root["notes"] = m_notes;
+    }
+    if(!m_files.isEmpty()) {
+        root["files"] = attachedFilesToJson(m_files, storedPath);
     }
     if(m_created.isValid()) {
         root["created"] = timeToJson(m_created);

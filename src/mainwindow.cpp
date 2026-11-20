@@ -673,6 +673,8 @@ void MainWindow::projectModified() {
             reportView->refresh();
         } else if(auto *infoView = qobject_cast<MeasurementInfoView *>(page)) {
             infoView->refresh();
+        } else if(auto *projectView = qobject_cast<ProjectInfoView *>(page)) {
+            projectView->refresh(); // Files may have been added or removed
         } else if(auto *sampleView = qobject_cast<SampleView *>(page)) {
             sampleView->refresh();
             if(const auto [tabs, index] = findTab(sampleView); tabs) {

@@ -42,8 +42,9 @@
 #include <QVBoxLayout>
 
 namespace {
-// Experimental settings are the first top-level nodes, then detector settings, physics settings and samples. Under a sample node,
-// measurements come first, followed by attached files. Energy spectra, depth profiles and then split analyses are
+// The project information is the first top-level node, with the files of the project under it. Experimental settings
+// come next, then detector settings, physics settings and samples. Under a sample node, measurements come first,
+// followed by attached files. Energy spectra, depth profiles and then split analyses are
 // under their measurement.
 enum NodeType { SampleNode, MeasurementNode, FileNode, SettingsNode, DetectorNode, SpectrumNode, DepthProfileNode, PhysicsNode,
                 SplitNode, ReportNode, ProjectNode, HistogramNode };
@@ -383,7 +384,7 @@ ProjectPanel::ProjectPanel(QWidget *parent) : QWidget(parent) {
     // Items open with a click or Enter, files other than images outside JaRA with a double click
     tree->clicked = [this](QTreeWidgetItem *item, bool newTab) { openItem(item, newTab); };
     connect(m_tree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *item) {
-        if(nodeType(item) == FileNode && !isImageFile(sampleOf(item)->files[nodeIndex(item)].path)) {
+        if(nodeType(item) == FileNode && !isImageFile(filesOf(item)[nodeIndex(item)].path)) {
             m_tree->setCurrentItem(item);
             openCurrentFile();
         }
@@ -412,7 +413,11 @@ void ProjectPanel::setProject(Project *project) {
         const QSignalBlocker blocker(m_tree);
         m_tree->clear();
         if(project) {
-            m_tree->addTopLevelItem(createProjectItem(*project));
+            QTreeWidgetItem *projectItem = createProjectItem(*project);
+            for(int i = 0; i < project->files().size(); i++) {
+                projectItem->addChild(createFileItem(project->files().at(i), i));
+            }
+            m_tree->addTopLevelItem(projectItem);
             for(size_t i = 0; i < project->settingsCount(); i++) {
                 m_tree->addTopLevelItem(createSettingsItem(*project->settings(i)));
             }
@@ -552,7 +557,11 @@ ExperimentalSettings *ProjectPanel::currentSettings() const {
 }
 
 AttachedFile &ProjectPanel::currentFile() const {
-    return currentSample()->files[nodeIndex(m_tree->currentItem())];
+    return filesOf(m_tree->currentItem())[nodeIndex(m_tree->currentItem())];
+}
+
+QList<AttachedFile> &ProjectPanel::filesOf(QTreeWidgetItem *fileItem) const {
+    return nodeType(topLevelOf(fileItem)) == ProjectNode ? m_project->files() : sampleOf(fileItem)->files;
 }
 
 Measurement *ProjectPanel::currentMeasurement() const {
@@ -652,7 +661,7 @@ void ProjectPanel::settingsEdited() {
 }
 
 void ProjectPanel::openItem(QTreeWidgetItem *item, bool newTab) {
-    if(nodeType(item) == FileNode && !isImageFile(sampleOf(item)->files[nodeIndex(item)].path)) {
+    if(nodeType(item) == FileNode && !isImageFile(filesOf(item)[nodeIndex(item)].path)) {
         return; // Opened outside JaRA with a double click
     }
     m_tree->setCurrentItem(item); // The actions below work on the current item
@@ -728,8 +737,13 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
             } else {
                 menu.addAction("Remove Physics Settings", this, &ProjectPanel::removePhysics);
             }
-        } else if(nodeType(item) == ProjectNode) {
-            menu.addAction("Open Project Information", this, &ProjectPanel::projectInfoOpenRequested);
+        } else if(nodeType(topLevelOf(item)) == ProjectNode) {
+            if(nodeType(item) == FileNode) {
+                addFileActions(menu);
+            } else {
+                menu.addAction("Open Project Information", this, &ProjectPanel::projectInfoOpenRequested);
+            }
+            menu.addAction("Add Files...", this, &ProjectPanel::addFiles);
         } else if(nodeType(item) == ReportNode) {
             menu.addAction("Open Report", this, [this]() { emit reportOpenRequested(currentReport()); });
             menu.addAction("Remove Report", this, &ProjectPanel::removeCurrentReport);
@@ -770,14 +784,7 @@ void ProjectPanel::showContextMenu(const QPoint &pos) {
                 menu.addAction("Remove Split Analysis", this, &ProjectPanel::removeCurrentSplit);
                 menu.addSeparator();
             } else if(nodeType(item) == FileNode) {
-                if(isImageFile(currentFile().path)) {
-                    menu.addAction("Open Image", this, [this]() { emit imageOpenRequested(currentSample(), currentFile().path); });
-                    menu.addAction("Open Externally", this, &ProjectPanel::openCurrentFile);
-                } else {
-                    menu.addAction("Open File", this, &ProjectPanel::openCurrentFile);
-                }
-                menu.addAction("Remove File", this, &ProjectPanel::removeCurrentFile);
-                menu.addSeparator();
+                addFileActions(menu);
             }
             menu.addAction("Add Measurements...", this, &ProjectPanel::addMeasurements);
             menu.addAction("Add Files...", this, &ProjectPanel::addFiles);
@@ -1596,11 +1603,13 @@ void ProjectPanel::convertCoincidenceFiles() {
 }
 
 void ProjectPanel::addFiles() {
+    // To the sample, or to the project when its item or one of its files is current
+    QTreeWidgetItem *item = topLevelOf(m_tree->currentItem());
     Sample *sample = currentSample();
-    if(!sample) {
+    if(!sample && nodeType(item) != ProjectNode) {
         return;
     }
-    QTreeWidgetItem *item = topLevelOf(m_tree->currentItem());
+    QList<AttachedFile> &files = sample ? sample->files : m_project->files();
     const QStringList fileNames = QFileDialog::getOpenFileNames(this, "Add Files", projectDirectory());
     if(fileNames.isEmpty()) {
         return;
@@ -1609,8 +1618,8 @@ void ProjectPanel::addFiles() {
     QApplication::setOverrideCursor(Qt::WaitCursor);
     for(const QString &fileName : fileNames) {
         const QString path = QFileInfo(fileName).absoluteFilePath();
-        sample->files.append(AttachedFile{path, {}, fileChecksum(path)});
-        lastItem = createFileItem(sample->files.last(), static_cast<int>(sample->files.size() - 1));
+        files.append(AttachedFile{path, {}, fileChecksum(path)});
+        lastItem = createFileItem(files.last(), static_cast<int>(files.size() - 1));
         item->addChild(lastItem);
     }
     QApplication::restoreOverrideCursor();
@@ -1860,6 +1869,17 @@ void ProjectPanel::duplicateCurrentAnalysis() {
     emit modified();
 }
 
+void ProjectPanel::addFileActions(QMenu &menu) {
+    if(isImageFile(currentFile().path)) {
+        menu.addAction("Open Image", this, [this]() { emit imageOpenRequested(currentSample(), currentFile().path); });
+        menu.addAction("Open Externally", this, &ProjectPanel::openCurrentFile);
+    } else {
+        menu.addAction("Open File", this, &ProjectPanel::openCurrentFile);
+    }
+    menu.addAction("Remove File", this, &ProjectPanel::removeCurrentFile);
+    menu.addSeparator();
+}
+
 void ProjectPanel::openCurrentFile() {
     QDesktopServices::openUrl(QUrl::fromLocalFile(currentFile().path));
 }
@@ -1870,7 +1890,7 @@ void ProjectPanel::removeCurrentFile() {
     emit fileAboutToBeRemoved(currentSample(), currentFile().path);
     {
         const QSignalBlocker blocker(m_tree);
-        currentSample()->files.removeAt(nodeIndex(item));
+        filesOf(item).removeAt(nodeIndex(item));
         delete item;
         renumberChildren(parent, FileNode);
         m_tree->setCurrentItem(parent);

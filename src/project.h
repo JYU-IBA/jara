@@ -492,6 +492,9 @@ public:
     QString displayName() const;
     const QString &notes() const { return m_notes; }
     void setNotes(const QString &notes) { m_notes = notes; }
+    // Files of the project as a whole, e.g. a plan or a log of the measurements, like the files of samples
+    QList<AttachedFile> &files() { return m_files; }
+    const QList<AttachedFile> &files() const { return m_files; }
     bool isModified() const { return m_modified; }
     void setModified(bool modified) { m_modified = modified; }
 
@@ -549,6 +552,7 @@ private:
     QString m_fileName;
     QString m_name;
     QString m_notes;
+    QList<AttachedFile> m_files;
     bool m_modified = false;
     QDateTime m_created = QDateTime::currentDateTime();
     QDateTime m_saved;

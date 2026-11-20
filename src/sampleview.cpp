@@ -1,4 +1,5 @@
 #include "sampleview.h"
+#include "attachedfiletable.h"
 #include "formlayout.h"
 #include "project.h"
 
@@ -14,10 +15,6 @@
 #include <QPlainTextEdit>
 #include <QTableWidget>
 #include <QVBoxLayout>
-
-namespace {
-enum FileColumn { FileNameColumn, FileDescriptionColumn };
-}
 
 SampleView::SampleView(Sample *sample, QWidget *parent) : QWidget(parent), m_sample(sample) {
     m_nameEdit = new QLineEdit(sample->name);
@@ -35,11 +32,7 @@ SampleView::SampleView(Sample *sample, QWidget *parent) : QWidget(parent), m_sam
     auto *metadataLayout = new QVBoxLayout(metadataGroup);
     metadataLayout->addWidget(m_metadataTable);
 
-    m_fileTable = new QTableWidget(0, 2);
-    m_fileTable->setHorizontalHeaderLabels({"File", "Description"});
-    m_fileTable->horizontalHeader()->setStretchLastSection(true);
-    m_fileTable->verticalHeader()->hide();
-    m_fileTable->setToolTip("Files are added and removed in the project tree");
+    m_fileTable = new AttachedFileTable(&sample->files);
     auto *fileGroup = new QGroupBox("Attached files");
     auto *fileLayout = new QVBoxLayout(fileGroup);
     fileLayout->addWidget(m_fileTable);
@@ -79,7 +72,7 @@ SampleView::SampleView(Sample *sample, QWidget *parent) : QWidget(parent), m_sam
         menu.exec(m_metadataTable->viewport()->mapToGlobal(pos));
     });
     connect(m_metadataTable, &QTableWidget::itemChanged, this, &SampleView::metadataItemChanged);
-    connect(m_fileTable, &QTableWidget::itemChanged, this, &SampleView::fileItemChanged);
+    connect(m_fileTable, &AttachedFileTable::modified, this, &SampleView::modified);
     updateMetadata();
     refresh();
 }
@@ -89,7 +82,7 @@ void SampleView::refresh() {
     if(!m_nameEdit->hasFocus()) {
         m_nameEdit->setText(m_sample->name);
     }
-    updateFiles();
+    m_fileTable->refresh();
 }
 
 void SampleView::updateMetadata() {
@@ -131,32 +124,3 @@ void SampleView::metadataItemChanged(QTableWidgetItem *item) {
     emit modified();
 }
 
-void SampleView::updateFiles() {
-    QStringList key;
-    for(const AttachedFile &file : m_sample->files) {
-        key.append(file.path);
-    }
-    if(key == m_filesKey) {
-        return;
-    }
-    m_filesKey = key;
-    const QSignalBlocker blocker(m_fileTable);
-    m_fileTable->setRowCount(static_cast<int>(m_sample->files.size()));
-    for(int row = 0; row < m_sample->files.size(); row++) {
-        const AttachedFile &file = m_sample->files[row];
-        auto *name = new QTableWidgetItem(QFileInfo(file.path).fileName());
-        name->setFlags(name->flags() & ~Qt::ItemIsEditable);
-        name->setToolTip(file.path);
-        m_fileTable->setItem(row, FileNameColumn, name);
-        m_fileTable->setItem(row, FileDescriptionColumn, new QTableWidgetItem(file.description));
-    }
-    m_fileTable->resizeColumnToContents(FileNameColumn);
-}
-
-void SampleView::fileItemChanged(QTableWidgetItem *item) {
-    if(item->column() != FileDescriptionColumn || item->row() >= m_sample->files.size()) {
-        return;
-    }
-    m_sample->files[item->row()].description = item->text();
-    emit modified();
-}

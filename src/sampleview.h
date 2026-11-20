@@ -4,6 +4,7 @@
 #include <QStringList>
 #include <QWidget>
 
+class AttachedFileTable;
 class QLineEdit;
 class QPlainTextEdit;
 class QTableWidget;
@@ -31,18 +32,15 @@ private slots:
     void addMetadata();
     void removeMetadata();
     void metadataItemChanged(QTableWidgetItem *item);
-    void fileItemChanged(QTableWidgetItem *item);
 
 private:
     void updateMetadata();
-    void updateFiles(); // Rebuilt only when the files change, not while their descriptions are edited
 
     Sample *m_sample;
     QLineEdit *m_nameEdit;
     QPlainTextEdit *m_descriptionEdit;
     QTableWidget *m_metadataTable;
-    QTableWidget *m_fileTable;
-    QStringList m_filesKey;
+    AttachedFileTable *m_fileTable;
 };
 
 #endif // JARA_SAMPLEVIEW_H

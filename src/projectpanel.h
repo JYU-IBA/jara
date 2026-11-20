@@ -7,6 +7,7 @@ class Project;
 class QAction;
 struct SettingsCollection;
 struct AttachedFile;
+class QMenu;
 struct DetectorSettings;
 struct PhysicsSettings;
 struct DepthProfile;
@@ -86,7 +87,8 @@ signals:
     void measurementOpenRequested(Measurement *measurement); // Its ToF-E histogram
     void measurementInfoOpenRequested(Measurement *measurement);
     void sampleOpenRequested(Sample *sample);
-    void imageOpenRequested(Sample *sample, const QString &path); // An attached file, see isImageFile()
+    // An attached file, see isImageFile(). The sample is nullptr for files of the project.
+    void imageOpenRequested(Sample *sample, const QString &path);
     void fileAboutToBeRemoved(Sample *sample, const QString &path);
     void aboutToOpen(bool newTab); // Before one of the open requests: where the item is shown
     void settingsRenamed(); // In the tree, settings tabs show the name
@@ -117,6 +119,7 @@ private slots:
     void itemRenamed(QTreeWidgetItem *item); // In place
     void openItem(QTreeWidgetItem *item, bool newTab); // In the active tab or a new one
     void showContextMenu(const QPoint &pos);
+    void addFileActions(QMenu &menu); // Of the current file, to its context menu
     void openCurrentFile(); // Outside JaRA
     void removeCurrentFile();
     void removeCurrentMeasurement();
@@ -139,6 +142,7 @@ private:
     PhysicsSettings *physicsOf(QTreeWidgetItem *item) const;
     int firstSampleRow() const; // Row of the first sample among the top-level items
     AttachedFile &currentFile() const;
+    QList<AttachedFile> &filesOf(QTreeWidgetItem *fileItem) const; // Of the project or the sample the file is under
     Measurement *currentMeasurement() const; // Also of the current spectrum, depth profile or split analysis
     EnergySpectrum *currentSpectrum() const;
     DepthProfile *currentDepthProfile() const;
