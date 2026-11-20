@@ -53,9 +53,9 @@ enum AverageColumn {
     AverageSelectionColumn,
     AverageColumn,
     UncertaintyColumn,
+    ArealDensityColumn,
     RenormalizedColumn,
     RenormalizedUncertaintyColumn,
-    RenormalizedArealDensityColumn,
     EventsColumn
 };
 
@@ -482,14 +482,12 @@ QWidget *DepthProfileView::createSidePanel() {
     averageRow->addWidget(m_averageMaxSpin, 1);
     m_averageTable = new QTreeWidget;
     m_averageTable->setRootIsDecorated(false);
-    m_averageTable->setHeaderLabels({"Selection", "at.%", "±", "Renorm. at.%", "±", ThinFilmText, "Events"});
+    m_averageTable->setHeaderLabels({"Selection", "at.%", "±", ThinFilmText, "Renorm. at.%", "±", "Events"});
     m_averageTable->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_averageTable->headerItem()->setToolTip(AverageSelectionColumn, "Checked selections are shown in the plot");
     m_averageTable->headerItem()->setToolTip(RenormalizedColumn, "Averages renormalized to 100 % among the checked "
                                                                  "selections, e.g. leaving out the substrate");
-    m_averageTable->headerItem()->setToolTip(RenormalizedArealDensityColumn,
-                                             "Renormalized averages integrated over the averaging interval, their sum "
-                                             "is the width of the interval");
+    m_averageTable->headerItem()->setToolTip(ArealDensityColumn, "Averages integrated over the averaging interval");
     connect(m_averageTable, &QTreeWidget::itemChanged, this, &DepthProfileView::averageItemChanged);
     auto *averageGroup = new QGroupBox("Average concentrations");
     auto *averageLayout = new QVBoxLayout(averageGroup);
@@ -1071,7 +1069,7 @@ void DepthProfileView::updateAverages() {
     const QSignalBlocker blocker(m_averageTable);
     m_averageTable->clear();
     // Over the normalization interval the averages are already normalized to 100 %
-    for(const int column : {RenormalizedColumn, RenormalizedUncertaintyColumn, RenormalizedArealDensityColumn}) {
+    for(const int column : {RenormalizedColumn, RenormalizedUncertaintyColumn}) {
         m_averageTable->setColumnHidden(column, m_profile->averageFollowsNormalization);
     }
     if(m_result.curves.empty() || !m_result.errorMessage.isEmpty()) {
@@ -1097,12 +1095,12 @@ void DepthProfileView::updateAverages() {
         item->setCheckState(RenormalizedColumn, included ? Qt::Checked : Qt::Unchecked);
         item->setText(AverageColumn, percent(average.concentration));
         item->setText(UncertaintyColumn, percent(average.uncertainty));
+        item->setText(ArealDensityColumn, arealDensity(average.concentration * width));
         item->setText(RenormalizedColumn, percent(average.renormalized));
         item->setText(RenormalizedUncertaintyColumn, percent(average.renormalizedUncertainty));
-        item->setText(RenormalizedArealDensityColumn, arealDensity(average.renormalized * width));
         item->setText(EventsColumn, QString::number(average.counts));
-        for(const int column : {AverageColumn, UncertaintyColumn, RenormalizedColumn, RenormalizedUncertaintyColumn,
-                                RenormalizedArealDensityColumn, EventsColumn}) {
+        for(const int column : {AverageColumn, UncertaintyColumn, ArealDensityColumn, RenormalizedColumn,
+                                RenormalizedUncertaintyColumn, EventsColumn}) {
             item->setTextAlignment(column, Qt::AlignRight | Qt::AlignVCenter);
         }
         sum += average.concentration;
@@ -1114,13 +1112,13 @@ void DepthProfileView::updateAverages() {
     auto *total = new QTreeWidgetItem(m_averageTable);
     total->setText(AverageSelectionColumn, "Sum");
     total->setText(AverageColumn, percent(sum));
+    total->setText(ArealDensityColumn, arealDensity(sum * width));
     total->setText(RenormalizedColumn, percent(renormalizedSum));
-    total->setText(RenormalizedArealDensityColumn, arealDensity(renormalizedSum * width));
     total->setText(EventsColumn, QString::number(events));
     QFont font = total->font(0);
     font.setBold(true);
-    for(const int column : {AverageSelectionColumn, AverageColumn, UncertaintyColumn, RenormalizedColumn,
-                            RenormalizedUncertaintyColumn, RenormalizedArealDensityColumn, EventsColumn}) {
+    for(const int column : {AverageSelectionColumn, AverageColumn, UncertaintyColumn, ArealDensityColumn,
+                            RenormalizedColumn, RenormalizedUncertaintyColumn, EventsColumn}) {
         total->setFont(column, font);
         if(column != AverageSelectionColumn) {
             total->setTextAlignment(column, Qt::AlignRight | Qt::AlignVCenter);
@@ -1258,18 +1256,17 @@ void DepthProfileView::exportProfile() {
     if(m_stale) {
         table.comments.append(QStringLiteral("Out of date"));
     }
-    // Renormalized averages only when they differ from the averages, also as areal densities over the interval
+    // Also as areal densities over the interval. Renormalized averages only when they differ from the averages.
     const double averageWidth = (m_result.averageMax - m_result.averageMin) / thinFilm;
     QStringList averages;
     for(size_t c = 0; c < m_result.curves.size(); c++) {
         const DepthProfileResult::Average &average = m_result.averages[c];
-        QString text = QString("%1 %2 +- %3").arg(m_result.curves[c].label(false), value(average.concentration),
-                                                  value(average.uncertainty));
+        QString text = QString("%1 %2 +- %3 (%4 +- %5 1e15 at./cm2)")
+                               .arg(m_result.curves[c].label(false), value(average.concentration),
+                                    value(average.uncertainty), number(average.concentration * averageWidth),
+                                    number(average.uncertainty * averageWidth));
         if(!m_profile->averageFollowsNormalization && !std::isnan(average.renormalized)) {
-            text += QString(" (renormalized %1 +- %2, %3 +- %4 1e15 at./cm2)")
-                            .arg(value(average.renormalized), value(average.renormalizedUncertainty),
-                                 number(average.renormalized * averageWidth),
-                                 number(average.renormalizedUncertainty * averageWidth));
+            text += QString(" (renormalized %1 +- %2)").arg(value(average.renormalized), value(average.renormalizedUncertainty));
         }
         averages.append(text);
     }

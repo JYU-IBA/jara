@@ -48,12 +48,12 @@ when an element is counted more than once, e.g. an isotope representing its elem
 
 ## Averages
 
-The table lists the average concentration of each curve with its uncertainty and the events.
+The table lists the average concentration of each curve with its uncertainty, the average integrated over the
+averaging interval as an areal density in 10¹⁵ at./cm² (e.g. the amount of an element in a layer) and the events.
 
 - **Over**: the averaging interval. With **Normalization** checked (the default) it is the normalization interval,
   where the total is already 100 %. Otherwise the averages are also **renormalized** to 100 % among the checked
-  selections of the Renorm. column, e.g. to leave out the substrate. The renormalized averages are also shown as
-  areal densities in 10¹⁵ at./cm², integrated over the averaging interval, e.g. the amount of an element in a layer.
+  selections of the Renorm. column, e.g. to leave out the substrate.
 - The checkbox in the Selection column shows or hides the curve in the plot.
 
 ## Plot
@@ -68,7 +68,7 @@ The table lists the average concentration of each curve with its uncertainty and
   they do not overlap; a dragged label stays at its depth and concentration. The submenu chooses which selections get
   a label and resets dragged labels.
 - **Export...** writes the bin edges and centres, the depths in µg/cm² and nm, and for each curve the concentration,
-  its uncertainty and the events, with the averages in the header, the renormalized ones also as areal densities.
+  its uncertainty and the events, with the averages, also as areal densities, in the header.
   Concentrations are written to 0.0001 at.%. See [Exporting](getting-started.md#exporting).
 
 Changes of the selections or settings made elsewhere mark the profile out of date until it is recalculated.
