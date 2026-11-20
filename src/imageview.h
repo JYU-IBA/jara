@@ -1,6 +1,9 @@
 #ifndef JARA_IMAGEVIEW_H
 #define JARA_IMAGEVIEW_H
 
+#include <optional>
+
+#include <QPointF>
 #include <QWidget>
 
 class ImageCanvas;
@@ -13,7 +16,9 @@ struct Sample;
 bool isImageFile(const QString &path);
 
 // Tab in the main work area with an image attached to a sample, e.g. a photo of it. Fits the window by default and
-// zooms with the buttons or Ctrl/Cmd and the mouse wheel. Photos are turned upright by their EXIF orientation.
+// zooms with the buttons, Ctrl/Cmd and the mouse wheel or a pinch on a trackpad, at the cursor or the fingers. A double
+// tap with two fingers switches between fitted and the image's own size. Photos are turned upright by their EXIF
+// orientation.
 class ImageView : public QWidget {
     Q_OBJECT
 
@@ -27,7 +32,8 @@ protected:
 
 private:
     void load();
-    void setZoom(double zoom); // 1 is the image's own size
+    // 1 is the image's own size. The point at the anchor, in the viewport, stays in place, by default the middle.
+    void setZoom(double zoom, std::optional<QPointF> anchor = std::nullopt);
     void fit();
     void updateZoom(); // Of the canvas and the label
 

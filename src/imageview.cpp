@@ -9,11 +9,13 @@
 #include <QImage>
 #include <QImageReader>
 #include <QLabel>
+#include <QNativeGestureEvent>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPixmap>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QTimer>
 #include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -26,14 +28,31 @@ constexpr double MaxZoom = 32;
 }
 
 // The image at a zoom, in a scroll area. Only the visible part is drawn, so that large photos can be zoomed in
-// without scaling all of them. Reduced images are scaled smoothly once and kept.
+// without scaling all of them. Reduced images are scaled smoothly once and kept. While the zoom changes, e.g. with
+// a pinch on a trackpad, the kept one is stretched and scaled again smoothly when the zoom has stayed for a moment.
 class ImageCanvas : public QWidget {
 public:
     QImage image;
 
+    ImageCanvas() {
+        m_rescaleTimer.setSingleShot(true);
+        m_rescaleTimer.setInterval(150);
+        QObject::connect(&m_rescaleTimer, &QTimer::timeout, this, [this]() {
+            m_reduced = {};
+            update();
+        });
+    }
+
+    void setImage(const QImage &newImage) {
+        image = newImage;
+        m_reduced = {};
+    }
+
     void setZoom(double zoom) {
         m_zoom = zoom;
-        m_reduced = {};
+        if(!m_reduced.isNull()) {
+            m_rescaleTimer.start();
+        }
         // Rounded down so that a fitted image does not bring up the scroll bars
         resize(std::max(1, static_cast<int>(image.width() * zoom)), std::max(1, static_cast<int>(image.height() * zoom)));
         update();
@@ -47,11 +66,12 @@ protected:
         QPainter painter(this);
         const qreal ratio = devicePixelRatioF();
         if(m_zoom * ratio < 1) {
-            if(m_reduced.isNull()) {
+            if(m_reduced.isNull() || m_reduced.devicePixelRatio() != ratio) {
+                m_rescaleTimer.stop();
                 m_reduced = QPixmap::fromImage(image.scaled(size() * ratio, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
                 m_reduced.setDevicePixelRatio(ratio);
             }
-            painter.drawPixmap(0, 0, m_reduced);
+            painter.drawPixmap(rect(), m_reduced);
             return;
         }
         // Enlarged pixels stay sharp
@@ -63,6 +83,7 @@ protected:
 private:
     double m_zoom = 1;
     QPixmap m_reduced;
+    QTimer m_rescaleTimer;
 };
 
 bool isImageFile(const QString &path) {
@@ -74,7 +95,9 @@ ImageView::ImageView(Sample *sample, const QString &path, QWidget *parent) : QWi
     m_scrollArea = new QScrollArea;
     m_scrollArea->setWidget(m_canvas);
     m_scrollArea->setAlignment(Qt::AlignCenter);
-    m_scrollArea->viewport()->installEventFilter(this); // Refits when resized and zooms with the wheel
+    // Refits when resized and zooms with the wheel or a pinch, which goes to the canvas when the fingers are on it
+    m_scrollArea->viewport()->installEventFilter(this);
+    m_canvas->installEventFilter(this);
 
     auto createButton = [](const QString &text, const QString &toolTip) {
         auto *button = new QToolButton;
@@ -116,7 +139,7 @@ ImageView::ImageView(Sample *sample, const QString &path, QWidget *parent) : QWi
 void ImageView::load() {
     QImageReader reader(m_path);
     reader.setAutoTransform(true);
-    m_canvas->image = reader.read();
+    m_canvas->setImage(reader.read());
     if(m_canvas->image.isNull()) {
         m_canvas->setZoom(1);
         m_infoLabel->setText(QString("Could not read %1: %2").arg(QFileInfo(m_path).fileName(), reader.errorString()));
@@ -129,22 +152,21 @@ void ImageView::load() {
     }
 }
 
-void ImageView::setZoom(double zoom) {
+void ImageView::setZoom(double zoom, std::optional<QPointF> anchor) {
     if(m_canvas->image.isNull()) {
         return;
     }
-    // The point in the middle of the window stays there
-    QScrollBar *h = m_scrollArea->horizontalScrollBar();
-    QScrollBar *v = m_scrollArea->verticalScrollBar();
-    const QSize viewport = m_scrollArea->viewport()->size();
-    const double x = (h->value() + viewport.width() / 2.0) / m_zoom;
-    const double y = (v->value() + viewport.height() / 2.0) / m_zoom;
+    // The point of the image at the anchor stays there. The canvas is centred when it is smaller than the viewport.
+    const QPointF at = anchor.value_or(QRectF(m_scrollArea->viewport()->rect()).center());
+    const QPointF point = (at - QPointF(m_canvas->pos())) / m_zoom;
     m_zoom = std::clamp(zoom, MinZoom, MaxZoom);
     m_fit = false;
     m_fitButton->setChecked(false);
     updateZoom();
-    h->setValue(static_cast<int>(std::lround(x * m_zoom - viewport.width() / 2.0)));
-    v->setValue(static_cast<int>(std::lround(y * m_zoom - viewport.height() / 2.0)));
+    QScrollBar *h = m_scrollArea->horizontalScrollBar();
+    QScrollBar *v = m_scrollArea->verticalScrollBar();
+    h->setValue(static_cast<int>(std::lround(point.x() * m_zoom - at.x())));
+    v->setValue(static_cast<int>(std::lround(point.y() * m_zoom - at.y())));
 }
 
 void ImageView::fit() {
@@ -167,6 +189,22 @@ void ImageView::updateZoom() {
 }
 
 bool ImageView::eventFilter(QObject *watched, QEvent *event) {
+    if(event->type() == QEvent::NativeGesture && (watched == m_canvas || watched == m_scrollArea->viewport())) {
+        auto *gesture = static_cast<QNativeGestureEvent *>(event);
+        if(gesture->gestureType() == Qt::ZoomNativeGesture) {
+            const QPointF at = static_cast<QWidget *>(watched)->mapTo(m_scrollArea->viewport(), gesture->position());
+            setZoom(m_zoom * (1 + gesture->value()), at);
+            return true;
+        }
+        if(gesture->gestureType() == Qt::SmartZoomNativeGesture) { // Double tap with two fingers
+            if(m_fit) {
+                setZoom(1, static_cast<QWidget *>(watched)->mapTo(m_scrollArea->viewport(), gesture->position()));
+            } else {
+                fit();
+            }
+            return true;
+        }
+    }
     if(watched == m_scrollArea->viewport()) {
         if(event->type() == QEvent::Resize && m_fit) {
             fit();
@@ -174,7 +212,7 @@ bool ImageView::eventFilter(QObject *watched, QEvent *event) {
             auto *wheel = static_cast<QWheelEvent *>(event);
             if(wheel->modifiers() & (Qt::ControlModifier | Qt::MetaModifier)) {
                 if(const int delta = wheel->angleDelta().y(); delta != 0) {
-                    setZoom(delta > 0 ? m_zoom * ZoomStep : m_zoom / ZoomStep);
+                    setZoom(delta > 0 ? m_zoom * ZoomStep : m_zoom / ZoomStep, wheel->position());
                 }
                 return true;
             }
