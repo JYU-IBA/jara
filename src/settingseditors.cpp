@@ -10,6 +10,8 @@
 #include <algorithm>
 
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QHeaderView>
 #include <QFormLayout>
@@ -261,10 +263,15 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     m_tofLengthSpin = createSpinBox(0, 100, Units::Millimetre, 1, " mm");
     m_tofSlopeSpin = createSpinBox(0, 1e-6, Units::Nanosecond, 6, " ns/ch");
     m_tofOffsetSpin = createSpinBox(-1e-3, 1e-3, Units::Nanosecond, 3, " ns");
-    m_coincidenceEditor = new CoincidenceSettingsEditor;
-    m_coincidenceGroup = new QGroupBox("Coincidence parameters (list-mode files)");
-    auto *coincidenceLayout = new QVBoxLayout(m_coincidenceGroup);
-    coincidenceLayout->addWidget(m_coincidenceEditor);
+    m_coincidenceLabel = new QLabel;
+    m_coincidenceLabel->setWordWrap(true);
+    auto *coincidenceButton = new QPushButton("Edit...");
+    // In a widget of its own, so that the wrapped summary gets its height
+    m_coincidenceRow = new QWidget;
+    auto *coincidenceLayout = new QHBoxLayout(m_coincidenceRow);
+    coincidenceLayout->setContentsMargins(0, 0, 0, 0);
+    coincidenceLayout->addWidget(m_coincidenceLabel, 1);
+    coincidenceLayout->addWidget(coincidenceButton);
     m_foilLabel = new QLabel;
     auto *foilButton = new QPushButton("Edit...");
     auto *foilLayout = new QHBoxLayout;
@@ -307,7 +314,8 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     layout->addRow("Window width:", m_windowWidthSpin);
     layout->addRow("Angle calibration:", m_angleCalibrationRow);
     layout->setRowVisible(m_angleCalibrationRow, false);
-    layout->addRow(m_coincidenceGroup);
+    layout->addRow("Coincidences:", m_coincidenceRow);
+    layout->labelForField(m_coincidenceRow)->setToolTip("Coincidence parameters for importing list-mode files");
 
     connect(m_nameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         m_detector->name = text;
@@ -341,8 +349,7 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
                                    m_windowWidthSpin}) {
         connect(spinBox, &QDoubleSpinBox::editingFinished, this, finished);
     }
-    connect(m_coincidenceEditor, &CoincidenceSettingsEditor::changed, this, &DetectorSettingsEditor::changed);
-    connect(m_coincidenceEditor, &CoincidenceSettingsEditor::editingFinished, this, finished);
+    connect(coincidenceButton, &QPushButton::clicked, this, &DetectorSettingsEditor::editCoincidence);
 }
 
 void DetectorSettingsEditor::setDetector(DetectorSettings *detector) {
@@ -359,7 +366,7 @@ void DetectorSettingsEditor::setDetector(DetectorSettings *detector) {
     setValueSilently(m_distanceSpin, detector->detectorDistance);
     setValueSilently(m_windowWidthSpin, detector->windowWidth);
     showAngleCalibration();
-    m_coincidenceEditor->setSettings(&detector->coincidence);
+    m_coincidenceLabel->setText(coincidenceText(detector->coincidence));
     m_foilLabel->setText(foilText(detector->foilMaterial, detector->foilThickness));
     m_efficiencyLabel->setText(efficiencyText(detector->efficiencies));
 }
@@ -384,6 +391,30 @@ void DetectorSettingsEditor::editFoil() {
     m_detector->foilMaterial = dialog.material();
     m_detector->foilThickness = dialog.thickness();
     m_foilLabel->setText(foilText(m_detector->foilMaterial, m_detector->foilThickness));
+    emit changed();
+    // The edit is finished when the dialog is closed
+    m_edited = false;
+    emit editingFinished();
+}
+
+void DetectorSettingsEditor::editCoincidence() {
+    QDialog dialog(this);
+    dialog.setWindowTitle("Coincidence Parameters");
+    CoincidenceSettings settings = m_detector->coincidence;
+    auto *editor = new CoincidenceSettingsEditor;
+    editor->setSettings(&settings);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->addWidget(new QLabel("For converting list-mode files, see File → Import Event Data. Times in clock ticks."));
+    layout->addWidget(editor);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if(dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    m_detector->coincidence = settings;
+    m_coincidenceLabel->setText(coincidenceText(settings));
     emit changed();
     // The edit is finished when the dialog is closed
     m_edited = false;
@@ -424,7 +455,7 @@ void DetectorSettingsEditor::showAngleCalibration() {
 }
 
 void DetectorSettingsEditor::setCoincidenceVisible(bool visible) {
-    m_coincidenceGroup->setVisible(visible);
+    m_layout->setRowVisible(m_coincidenceRow, visible);
 }
 
 namespace {

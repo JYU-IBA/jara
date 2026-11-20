@@ -33,9 +33,10 @@ incident angle.
 - **Angle calibration**: the timing coordinate of the events against the detection angle, made with the
   [angle calibration tool](angle-calibration.md) (**Angle Calibration...**). With it, the distance and the width,
   depth profiles can correct each event kinematically, see [Depth profiles](depth-profiles.md#calculation).
-- **Coincidence parameters (list-mode files)**: the ToF and E ADCs, the trigger, the timing window, the reorder span
-  and the pairing used when [importing event data](coincidences.md#coincidence-parameters). The defaults are on the
-  Coincidences page of the preferences.
+- **Coincidences**: a summary of the coincidence parameters used when
+  [importing event data](coincidences.md#coincidence-parameters); **Edit...** opens all of them: the ToF and E ADCs,
+  the trigger, the timing window, the reorder span and the pairing. The defaults are on the Coincidences page of the
+  preferences.
 
 ## Physics settings
 

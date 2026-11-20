@@ -88,6 +88,26 @@ QString coincidencePairingName(CoincidencePairing pairing) {
     return {};
 }
 
+QString coincidenceText(const CoincidenceSettings &settings) {
+    auto adc = [](int number) { return number >= 0 ? QString::number(number) : QStringLiteral("not set"); };
+    auto tick = [](qint64 value) { return value < 0 ? QString("−%1").arg(-value) : QString::number(value); };
+    QString pairing;
+    switch(settings.pairing) {
+        case CoincidencePairing::ClosestToCentre:
+            pairing = QStringLiteral("one-to-one");
+            break;
+        case CoincidencePairing::DiscardAmbiguous:
+            pairing = QStringLiteral("ambiguous discarded");
+            break;
+        case CoincidencePairing::AllCombinations:
+            pairing = QStringLiteral("all combinations");
+            break;
+    }
+    return QString("ToF ADC %1, E ADC %2, %3 triggers, window %4…%5 ticks, %6")
+            .arg(adc(settings.tofAdc), adc(settings.energyAdc), settings.triggerIsEnergy ? "E" : "ToF",
+                 tick(settings.windowLow), tick(settings.windowHigh), pairing);
+}
+
 QString coincidencePairingId(CoincidencePairing pairing) {
     switch(pairing) {
         case CoincidencePairing::ClosestToCentre:

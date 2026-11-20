@@ -12,7 +12,8 @@ ignored. Files are read in chunks and processed as a stream, so their length is 
 ## Coincidence parameters
 
 The coincidence parameters depend on the detector system and are part of the
-[detector settings](settings.md#detector-settings), in the **Coincidence parameters** group. Times are in clock ticks.
+[detector settings](settings.md#detector-settings), where **Coincidences** shows them and **Edit...** opens them. Times
+are in clock ticks.
 
 - **ToF ADC** and **E ADC**: the ADC numbers of the ToF and energy signals. Signals of other ADCs are ignored.
 - **Trigger**: E or ToF. Time differences are measured from the signals of this ADC.

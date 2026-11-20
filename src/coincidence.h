@@ -44,6 +44,9 @@ struct CoincidenceSettings {
     bool hasAdcs() const { return tofAdc >= 0 && energyAdc >= 0 && tofAdc != energyAdc; }
 };
 
+// "ToF ADC 1, E ADC 0, E triggers, window −600…−440 ticks, one-to-one", without the reorder span
+QString coincidenceText(const CoincidenceSettings &settings);
+
 struct ListEvent {
     qint64 timestamp; // Ticks
     int channel;

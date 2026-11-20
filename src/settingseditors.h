@@ -82,7 +82,7 @@ public:
     void refresh(); // Shows the values again after the detector was changed elsewhere
     // Shows the buttons of the ToF and angle calibration tools and the angle calibration, hidden by default
     void setCalibrationAvailable(bool available);
-    void setCoincidenceVisible(bool visible); // The coincidence parameters, shown by default
+    void setCoincidenceVisible(bool visible); // The row of the coincidence parameters, shown by default
 
 signals:
     void changed();
@@ -94,6 +94,7 @@ signals:
 private slots:
     void editFoil();
     void editEfficiencies();
+    void editCoincidence();
 
 private:
     void showAngleCalibration();
@@ -105,8 +106,8 @@ private:
     QDoubleSpinBox *m_tofLengthSpin;
     QDoubleSpinBox *m_tofSlopeSpin;
     QDoubleSpinBox *m_tofOffsetSpin;
-    CoincidenceSettingsEditor *m_coincidenceEditor;
-    QGroupBox *m_coincidenceGroup;
+    QLabel *m_coincidenceLabel;
+    QWidget *m_coincidenceRow;
     QLabel *m_foilLabel;
     QLabel *m_efficiencyLabel;
     QPushButton *m_calibrateButton;
