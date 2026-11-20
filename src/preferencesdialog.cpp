@@ -48,18 +48,15 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
 }
 
 namespace {
-// A page of default settings, the editor stretched when it can use the space
-QWidget *settingsPage(const QString &title, QWidget *editor, bool stretch) {
-    auto *group = new QGroupBox(title);
-    auto *groupLayout = new QVBoxLayout(group);
-    groupLayout->addWidget(editor);
+// A page of default settings, the editor stretched when it can use the space. The editors have group boxes of their own.
+QWidget *settingsPage(QWidget *editor, bool stretch) {
     auto *note = new QLabel("New projects start with these settings, and new settings sets are created from them.");
     note->setWordWrap(true);
 
     auto *page = new QWidget;
     auto *layout = new QVBoxLayout(page);
     layout->addWidget(note);
-    layout->addWidget(group, stretch ? 1 : 0);
+    layout->addWidget(editor, stretch ? 1 : 0);
     if(!stretch) {
         layout->addStretch();
     }
@@ -70,20 +67,20 @@ QWidget *settingsPage(const QString &title, QWidget *editor, bool stretch) {
 QWidget *PreferencesDialog::createExperimentalPage() {
     auto *editor = new ExperimentalSettingsEditor;
     editor->setSettings(&m_experimental);
-    return settingsPage("Default experimental settings", editor, false);
+    return settingsPage(editor, false);
 }
 
 QWidget *PreferencesDialog::createDetectorPage() {
     auto *editor = new DetectorSettingsEditor;
     editor->setDetector(&m_detector);
     editor->setCoincidenceVisible(false); // On the coincidence page
-    return settingsPage("Default detector settings", editor, false);
+    return settingsPage(editor, false);
 }
 
 QWidget *PreferencesDialog::createPhysicsPage() {
     auto *editor = new PhysicsSettingsEditor;
     editor->setPhysics(&m_physics);
-    return settingsPage("Default physics settings", editor, true);
+    return settingsPage(editor, true);
 }
 
 QWidget *PreferencesDialog::createHistogramPage() {
@@ -121,15 +118,20 @@ QWidget *PreferencesDialog::createHistogramPage() {
                             "in each histogram from its context menu.");
     note->setWordWrap(true);
 
+    auto *binGroup = new QGroupBox("Bin size");
+    auto *binForm = createFormLayout(binGroup);
+    binForm->addRow(note);
+    binForm->addRow("Minimum:", binRow(minX, minY));
+    binForm->addRow("Maximum:", binRow(maxX, maxY));
+    auto *colorGroup = new QGroupBox("Colors");
+    auto *colorForm = createFormLayout(colorGroup);
+    colorForm->addRow("Color scheme:", schemeCombo);
+    colorForm->addRow("Default color scale:", scaleCombo);
+    alignFormLabels({binForm, colorForm});
     auto *page = new QWidget;
-    auto *form = createFormLayout();
-    form->addRow("Minimum bin size:", binRow(minX, minY));
-    form->addRow("Maximum bin size:", binRow(maxX, maxY));
-    form->addRow("Color scheme:", schemeCombo);
-    form->addRow("Default color scale:", scaleCombo);
     auto *layout = new QVBoxLayout(page);
-    layout->addWidget(note);
-    layout->addLayout(form);
+    layout->addWidget(binGroup);
+    layout->addWidget(colorGroup);
     layout->addStretch();
 
     // The maximum is kept at least the minimum by moving the other value
@@ -176,23 +178,24 @@ QWidget *PreferencesDialog::createCoincidencePage() {
 
     auto *coincidenceEditor = new CoincidenceSettingsEditor;
     coincidenceEditor->setSettings(&m_detector.coincidence);
-    auto *parametersGroup = new QGroupBox("Default coincidence parameters (part of the detector settings)");
-    auto *parametersLayout = new QVBoxLayout(parametersGroup);
-    parametersLayout->addWidget(coincidenceEditor);
-
     auto *note = new QLabel("Importing event data (*.evnt). The coincidence parameters are part of the detector "
                             "settings, new detector settings start with these.");
     note->setWordWrap(true);
+    auto *parametersGroup = new QGroupBox("Default coincidence parameters");
+    auto *parametersLayout = new QVBoxLayout(parametersGroup);
+    parametersLayout->addWidget(coincidenceEditor);
+    auto *previewGroup = new QGroupBox("Preview");
+    auto *previewForm = createFormLayout(previewGroup);
+    previewForm->addRow("Shown around the window:", margin);
+    previewForm->addRow("Events in the preview:", preview);
+    previewForm->addRow("Time difference counts:", scaleCombo);
+    alignFormLabels({coincidenceEditor->formLayout(), previewForm});
 
     auto *page = new QWidget;
-    auto *form = createFormLayout();
-    form->addRow("Shown around the window:", margin);
-    form->addRow("Events in the preview:", preview);
-    form->addRow("Time difference counts:", scaleCombo);
     auto *layout = new QVBoxLayout(page);
     layout->addWidget(note);
     layout->addWidget(parametersGroup);
-    layout->addLayout(form);
+    layout->addWidget(previewGroup);
     layout->addStretch();
 
     connect(margin, &QSpinBox::valueChanged, this, [this](int value) { m_coincidence.plotMargin = value; });
@@ -237,18 +240,19 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
     autoMaxDepth->setChecked(m_depthProfile.autoMaxDepth);
     autoMaxDepth->setToolTip("The maximum depth follows the depth the events reach, starting from the value given");
     auto *maxDepthRow = new QHBoxLayout;
-    maxDepthRow->addWidget(maxDepth, 1);
+    maxDepthRow->addWidget(maxDepth);
     maxDepthRow->addWidget(autoMaxDepth);
+    maxDepthRow->addStretch(1);
     auto *smoothing = new QSpinBox;
     smoothing->setRange(1, 100000);
     smoothing->setValue(m_depthProfile.smoothingEvents);
     smoothing->setToolTip("Each stopping bin gets this many events with the composition of the bin above it");
-    auto *newGroup = new QGroupBox("New depth profiles (depths in 10¹⁵ at./cm²)");
-    auto *newForm = createFormLayout(newGroup);
-    newForm->addRow("Profile bin:", binWidth);
-    newForm->addRow("Stopping bin:", stoppingBinWidth);
-    newForm->addRow("Smoothing events:", smoothing);
-    newForm->addRow("Maximum depth:", maxDepthRow);
+    auto *parameterGroup = new QGroupBox("Parameters (depths in 10¹⁵ at./cm²)");
+    auto *parameterForm = createFormLayout(parameterGroup);
+    parameterForm->addRow("Profile bin:", binWidth);
+    parameterForm->addRow("Stopping bin:", stoppingBinWidth);
+    parameterForm->addRow("Smoothing events:", smoothing);
+    parameterForm->addRow("Maximum depth:", maxDepthRow);
 
     auto *legend = new QComboBox;
     for(const LegendPosition position : LegendCorners) {
@@ -259,25 +263,28 @@ QWidget *PreferencesDialog::createDepthProfilePage() {
     auto *plotForm = createFormLayout(plotGroup);
     legend->setToolTip("Dragging the legend of a depth profile to another corner gives it its own position");
     plotForm->addRow("Legend:", legend);
-    auto *legendConcentrations = new QCheckBox("Renormalized concentrations in the legend of new depth profiles");
+    auto *legendConcentrations = new QCheckBox("Renormalized concentrations in the legend");
     legendConcentrations->setChecked(m_depthProfile.showLegendConcentrations);
     plotForm->addRow(legendConcentrations);
     const QString roundTip = QStringLiteral("Averages rounded to their uncertainties, upper limits for those less than "
                                             "twice their uncertainty");
-    auto *roundLegend = new QCheckBox("Round the concentrations in the legend of new depth profiles");
+    auto *roundLegend = new QCheckBox("Round the concentrations in the legend");
     roundLegend->setChecked(m_depthProfile.roundLegendConcentrations);
     roundLegend->setToolTip(roundTip);
     plotForm->addRow(roundLegend);
-    auto *roundTable = new QCheckBox("Round the concentrations in the table of averages of new depth profiles");
+    auto *roundTable = new QCheckBox("Round the concentrations in the table of averages");
     roundTable->setChecked(m_depthProfile.roundTableConcentrations);
     roundTable->setToolTip(roundTip + QStringLiteral(", also in the export and reports"));
     plotForm->addRow(roundTable);
-    alignFormLabels({iterationForm, newForm, plotForm});
+    alignFormLabels({iterationForm, parameterForm, plotForm});
 
+    auto *pageNote = new QLabel("Depth profiles start with these parameters and plot settings and can change them.");
+    pageNote->setWordWrap(true);
     auto *page = new QWidget;
     auto *layout = new QVBoxLayout(page);
+    layout->addWidget(pageNote);
     layout->addWidget(iterationGroup);
-    layout->addWidget(newGroup);
+    layout->addWidget(parameterGroup);
     layout->addWidget(plotGroup);
     layout->addStretch();
     connect(iterations, &QSpinBox::valueChanged, this, [this](int value) { m_depthProfile.maxIterations = value; });

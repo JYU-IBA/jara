@@ -55,6 +55,7 @@ public:
     explicit CoincidenceSettingsEditor(QWidget *parent = nullptr);
     void setSettings(CoincidenceSettings *settings); // Not owned
     void setAdcsVisible(bool visible); // Shown by default
+    QFormLayout *formLayout() const { return m_layout; } // E.g. for aligning its labels with other forms
 
 signals:
     void changed();

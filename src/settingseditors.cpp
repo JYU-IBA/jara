@@ -71,12 +71,14 @@ ExperimentalSettingsEditor::ExperimentalSettingsEditor(QWidget *parent) : QWidge
     m_beamEnergySpin = createSpinBox(0, 1000 * Units::Megaelectronvolt, Units::Megaelectronvolt, 3, " MeV");
     m_beamIonEdit = new QLineEdit;
     m_beamIonEdit->setPlaceholderText("e.g. 35Cl");
+    fitToPlaceholder(m_beamIonEdit);
     auto *beamIonButton = new QToolButton;
     beamIonButton->setText("...");
     beamIonButton->setToolTip("Select from the periodic table");
     auto *beamIonLayout = new QHBoxLayout;
     beamIonLayout->addWidget(m_beamIonEdit);
     beamIonLayout->addWidget(beamIonButton);
+    beamIonLayout->addStretch(1);
     m_incidentAngleSpin = createSpinBox(MinIncidentAngle, MaxIncidentAngle, Units::Degree, 2, "°");
     m_incidentAngleSpin->setToolTip(FromSurface);
 

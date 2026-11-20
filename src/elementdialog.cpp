@@ -45,6 +45,7 @@ ElementDialog::ElementDialog(int z, int a, QWidget *parent, bool requireIsotope)
 
     m_edit = new QLineEdit;
     m_edit->setPlaceholderText("e.g. Si, 14 or 28Si");
+    fitToPlaceholder(m_edit);
     m_isotopeCombo = new QComboBox;
     m_colorButton = new ColorButton;
     m_typeCombo = new QComboBox;

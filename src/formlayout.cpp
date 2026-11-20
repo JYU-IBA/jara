@@ -8,17 +8,31 @@
 #include <QTimer>
 
 namespace {
-constexpr int SpinBoxCharacters = 20; // Minimum width of spin boxes, wider than most need
+constexpr int MinSpinBoxCharacters = 8; // Narrowest width of spin boxes in forms
 
-void setSpinBoxWidths(QLayout *layout) {
+void collectSpinBoxes(QLayout *layout, QList<QAbstractSpinBox *> &spinBoxes) {
     for(int i = 0; i < layout->count(); i++) {
         QLayoutItem *item = layout->itemAt(i);
         if(auto *spinBox = qobject_cast<QAbstractSpinBox *>(item->widget())) {
-            spinBox->setMinimumWidth(std::max(spinBox->minimumSizeHint().width(),
-                                              spinBox->fontMetrics().averageCharWidth() * SpinBoxCharacters));
+            spinBoxes.append(spinBox);
         } else if(item->layout()) {
-            setSpinBoxWidths(item->layout());
+            collectSpinBoxes(item->layout(), spinBoxes);
         }
+    }
+}
+
+// The spin boxes of the forms as wide as the widest of them needs, so that they line up
+void setSpinBoxWidths(const QList<QFormLayout *> &forms) {
+    QList<QAbstractSpinBox *> spinBoxes;
+    for(QFormLayout *form : forms) {
+        collectSpinBoxes(form, spinBoxes);
+    }
+    int width = 0;
+    for(QAbstractSpinBox *spinBox : spinBoxes) {
+        width = std::max({width, spinBox->sizeHint().width(), spinBox->fontMetrics().averageCharWidth() * MinSpinBoxCharacters});
+    }
+    for(QAbstractSpinBox *spinBox : spinBoxes) {
+        spinBox->setMinimumWidth(width);
     }
 }
 }
@@ -30,7 +44,7 @@ QFormLayout *createFormLayout(QWidget *parent) {
     form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
     form->setRowWrapPolicy(QFormLayout::DontWrapRows);
     // Once the rows have been added, before the form is shown
-    QTimer::singleShot(0, form, [form]() { setSpinBoxWidths(form); });
+    QTimer::singleShot(0, form, [form]() { setSpinBoxWidths({form}); });
     return form;
 }
 
@@ -48,6 +62,12 @@ QWidget *buttonField(QWidget *label, QWidget *button) {
     return field;
 }
 
+void fitToPlaceholder(QLineEdit *edit) {
+    constexpr int ExtraCharacters = 3; // Room for the frame, the margins and a little more
+    const QFontMetrics metrics = edit->fontMetrics();
+    edit->setFixedWidth(metrics.horizontalAdvance(edit->placeholderText()) + ExtraCharacters * metrics.averageCharWidth());
+}
+
 void alignFormLabels(const QList<QFormLayout *> &forms) {
     QList<QWidget *> labels;
     int width = 0;
@@ -62,4 +82,6 @@ void alignFormLabels(const QList<QFormLayout *> &forms) {
     for(QWidget *label : labels) {
         label->setMinimumWidth(width);
     }
+    // After the widths of each form, which are set once its rows have been added
+    QTimer::singleShot(0, forms.first(), [forms]() { setSpinBoxWidths(forms); });
 }
