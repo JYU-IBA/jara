@@ -39,7 +39,8 @@ again.
    the fit. With single ticks of unequal widths, wider bins even them out, but the window needs several bins.
    **Timing smoothing** spreads each timing value uniformly over ± this many ticks, in both plots and in the fit,
    which evens out structure of the ticks. It widens the fitted σ (a spread of ± s adds s / √3 in quadrature), not
-   the centre or the width of the window. It is stored with the calibration and does not affect the correction.
+   the centre or the width of the window. It is stored with the calibration, and the kinematic correction spreads
+   the timing of each event in the same way, so that the angles of the events do not come in steps of the ticks.
    **ToF slices** sets the number of slices for the shift of the centre, 1 for a constant centre. Their centres are
    listed in the table.
 4. To find the direction, choose a selection in **Expected edge of**. Its expected leading edge over the window, from

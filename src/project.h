@@ -152,7 +152,7 @@ struct AngleCalibration {
     double sigma = 0; // Ticks, timing resolution, for information
     bool reversed = false; // Larger timing is a smaller angle
     double maxTof = 0; // ToF channel, the longest ToF used in the fit, remembered for the tool
-    double timingSmoothing = 0; // Ticks, the timing values were spread over ± this in the fit, remembered for the tool
+    double timingSmoothing = 0; // Ticks, timing values are spread uniformly over ± this, in the fit and the correction
     bool operator==(const AngleCalibration &) const = default;
 };
 

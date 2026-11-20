@@ -36,8 +36,10 @@
 //
 // With the kinematic correction of the detector, each event is detected at its own angle, from the timing coordinate,
 // see anglecalibration.h. Its detected energy is multiplied by K(scattering angle) / K(angle of the event), K being the
-// kinematic factor, as if it was detected at the scattering/recoil angle of the detector. The efficiency is that of
-// the energy before the correction, which the particle had. Events at an angle no particles reach are not corrected.
+// kinematic factor, as if it was detected at the scattering/recoil angle of the detector. The timing of each event is
+// spread uniformly over the timing smoothing of the calibration first, with a fixed seed for each selection. The
+// efficiency is that of the energy before the correction, which the particle had. Events at an angle no particles
+// reach are not corrected.
 //
 // Only the events in the range of the profile are used, see split.h. A selection can use a narrower part of it, e.g.
 // hydrogen only from the beginning of the measurement before it is lost. Its events are then weighted by the reference

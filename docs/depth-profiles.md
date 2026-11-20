@@ -12,7 +12,7 @@ detector settings with a [ToF calibration](tof-calibration.md).
 - With **Kinematic correction in depth profiles** set in the detector settings, each event has its own detection angle
   from the [angle calibration](angle-calibration.md). Its detected energy is multiplied by K(θ) / K(θ + Δθ), K being
   the kinematic factor, θ the scattering/recoil angle of the detector and Δθ the event's offset from it, as if it was
-  detected at θ. The efficiency is that of the energy before the correction. Events at an angle no particles reach
+  detected at θ. The timing of each event is spread with the timing smoothing of the calibration first. The efficiency is that of the energy before the correction. Events at an angle no particles reach
   are not corrected.
 - The detected energy of a selection's particles decreases with the depth they come from: the beam slows down on the
   way in, the particle gets the kinematic fraction of the beam energy and slows down on the way out. Both depend on the

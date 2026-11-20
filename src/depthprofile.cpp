@@ -256,6 +256,11 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         selection.rangeWeight = static_cast<double>(referenceCounts) / static_cast<double>(cutReferenceCounts);
         std::mt19937 random(static_cast<std::mt19937::result_type>(cut.id));
         std::uniform_real_distribution<double> dither(-0.5, 0.5);
+        // The timing smoothing of the angle calibration, with a generator of its own so that the ToF is spread the same
+        // with and without the correction
+        std::mt19937 timingRandom(static_cast<std::mt19937::result_type>(cut.id));
+        const double smoothing = inputs.angleCalibration.timingSmoothing;
+        std::uniform_real_distribution<double> timingSpread(-smoothing, smoothing);
         std::vector<double> energies;
         std::vector<double> corrections; // Of the energies, with the kinematic correction
         double maxEnergy = 0;
@@ -271,7 +276,11 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
             energies.push_back(energy);
             maxEnergy = std::max(maxEnergy, energy);
             if(inputs.kinematicCorrection) {
-                const double offset = angleOffset(inputs.angleCalibration, inputs.detectorDistance, inputs.windowWidth, event);
+                ToFEEvent smoothed = event;
+                if(smoothing > 0) {
+                    smoothed.timing += timingSpread(timingRandom);
+                }
+                const double offset = angleOffset(inputs.angleCalibration, inputs.detectorDistance, inputs.windowWidth, smoothed);
                 const double k = kinematicFactor(cut.type, m_beamMass, selectionPhysics.targetMass, angle + offset);
                 corrections.push_back(k > 0 ? selectionPhysics.kinematicFactor / k : 1);
             }
