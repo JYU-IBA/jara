@@ -1258,14 +1258,18 @@ void DepthProfileView::exportProfile() {
     if(m_stale) {
         table.comments.append(QStringLiteral("Out of date"));
     }
-    // Renormalized averages only when they differ from the averages
+    // Renormalized averages only when they differ from the averages, also as areal densities over the interval
+    const double averageWidth = (m_result.averageMax - m_result.averageMin) / thinFilm;
     QStringList averages;
     for(size_t c = 0; c < m_result.curves.size(); c++) {
         const DepthProfileResult::Average &average = m_result.averages[c];
         QString text = QString("%1 %2 +- %3").arg(m_result.curves[c].label(false), value(average.concentration),
                                                   value(average.uncertainty));
         if(!m_profile->averageFollowsNormalization && !std::isnan(average.renormalized)) {
-            text += QString(" (renormalized %1 +- %2)").arg(value(average.renormalized), value(average.renormalizedUncertainty));
+            text += QString(" (renormalized %1 +- %2, %3 +- %4 1e15 at./cm2)")
+                            .arg(value(average.renormalized), value(average.renormalizedUncertainty),
+                                 number(average.renormalized * averageWidth),
+                                 number(average.renormalizedUncertainty * averageWidth));
         }
         averages.append(text);
     }

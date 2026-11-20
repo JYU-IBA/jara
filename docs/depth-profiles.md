@@ -68,7 +68,7 @@ The table lists the average concentration of each curve with its uncertainty and
   they do not overlap; a dragged label stays at its depth and concentration. The submenu chooses which selections get
   a label and resets dragged labels.
 - **Export...** writes the bin edges and centres, the depths in µg/cm² and nm, and for each curve the concentration,
-  its uncertainty and the events, with the averages in the header. Concentrations are written to 0.0001 at.%. See
-  [Exporting](getting-started.md#exporting).
+  its uncertainty and the events, with the averages in the header, the renormalized ones also as areal densities.
+  Concentrations are written to 0.0001 at.%. See [Exporting](getting-started.md#exporting).
 
 Changes of the selections or settings made elsewhere mark the profile out of date until it is recalculated.
