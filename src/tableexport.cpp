@@ -1,4 +1,5 @@
 #include "tableexport.h"
+#include "project.h"
 
 #include <QFileDialog>
 #include <QFileInfo>
@@ -31,7 +32,8 @@ QString csvRow(const QStringList &fields, bool strings) {
 
 QString exportTable(QWidget *parent, const QString &title, const QString &baseName, const ExportTable &table) {
     QString filter = TextFilter;
-    QString fileName = QFileDialog::getSaveFileName(parent, title, baseName + QStringLiteral(".txt"),
+    QString fileName = QFileDialog::getSaveFileName(parent, title,
+                                                    inProjectDirectory(baseName + QStringLiteral(".txt")),
                                                     TextFilter + QStringLiteral(";;") + CsvFilter, &filter);
     if(fileName.isEmpty()) {
         return {};

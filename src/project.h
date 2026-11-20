@@ -521,4 +521,11 @@ private:
     std::unique_ptr<Report> reportFromJson(const QJsonObject &json) const; // After the samples are read
 };
 
+// The directory the open project was last saved to or opened from, the default location of file dialogs. Kept in
+// memory only, and after the project is closed.
+const QString &projectDirectory();
+void setProjectDirectory(const QString &directory);
+// fileName in the project directory, as is when there is no project directory yet
+QString inProjectDirectory(const QString &fileName);
+
 #endif // JARA_PROJECT_H

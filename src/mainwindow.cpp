@@ -465,19 +465,35 @@ void MainWindow::newProject() {
     if(!maybeSave()) {
         return;
     }
+    // The project is saved right away, so that it has a project directory from the start
+    QString fileName = QFileDialog::getSaveFileName(this, "New Project", inProjectDirectory("project.json"),
+                                                    ProjectFileFilter);
+    if(fileName.isEmpty()) {
+        return;
+    }
+    if(QFileInfo(fileName).suffix().isEmpty()) {
+        fileName += ".json";
+    }
     auto project = std::make_unique<Project>();
     project->addSettings(Defaults::experimentalSettings());
     project->addDetector(Defaults::detectorSettings());
     project->addPhysics(Defaults::physicsSettings());
-    project->setModified(false); // Nothing to save until something is changed
+    QString errorMessage;
+    if(!project->save(fileName, errorMessage)) {
+        QMessageBox::critical(this, "JaRA", QString("Could not save project:\n%1").arg(errorMessage));
+        return;
+    }
     setProject(std::move(project));
+    setProjectDirectory(QFileInfo(fileName).absolutePath());
+    addRecentFile(fileName);
+    statusBar()->showMessage(QString("Saved %1").arg(fileName), 5000);
 }
 
 void MainWindow::openProject() {
     if(!maybeSave()) {
         return;
     }
-    const QString fileName = QFileDialog::getOpenFileName(this, "Open Project", {}, ProjectFileFilter);
+    const QString fileName = QFileDialog::getOpenFileName(this, "Open Project", projectDirectory(), ProjectFileFilter);
     if(fileName.isEmpty()) {
         return;
     }
@@ -495,6 +511,7 @@ void MainWindow::openProjectFile(const QString &fileName) {
     const QList<Project::FileProblem> problems = project->verifyFiles();
     QApplication::restoreOverrideCursor();
     setProject(std::move(project));
+    setProjectDirectory(QFileInfo(fileName).absolutePath());
     addRecentFile(fileName);
     statusBar()->showMessage(QString("Opened %1").arg(fileName), 5000);
     if(!problems.isEmpty()) {
@@ -569,6 +586,7 @@ bool MainWindow::saveProjectAs() {
         QMessageBox::critical(this, "JaRA", QString("Could not save project:\n%1").arg(errorMessage));
         return false;
     }
+    setProjectDirectory(QFileInfo(fileName).absolutePath());
     updateWindowState();
     projectSaved();
     addRecentFile(fileName);

@@ -1634,3 +1634,22 @@ void Project::removeFromReports(const SplitAnalysis *split) {
         report->splits.removeAll(split);
     }
 }
+
+namespace {
+QString &projectDirectoryStorage() {
+    static QString directory;
+    return directory;
+}
+}
+
+const QString &projectDirectory() {
+    return projectDirectoryStorage();
+}
+
+void setProjectDirectory(const QString &directory) {
+    projectDirectoryStorage() = directory;
+}
+
+QString inProjectDirectory(const QString &fileName) {
+    return projectDirectory().isEmpty() ? fileName : QDir(projectDirectory()).filePath(fileName);
+}

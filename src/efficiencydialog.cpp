@@ -1,6 +1,7 @@
 #include "efficiencydialog.h"
 #include "elementdialog.h"
 #include "elements.h"
+#include "project.h"
 
 #include <algorithm>
 
@@ -133,7 +134,7 @@ void EfficiencyDialog::updateTable() {
 }
 
 void EfficiencyDialog::importFiles() {
-    const QStringList fileNames = QFileDialog::getOpenFileNames(this, "Import Efficiency Files", QString(),
+    const QStringList fileNames = QFileDialog::getOpenFileNames(this, "Import Efficiency Files", projectDirectory(),
                                                                 "Efficiency files (*.eff);;All files (*)");
     for(const QString &fileName : fileNames) {
         QList<QPointF> points;

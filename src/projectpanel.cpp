@@ -921,7 +921,8 @@ void ProjectPanel::exportSettings() {
     const QString name = !collection.experimental.isEmpty() ? collection.experimental.first().name
                          : !collection.detectors.isEmpty()  ? collection.detectors.first().name
                                                             : collection.physics.first().name;
-    const QString fileName = QFileDialog::getSaveFileName(this, "Export Settings", name + ".json", SettingsFileFilter);
+    const QString fileName = QFileDialog::getSaveFileName(this, "Export Settings", inProjectDirectory(name + ".json"),
+                                                          SettingsFileFilter);
     if(fileName.isEmpty()) {
         return;
     }
@@ -935,7 +936,7 @@ void ProjectPanel::importSettings() {
     if(!m_project) {
         return;
     }
-    const QString fileName = QFileDialog::getOpenFileName(this, "Import", {}, SettingsFileFilter);
+    const QString fileName = QFileDialog::getOpenFileName(this, "Import", projectDirectory(), SettingsFileFilter);
     if(!fileName.isEmpty()) {
         importFile(fileName);
     }
@@ -1481,7 +1482,7 @@ void ProjectPanel::addMeasurements() {
     if(sampleIndex < 0) {
         return;
     }
-    const QStringList fileNames = QFileDialog::getOpenFileNames(this, "Add Measurements", {},
+    const QStringList fileNames = QFileDialog::getOpenFileNames(this, "Add Measurements", projectDirectory(),
                                                                 "ToF-E event files (*.asc);;All files (*)");
     if(!fileNames.isEmpty()) {
         addMeasurementFiles(sampleIndex, fileNames);
@@ -1520,7 +1521,7 @@ void ProjectPanel::addFiles() {
         return;
     }
     QTreeWidgetItem *item = topLevelOf(m_tree->currentItem());
-    const QStringList fileNames = QFileDialog::getOpenFileNames(this, "Add Files");
+    const QStringList fileNames = QFileDialog::getOpenFileNames(this, "Add Files", projectDirectory());
     if(fileNames.isEmpty()) {
         return;
     }

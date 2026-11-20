@@ -395,7 +395,8 @@ void ReportView::generatePdf() {
         QMessageBox::warning(this, "Generate Report", "Include some depth profiles or split analyses.");
         return;
     }
-    QString fileName = QFileDialog::getSaveFileName(this, "Generate Report", m_report->title + QStringLiteral(".pdf"),
+    QString fileName = QFileDialog::getSaveFileName(this, "Generate Report",
+                                                    inProjectDirectory(m_report->title + QStringLiteral(".pdf")),
                                                     "PDF files (*.pdf)");
     if(fileName.isEmpty()) {
         return;
