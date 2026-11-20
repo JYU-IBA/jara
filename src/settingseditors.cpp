@@ -1,7 +1,5 @@
 #include "settingseditors.h"
 #include "anglecalibration.h"
-#include "energydetector.h"
-#include "materialeditor.h"
 #include "elementdialog.h"
 #include "efficiencydialog.h"
 #include "elements.h"
@@ -12,8 +10,6 @@
 #include <algorithm>
 
 #include <QComboBox>
-#include <QDialog>
-#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QHeaderView>
 #include <QFormLayout>
@@ -310,33 +306,6 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     layout->addRow("Detector distance:", m_distanceSpin);
     layout->addRow("Window width:", m_windowWidthSpin);
     layout->addRow("Angle calibration:", m_angleCalibrationRow);
-    // Energy detector, a gas ionization chamber, see energydetector.h
-    auto addEditRow = [layout](const QString &label, QLabel *&textLabel, const QString &toolTip) {
-        textLabel = new QLabel;
-        auto *button = new QPushButton("Edit...");
-        auto *row = new QHBoxLayout;
-        row->addWidget(textLabel, 1);
-        row->addWidget(button);
-        layout->addRow(label, row);
-        layout->labelForField(row)->setToolTip(toolTip);
-        return button;
-    };
-    QPushButton *stopFoilButton = addEditRow("Stop detector foil:", m_stopFoilLabel,
-                                             "Foil of the stop timing detector, before the energy detector");
-    QPushButton *windowButton = addEditRow("E detector window:", m_windowLabel, "Entrance window of the energy detector");
-    QPushButton *gasButton = addEditRow("E detector gas:", m_gasLabel, "Gas of the energy detector");
-    m_energyCalibrationLabel = new QLabel;
-    m_energyCalibrationLabel->setWordWrap(true);
-    m_energyCalibrationLabel->setToolTip("Response of the energy detector, made with the automatic selections of a measurement");
-    layout->addRow("E detector calibration:", m_energyCalibrationLabel);
-    layout->setRowVisible(m_energyCalibrationLabel, false);
-    connect(stopFoilButton, &QPushButton::clicked, this, [this]() {
-        editLayer(&DetectorSettings::stopFoilMaterial, &DetectorSettings::stopFoilThickness);
-    });
-    connect(windowButton, &QPushButton::clicked, this, [this]() {
-        editLayer(&DetectorSettings::windowMaterial, &DetectorSettings::windowThickness);
-    });
-    connect(gasButton, &QPushButton::clicked, this, &DetectorSettingsEditor::editGas);
     layout->setRowVisible(m_angleCalibrationRow, false);
     layout->addRow(m_coincidenceGroup);
 
@@ -421,43 +390,6 @@ void DetectorSettingsEditor::editFoil() {
     emit editingFinished();
 }
 
-void DetectorSettingsEditor::editLayer(Material DetectorSettings::*material, double DetectorSettings::*thickness) {
-    FoilDialog dialog(m_detector->*material, m_detector->*thickness, this);
-    if(dialog.exec() != QDialog::Accepted) {
-        return;
-    }
-    m_detector->*material = dialog.material();
-    m_detector->*thickness = dialog.thickness();
-    showAngleCalibration();
-    emit changed();
-    m_edited = false;
-    emit editingFinished();
-}
-
-void DetectorSettingsEditor::editGas() {
-    QDialog dialog(this);
-    dialog.setWindowTitle("Gas of the Energy Detector");
-    auto *editor = new MaterialEditor;
-    editor->setMaterial(m_detector->gasMaterial);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-    auto *layout = new QVBoxLayout(&dialog);
-    layout->addWidget(editor);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    connect(editor, &MaterialEditor::changed, &dialog, [editor, buttons]() {
-        buttons->button(QDialogButtonBox::Ok)->setEnabled(editor->isValid());
-    });
-    if(dialog.exec() != QDialog::Accepted || !editor->isValid()) {
-        return;
-    }
-    m_detector->gasMaterial = editor->material();
-    showAngleCalibration();
-    emit changed();
-    m_edited = false;
-    emit editingFinished();
-}
-
 void DetectorSettingsEditor::refresh() {
     setDetector(m_detector);
 }
@@ -465,7 +397,6 @@ void DetectorSettingsEditor::refresh() {
 void DetectorSettingsEditor::setCalibrationAvailable(bool available) {
     m_calibrateButton->setVisible(available);
     m_layout->setRowVisible(m_angleCalibrationRow, available);
-    m_layout->setRowVisible(m_energyCalibrationLabel, available);
 }
 
 void DetectorSettingsEditor::showAngleCalibration() {
@@ -490,12 +421,6 @@ void DetectorSettingsEditor::showAngleCalibration() {
                               : QStringLiteral(" (the detector distance and window width are needed)");
     }
     m_angleCalibrationLabel->setText(text);
-    m_stopFoilLabel->setText(foilText(m_detector->stopFoilMaterial, m_detector->stopFoilThickness));
-    m_windowLabel->setText(foilText(m_detector->windowMaterial, m_detector->windowThickness));
-    m_gasLabel->setText(materialText(m_detector->gasMaterial));
-    m_energyCalibrationLabel->setText(m_detector->energyCalibration.valid
-                                              ? energyCalibrationText(m_detector->energyCalibration)
-                                              : QStringLiteral("Not calibrated (Automatic Selections... of a measurement)"));
 }
 
 void DetectorSettingsEditor::setCoincidenceVisible(bool visible) {

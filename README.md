@@ -14,9 +14,6 @@ spectra and depth profiles. Stopping, masses and isotopes come from [JIBAL](http
 - **ToF-E histograms with polygon selections** of recoils (ERD), scattered ions (RBS) and reference selections. An
   isotope can stand for its natural element, and the events of a selection can be given an extra weight. See
   [Selections](docs/selections.md).
-- **Automatic selections** of the mass bands of the ToF-E histogram, identified from their leading edges and a model
-  of the response of the energy detector, each as deep as it goes without overlapping others. See
-  [Automatic selections](docs/mass-selection.md).
 - **ToF calibration** from the leading edges of the selections' ToF spectra. See [ToF calibration](docs/tof-calibration.md).
 - **Angle calibration** of the timing coordinate of the events, for a kinematic correction of each event in depth
   profiles. See [Angle calibration](docs/angle-calibration.md).
@@ -49,7 +46,6 @@ spectra and depth profiles. Stopping, masses and isotopes come from [JIBAL](http
   preferences
 - [Coincidence files](docs/coincidences.md): converting list-mode files to measurements
 - [Selections](docs/selections.md): the ToF-E histogram and selections
-- [Automatic selections](docs/mass-selection.md): mass bands, their identities and the energy detector response
 - [ToF calibration](docs/tof-calibration.md)
 - [Energy spectra](docs/energy-spectra.md)
 - [Depth profiles](docs/depth-profiles.md)

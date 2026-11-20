@@ -46,10 +46,9 @@ bool hasData(const gsto_file_t *file, int z1, int z2) {
     return file->data && jibal_gsto_file_get_data(file, z1, z2);
 }
 
-// Assigns the file of the pair from the physics settings to it in JIBAL and loads its data when needed, unless load is
-// false. The assignment lasts until another pair of settings assigns another file, so the stopping is read right after
-// this.
-bool assignStopping(int z1, int z2, const PhysicsSettings &physics, QString &errorMessage, bool load = true) {
+// Assigns the file of the pair from the physics settings to it in JIBAL and loads its data when needed. The
+// assignment lasts until another pair of settings assigns another file, so the stopping is read right after this.
+bool assignStopping(int z1, int z2, const PhysicsSettings &physics, QString &errorMessage) {
     jibal_gsto *gsto = Elements::library()->gsto;
     const StoppingCorrection *correction = physics.correctionFor(z1, z2);
     const QString name = correction && !correction->stoppingFile.isEmpty() ? correction->stoppingFile : physics.stoppingFile;
@@ -75,9 +74,6 @@ bool assignStopping(int z1, int z2, const PhysicsSettings &physics, QString &err
         errorMessage = QString("JIBAL could not use the stopping file %1 for %2 in %3.")
                                .arg(QString::fromUtf8(file->name), Elements::symbol(z1), Elements::symbol(z2));
         return false;
-    }
-    if(!load) {
-        return true;
     }
     if(!hasData(file, z1, z2)) {
         jibal_gsto_load(gsto, 0, file); // Reads the data of all pairs assigned to the file
@@ -118,25 +114,6 @@ QStringList stoppingFileNames(int z1, int z2) {
         }
     }
     return names;
-}
-
-void prepareStopping(const QList<int> &z1s, const QList<int> &elements, const PhysicsSettings &physics) {
-    if(!Elements::library()) {
-        return;
-    }
-    jibal_gsto *gsto = Elements::library()->gsto;
-    bool missing = false;
-    for(const int z1 : z1s) {
-        for(const int z2 : elements) {
-            QString errorMessage;
-            if(assignStopping(z1, z2, physics, errorMessage, false)) {
-                missing = missing || !hasData(jibal_gsto_get_assigned_file(gsto, GSTO_STO_ELE, z1, z2), z1, z2);
-            }
-        }
-    }
-    if(missing) {
-        jibal_gsto_load_all(gsto); // Reads the data of all pairs assigned, each file once
-    }
 }
 
 StoppingTable::StoppingTable(int z, double mass, const QList<int> &elements, const PhysicsSettings &physics)

@@ -675,9 +675,6 @@ QJsonArray cutsToJson(const QList<Cut> &cuts) {
         if(cut.weight != 1) {
             object["weight"] = cut.weight;
         }
-        if(cut.automatic) {
-            object["automatic"] = true;
-        }
         if(cut.tofEdge) {
             object["tofEdge"] = QJsonObject{{"channel", cut.tofEdge->channel}, {"sigma", cut.tofEdge->sigma},
                                             {"manual", cut.tofEdge->manual}};
@@ -710,7 +707,6 @@ QList<Cut> cutsFromJson(const QJsonArray &json) {
             cut.abundance = abundance;
         }
         cut.weight = std::clamp(object["weight"].toDouble(1), MinCutWeight, MaxCutWeight);
-        cut.automatic = object["automatic"].toBool();
         if(object.contains("tofEdge")) {
             const QJsonObject edge = object["tofEdge"].toObject();
             cut.tofEdge = ToFEdge{edge["channel"].toDouble(), edge["sigma"].toDouble(), edge["manual"].toBool()};
@@ -763,14 +759,6 @@ QString materialText(const Material &material) {
 
 Material carbon() {
     return Material{{{6, 1.0}}};
-}
-
-Material siliconNitride() {
-    return Material{{{14, 3.0 / 7}, {7, 4.0 / 7}}};
-}
-
-Material isobutane() {
-    return Material{{{6, 4.0 / 14}, {1, 10.0 / 14}}};
 }
 
 double efficiency(const EfficiencyCurve &curve, double energy) {
@@ -839,51 +827,6 @@ AngleCalibration angleCalibrationFromJson(const QJsonObject &json) {
     return calibration;
 }
 
-QJsonArray materialToJson(const Material &material) {
-    QJsonArray json;
-    for(const MaterialElement &element : material.elements) {
-        json.append(QJsonObject{{"z", element.z}, {"fraction", element.fraction}});
-    }
-    return json;
-}
-
-// The fallback when the material is not valid
-Material materialFromJson(const QJsonArray &json, const Material &fallback) {
-    Material material;
-    for(const auto &value : json) {
-        const QJsonObject element = value.toObject();
-        material.elements.append({element["z"].toInt(), element["fraction"].toDouble()});
-    }
-    return isValidMaterial(material) ? material : fallback;
-}
-
-QJsonObject layerToJson(const Material &material, double thickness) {
-    return QJsonObject{{"thickness", thickness}, {"material", materialToJson(material)}};
-}
-
-void layerFromJson(const QJsonValue &json, Material &material, double &thickness) {
-    if(json.isObject()) {
-        const QJsonObject object = json.toObject();
-        thickness = std::max(0.0, object["thickness"].toDouble(thickness));
-        material = materialFromJson(object["material"].toArray(), material);
-    }
-}
-
-QJsonObject energyCalibrationToJson(const EnergyDetectorCalibration &calibration) {
-    return QJsonObject{{"offset", calibration.offset}, {"gain", calibration.gain}, {"zSlope", calibration.zSlope},
-                       {"windowScale", calibration.windowScale}};
-}
-
-EnergyDetectorCalibration energyCalibrationFromJson(const QJsonObject &json) {
-    EnergyDetectorCalibration calibration;
-    calibration.offset = json["offset"].toDouble();
-    calibration.gain = json["gain"].toDouble();
-    calibration.zSlope = json["zSlope"].toDouble();
-    calibration.windowScale = std::max(0.0, json["windowScale"].toDouble(1));
-    calibration.valid = calibration.gain > 0;
-    return calibration;
-}
-
 CoincidenceSettings coincidenceFromJson(const QJsonObject &json) {
     CoincidenceSettings settings;
     settings.tofAdc = std::max(-1, json["tofAdc"].toInt(-1));
@@ -927,12 +870,6 @@ QJsonObject detectorToJson(const DetectorSettings &detector) {
     if(detector.angleCalibration.valid) {
         json["angleCalibration"] = angleCalibrationToJson(detector.angleCalibration);
     }
-    json["stopFoil"] = layerToJson(detector.stopFoilMaterial, detector.stopFoilThickness);
-    json["window"] = layerToJson(detector.windowMaterial, detector.windowThickness);
-    json["gas"] = materialToJson(detector.gasMaterial);
-    if(detector.energyCalibration.valid) {
-        json["energyCalibration"] = energyCalibrationToJson(detector.energyCalibration);
-    }
     return json;
 }
 
@@ -948,12 +885,6 @@ DetectorSettings detectorFromJson(const QJsonObject &json) {
     detector.windowWidth = std::max(0.0, json["windowWidth"].toDouble());
     if(json.contains("angleCalibration")) {
         detector.angleCalibration = angleCalibrationFromJson(json["angleCalibration"].toObject());
-    }
-    layerFromJson(json["stopFoil"], detector.stopFoilMaterial, detector.stopFoilThickness);
-    layerFromJson(json["window"], detector.windowMaterial, detector.windowThickness);
-    detector.gasMaterial = materialFromJson(json["gas"].toArray(), detector.gasMaterial);
-    if(json.contains("energyCalibration")) {
-        detector.energyCalibration = energyCalibrationFromJson(json["energyCalibration"].toObject());
     }
     if(json.contains("foil")) {
         const QJsonObject foil = json["foil"].toObject();

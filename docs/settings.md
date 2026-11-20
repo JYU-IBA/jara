@@ -33,11 +33,6 @@ incident angle.
 - **Angle calibration**: the timing coordinate of the events against the detection angle, made with the
   [angle calibration tool](angle-calibration.md) (**Angle Calibration...**). With it, the distance and the width,
   depth profiles can correct each event kinematically, see [Depth profiles](depth-profiles.md#calculation).
-- **Stop detector foil**, **E detector window** and **E detector gas**: the foil of the stop timing detector (8 µg/cm²
-  of carbon by default), the entrance window of the energy detector (100 nm of Si₃N₄) and its gas (isobutane), for
-  the response of the energy detector in the [automatic selections](mass-selection.md).
-- **E detector calibration**: the response of the energy detector, made with the automatic selections of a
-  measurement and used for measurements with too few bands identified by their leading edges.
 - **Coincidence parameters (list-mode files)**: the ToF and E ADCs, the trigger, the timing window, the reorder span
   and the pairing used when [importing event data](coincidences.md#coincidence-parameters). The defaults are on the
   Coincidences page of the preferences.

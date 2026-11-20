@@ -5,7 +5,6 @@
 
 struct CoincidenceSettings;
 struct DetectorSettings;
-struct Material;
 struct ExperimentalSettings;
 struct PhysicsSettings;
 class QComboBox;
@@ -95,11 +94,9 @@ signals:
 private slots:
     void editFoil();
     void editEfficiencies();
-    void editGas();
 
 private:
     void showAngleCalibration();
-    void editLayer(Material DetectorSettings::*material, double DetectorSettings::*thickness); // Stop detector foil or window
 
     DetectorSettings *m_detector = nullptr;
     bool m_edited = false; // Since editingFinished() was emitted
@@ -119,10 +116,6 @@ private:
     QLabel *m_angleCalibrationLabel;
     QPushButton *m_angleCalibrateButton;
     QWidget *m_angleCalibrationRow;
-    QLabel *m_stopFoilLabel;
-    QLabel *m_windowLabel;
-    QLabel *m_gasLabel;
-    QLabel *m_energyCalibrationLabel;
 };
 
 // Stopping of all elements and corrections for pairs of incident and target elements, shown in a table
