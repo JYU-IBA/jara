@@ -129,6 +129,7 @@ public slots:
 
 signals:
     void cursorInfoChanged(const QString &text);
+    void cursorMoved(double x); // Inside the bins, just before cursorInfoChanged()
     void logScaleChanged(bool logScale);
     void viewChangedByUser(); // Zoomed, moved or the scale changed by the user
     void picked(double x);

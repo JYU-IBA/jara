@@ -62,6 +62,7 @@ private:
     void showFit();
     void updateOverlay(); // Fitted window and expected edges in the timing against ToF plot
     void updateResults();
+    QString angleText(double tof, double timing) const; // At the position, empty when not known
     void apply();
 
     Project *m_project;
@@ -77,6 +78,7 @@ private:
     double m_minTof = 0; // Of the pooled events
     double m_maxTof = 0;
     AngleFit m_fit;
+    QPointF m_cursor; // ToF channel and timing at the mouse in the plots
     double m_fitMin; // Fit range dragged by the user, NaN when found automatically
     double m_fitMax;
 

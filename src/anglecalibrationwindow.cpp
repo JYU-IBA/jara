@@ -220,8 +220,17 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
     connect(m_edgeCombo, &QComboBox::currentIndexChanged, this, &AngleCalibrationWindow::updateOverlay);
     connect(m_reversedCheck, &QCheckBox::toggled, this, &AngleCalibrationWindow::updateOverlay);
     connect(m_applyButton, &QPushButton::clicked, this, &AngleCalibrationWindow::apply);
-    connect(m_histogram, &HistogramWidget::cursorInfoChanged, m_cursorInfo, &QLabel::setText);
-    connect(m_distribution, &SpectrumPlotWidget::cursorInfoChanged, m_cursorInfo, &QLabel::setText);
+    // The angle at the cursor follows the info of the plots, the distribution is at the reference ToF
+    connect(m_histogram, &HistogramWidget::cursorMoved, this, [this](QPointF position) { m_cursor = position; });
+    connect(m_distribution, &SpectrumPlotWidget::cursorMoved, this, [this](double x) {
+        m_cursor = {m_fit.referenceTof, x};
+    });
+    auto showCursorInfo = [this](const QString &text) {
+        const QString angle = text.isEmpty() ? QString() : angleText(m_cursor.x(), m_cursor.y());
+        m_cursorInfo->setText(angle.isEmpty() ? text : QString("%1   %2").arg(text, angle));
+    };
+    connect(m_histogram, &HistogramWidget::cursorInfoChanged, this, showCursorInfo);
+    connect(m_distribution, &SpectrumPlotWidget::cursorInfoChanged, this, showCursorInfo);
 
     const QList<Measurement *> assigned = measurements();
     if(!assigned.isEmpty()) {
@@ -534,6 +543,25 @@ void AngleCalibrationWindow::updateResults() {
         text += QStringLiteral(" Set the detector distance and window width in the detector settings for the angles.");
     }
     m_resultLabel->setText(text);
+}
+
+QString AngleCalibrationWindow::angleText(double tof, double timing) const {
+    const double halfAngle = windowHalfAngle(*m_detector);
+    if(!m_fit.ok || halfAngle <= 0) {
+        return {};
+    }
+    double position = (timing - m_fit.centreAt(tof)) / m_fit.window.halfWidth;
+    if(m_reversedCheck->isChecked()) {
+        position = -position;
+    }
+    // Clamped to the window as in the correction
+    const bool outside = std::abs(position) > 1;
+    const double offset = std::atan(std::clamp(position, -1.0, 1.0) * std::tan(halfAngle));
+    return QString("Angle %1° (%2%3°)%4")
+            .arg((m_detector->scatteringAngle + offset) / Units::Degree, 0, 'f', 3)
+            .arg(offset < 0 ? "−" : "+")
+            .arg(std::abs(offset) / Units::Degree, 0, 'f', 3)
+            .arg(outside ? QStringLiteral(", outside the window") : QString());
 }
 
 void AngleCalibrationWindow::apply() {

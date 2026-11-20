@@ -839,11 +839,13 @@ void SpectrumPlotWidget::updateCursorInfo(const QPoint &pos) {
         emit cursorInfoChanged({});
         return;
     }
-    const int bin = binAt(pixelToData(pos).x());
+    const double x = pixelToData(pos).x();
+    const int bin = binAt(x);
     if(bin < 0) {
         emit cursorInfoChanged({});
         return;
     }
+    emit cursorMoved(x);
     const auto index = static_cast<size_t>(bin);
     QStringList values;
     for(const Curve &curve : m_curves) {

@@ -56,6 +56,7 @@ public slots:
 
 signals:
     void cursorInfoChanged(const QString &text);
+    void cursorMoved(QPointF position); // In data coordinates, inside the plot, just before cursorInfoChanged()
     void polygonCompleted(const QList<QPointF> &polygon); // ToF and E in channels
     void cutClicked(int index); // In Edit mode
     void cutEdited(int index);

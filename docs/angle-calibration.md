@@ -45,9 +45,13 @@ again.
    listed in the table.
 4. To find the direction, choose a selection in **Expected edge of**. Its expected leading edge over the window, from
    the kinematics at each angle, is drawn in the upper plot as a dark red dashed line for the chosen direction. The
-   leading edge of the data should follow it; if it slopes the other way, change the direction. This needs the experimental settings of the
-   measurement, the ToF calibration and the detector distance and window width.
+   leading edge of the data should follow it; if it slopes the other way, change the direction. This needs the
+   experimental settings of the measurement, the ToF calibration and the detector distance and window width.
 5. **Apply to Detector** stores the calibration, with the maximum ToF and the direction, in the detector settings.
+
+Below the plots, the angle at the cursor is shown with its offset from the scattering/recoil angle, from the fit and
+the chosen direction, clamped to the window as in the correction. In the distribution it is at the average ToF.
+Needs the detector distance and window width.
 
 Depth profiles of the detector then use the kinematic correction, which each profile can turn off with
 **Kinematic correction**. They are marked out of date and recalculated. As a check, the surface edge of a profile

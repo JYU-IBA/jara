@@ -733,6 +733,7 @@ void HistogramWidget::updateCursorInfo(const QPoint &pos) {
         emit cursorInfoChanged({});
         return;
     }
+    emit cursorMoved(data);
     const double tof = m_viewX.min + bx * m_binWidthX;
     const double energy = m_viewY.min + by * m_binWidthY;
     const QString tofText = m_binWidthX > 1 ? QString("%1–%2").arg(tof).arg(tof + m_binWidthX - 1) : QString::number(tof);
