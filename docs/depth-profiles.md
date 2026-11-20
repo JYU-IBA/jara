@@ -51,7 +51,7 @@ Depths are areal densities, shown in 10¹⁵ at./cm², µg/cm² or nm (with the 
 - **Stopping bin**, **Max. depth** (or **Auto**, which follows the depth the events reach), **Smoothing**: changing
   them starts the iterations again.
 - **Profile bin**: the bins of the profile shown.
-- **Kinematic correction**: corrects each event from its own angle, see above. On by default, available when the
+- **Kinematic correction**: corrects each event from its own angle, see above. On by default, shown only when the
   detector has an angle calibration with the detector distance and window width. Changing it starts the iterations
   again.
 - **100 % over**: the normalization interval, found automatically (**Auto**) as the longest stretch where the

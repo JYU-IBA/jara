@@ -1253,12 +1253,9 @@ void DepthProfileView::checkStale() {
 
 void DepthProfileView::updateKinematicCheck() {
     const bool available = m_measurement->detector && m_measurement->detector->hasAngleCalibration();
-    m_kinematicCheck->setEnabled(available);
-    m_kinematicCheck->setToolTip(available ? QStringLiteral("Correct the energy of each event from its detection angle, "
-                                                            "from the angle calibration of the detector, to the "
-                                                            "scattering/recoil angle. Changes start the iterations again.")
-                                           : QStringLiteral("Needs an angle calibration of the detector, with the detector "
-                                                            "distance and window width"));
+    m_kinematicCheck->setVisible(available);
+    m_kinematicCheck->setToolTip("Correct the energy of each event from its detection angle, from the angle calibration "
+                                 "of the detector, to the scattering/recoil angle. Changes start the iterations again.");
 }
 
 void DepthProfileView::setStale(bool stale) {

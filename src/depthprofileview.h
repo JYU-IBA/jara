@@ -85,7 +85,7 @@ private:
     void updateLegendPosition(); // From the profile or the preferences
     void storeView(); // The zoom of the plot in the profile
     void applyStoredView(); // While the profile is calculated after the tab is opened
-    void updateKinematicCheck(); // Enabled when the detector has an angle calibration
+    void updateKinematicCheck(); // Shown when the detector has an angle calibration
     void setStale(bool stale);
     void setInterval(Interval interval, double min, double max); // Stored in the profile, depths in atoms/m²
     void setAutoNormalization(bool automatic); // A manual interval starts from the automatic one
@@ -117,7 +117,7 @@ private:
     QHash<int, QCheckBox *> m_cutRangeChecks; // By cut id
     QHash<int, MeasurementRangeWidget *> m_cutRangeWidgets;
     QCheckBox *m_autoMaxDepthCheck = nullptr;
-    QCheckBox *m_kinematicCheck = nullptr; // Enabled when the detector has an angle calibration
+    QCheckBox *m_kinematicCheck = nullptr; // Shown when the detector has an angle calibration
     QTimer *m_iterationTimer = nullptr;
     QDoubleSpinBox *m_stoppingBinSpin = nullptr;
     QDoubleSpinBox *m_maxDepthSpin = nullptr;
