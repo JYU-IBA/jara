@@ -91,6 +91,10 @@ add_executable(jara
         src/efficiencydialog.h
         src/archive.cpp
         src/archive.h
+        src/coincidence.cpp
+        src/coincidence.h
+        src/coincidencedialog.cpp
+        src/coincidencedialog.h
         src/version.h
         ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )

@@ -276,6 +276,10 @@ void MainWindow::createActions() {
     m_exportArchiveAction->setToolTip("The project with copies of its measurements and files, to continue elsewhere");
     connect(m_exportArchiveAction, &QAction::triggered, this, &MainWindow::exportArchive);
 
+    m_convertCoincidencesAction = new QAction("Convert &Coincidence Files...", this);
+    m_convertCoincidencesAction->setToolTip("Find coincidences in list-mode files (*.evnt) and add them as measurements");
+    connect(m_convertCoincidencesAction, &QAction::triggered, m_projectPanel, &ProjectPanel::convertCoincidenceFiles);
+
     m_closeAction = new QAction("&Close Project", this);
     m_closeAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_W));
     connect(m_closeAction, &QAction::triggered, this, &MainWindow::closeProject);
@@ -362,6 +366,7 @@ void MainWindow::createMenus(QMenuBar *menuBar) {
     fileMenu->addAction(m_saveAction);
     fileMenu->addAction(m_saveAsAction);
     fileMenu->addAction(m_exportArchiveAction);
+    fileMenu->addAction(m_convertCoincidencesAction);
     fileMenu->addAction(m_newTabAction);
     fileMenu->addAction(m_closeTabAction);
     fileMenu->addAction(m_closeAction);
@@ -437,6 +442,7 @@ void MainWindow::updateWindowState() {
     m_saveAction->setEnabled(open);
     m_saveAsAction->setEnabled(open);
     m_exportArchiveAction->setEnabled(open);
+    m_convertCoincidencesAction->setEnabled(open);
     m_closeAction->setEnabled(open);
     m_addSampleAction->setEnabled(open);
     m_addReportAction->setEnabled(open);

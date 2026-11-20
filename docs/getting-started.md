@@ -25,6 +25,8 @@ The project information has the project's **name**, shown in the tree and in rep
 
 - **Sample → Add Sample**, then **Add Measurements...** to add ToF-E event files (`*.asc`) to it. Files can also be
   dropped on a sample in the tree. Measurements are named after their files without the `.asc` extension.
+- **File → Convert Coincidence Files...** makes measurement files from list-mode files (`*.evnt`) and adds them to
+  existing or new samples, see [Coincidence files](coincidences.md).
 - **Add Files...** attaches any other files to a sample, e.g. notes or images. Double-click a file to open it in its own program.
 - A sample shows its name, description, metadata entries (right-click the table to add or
   remove them) and the descriptions of its attached files.

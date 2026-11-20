@@ -14,6 +14,7 @@ const QString DetectorKey = QStringLiteral("defaults/detector");
 const QString PhysicsKey = QStringLiteral("defaults/physics");
 const QString HistogramKey = QStringLiteral("defaults/histogram");
 const QString DepthProfileKey = QStringLiteral("defaults/depthProfile");
+const QString CoincidenceKey = QStringLiteral("defaults/coincidence");
 const QString ElementColorsKey = QStringLiteral("defaults/elementColors"); // {"14": "#rrggbb", ...}
 
 QJsonObject load(const QString &key) {
@@ -232,4 +233,16 @@ DepthProfile Defaults::depthProfile() {
     profile.autoMaxDepth = preferences.autoMaxDepth;
     profile.showLegendConcentrations = preferences.showLegendConcentrations;
     return profile;
+}
+
+CoincidencePreferences Defaults::coincidencePreferences() {
+    CoincidencePreferences preferences;
+    const QJsonObject json = load(CoincidenceKey);
+    preferences.plotMargin = std::max(0, json["plotMargin"].toInt(preferences.plotMargin));
+    preferences.previewSignals = std::max(1000, json["previewSignals"].toInt(preferences.previewSignals));
+    return preferences;
+}
+
+void Defaults::setCoincidencePreferences(const CoincidencePreferences &preferences) {
+    store(CoincidenceKey, QJsonObject{{"plotMargin", preferences.plotMargin}, {"previewSignals", preferences.previewSignals}});
 }

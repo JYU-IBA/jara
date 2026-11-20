@@ -24,13 +24,15 @@
 PreferencesDialog::PreferencesDialog(QWidget *parent)
     : QDialog(parent), m_experimental(Defaults::experimentalSettings()), m_detector(Defaults::detectorSettings()),
       m_physics(Defaults::physicsSettings()),
-      m_histogram(Defaults::histogramPreferences()), m_depthProfile(Defaults::depthProfilePreferences()), m_elementColors(Defaults::customElementColors()) {
+      m_histogram(Defaults::histogramPreferences()), m_depthProfile(Defaults::depthProfilePreferences()),
+      m_coincidence(Defaults::coincidencePreferences()), m_elementColors(Defaults::customElementColors()) {
     setWindowTitle("Preferences");
 
     auto *tabs = new QTabWidget;
     tabs->addTab(createSettingsPage(), "Settings");
     tabs->addTab(createHistogramPage(), "Histogram");
     tabs->addTab(createDepthProfilePage(), "Depth Profiles");
+    tabs->addTab(createCoincidencePage(), "Coincidences");
     tabs->addTab(createElementColorsPage(), "Element Colors");
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 
@@ -143,6 +145,36 @@ QWidget *PreferencesDialog::createHistogramPage() {
     connect(scaleCombo, &QComboBox::currentIndexChanged, this, [this, scaleCombo]() {
         m_histogram.logScale = scaleCombo->currentData().toBool();
     });
+    return page;
+}
+
+QWidget *PreferencesDialog::createCoincidencePage() {
+    auto *margin = new QSpinBox;
+    margin->setRange(0, 1000000);
+    margin->setSuffix(" ticks");
+    margin->setValue(m_coincidence.plotMargin);
+    margin->setToolTip("The plot of the time differences shows this much more on both sides of the window");
+    auto *preview = new QSpinBox;
+    preview->setRange(1000, 1000000000);
+    preview->setGroupSeparatorShown(true);
+    preview->setValue(m_coincidence.previewSignals);
+    preview->setToolTip("Long files are previewed from their beginning. Converting always reads the whole file.");
+
+    auto *note = new QLabel("The dialog for converting coincidence files (*.evnt). The coincidence parameters (ADCs, "
+                            "timing window, reorder span, trigger and pairing) are part of the detector settings.");
+    note->setWordWrap(true);
+
+    auto *page = new QWidget;
+    auto *form = new QFormLayout;
+    form->addRow("Shown around the window:", margin);
+    form->addRow("Signals in the preview:", preview);
+    auto *layout = new QVBoxLayout(page);
+    layout->addWidget(note);
+    layout->addLayout(form);
+    layout->addStretch();
+
+    connect(margin, &QSpinBox::valueChanged, this, [this](int value) { m_coincidence.plotMargin = value; });
+    connect(preview, &QSpinBox::valueChanged, this, [this](int value) { m_coincidence.previewSignals = value; });
     return page;
 }
 
@@ -306,6 +338,7 @@ void PreferencesDialog::accept() {
     Defaults::setPhysicsSettings(m_physics);
     Defaults::setHistogramPreferences(m_histogram);
     Defaults::setDepthProfilePreferences(m_depthProfile);
+    Defaults::setCoincidencePreferences(m_coincidence);
     Defaults::setCustomElementColors(m_elementColors);
     QDialog::accept();
 }

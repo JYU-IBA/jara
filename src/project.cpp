@@ -786,6 +786,32 @@ const EfficiencyCurve *findEfficiency(const QList<EfficiencyCurve> &curves, int 
     return nullptr;
 }
 
+namespace {
+QJsonObject coincidenceToJson(const CoincidenceSettings &settings) {
+    return QJsonObject{{"tofAdc", settings.tofAdc},
+                       {"energyAdc", settings.energyAdc},
+                       {"trigger", settings.triggerIsEnergy ? "energy" : "tof"},
+                       {"window", QJsonArray{settings.windowLow, settings.windowHigh}},
+                       {"reorderSpan", settings.reorderSpan},
+                       {"pairing", coincidencePairingId(settings.pairing)}};
+}
+
+CoincidenceSettings coincidenceFromJson(const QJsonObject &json) {
+    CoincidenceSettings settings;
+    settings.tofAdc = std::max(-1, json["tofAdc"].toInt(-1));
+    settings.energyAdc = std::max(-1, json["energyAdc"].toInt(-1));
+    settings.triggerIsEnergy = json["trigger"].toString() != QLatin1String("tof");
+    const QJsonArray window = json["window"].toArray();
+    if(window.size() == 2 && window.at(0).toInteger() <= window.at(1).toInteger()) {
+        settings.windowLow = window.at(0).toInteger();
+        settings.windowHigh = window.at(1).toInteger();
+    }
+    settings.reorderSpan = std::max<qint64>(0, json["reorderSpan"].toInteger(settings.reorderSpan));
+    settings.pairing = coincidencePairingFromId(json["pairing"].toString(), settings.pairing);
+    return settings;
+}
+}
+
 QJsonObject detectorToJson(const DetectorSettings &detector) {
     QJsonArray material;
     for(const MaterialElement &element : detector.foilMaterial.elements) {
@@ -806,7 +832,8 @@ QJsonObject detectorToJson(const DetectorSettings &detector) {
             {"tofSlope", detector.tofSlope},
             {"tofOffset", detector.tofOffset},
             {"foil", QJsonObject{{"thickness", detector.foilThickness}, {"material", material}}},
-            {"efficiencies", efficiencies}};
+            {"efficiencies", efficiencies},
+            {"coincidence", coincidenceToJson(detector.coincidence)}};
 }
 
 DetectorSettings detectorFromJson(const QJsonObject &json) {
@@ -816,6 +843,7 @@ DetectorSettings detectorFromJson(const QJsonObject &json) {
     detector.tofLength = json["tofLength"].toDouble();
     detector.tofSlope = std::max(0.0, json["tofSlope"].toDouble());
     detector.tofOffset = json["tofOffset"].toDouble();
+    detector.coincidence = coincidenceFromJson(json["coincidence"].toObject());
     if(json.contains("foil")) {
         const QJsonObject foil = json["foil"].toObject();
         detector.foilThickness = std::max(0.0, foil["thickness"].toDouble());

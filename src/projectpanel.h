@@ -55,6 +55,7 @@ public slots:
     void addFiles();
     void addMeasurements();
     void addMeasurementFiles(int sampleIndex, const QStringList &fileNames);
+    void convertCoincidenceFiles(); // Converts *.evnt files to measurements of existing or new samples
     void addSpectrum(); // To the current measurement
     void addDepthProfile(); // To the current measurement
     void addSplit(); // To the current measurement
@@ -147,6 +148,9 @@ private:
     static SettingsCollection settingsInClipboard();
     QTreeWidgetItem *measurementItem(const Measurement *measurement) const;
     void sortSamples();
+    // Adds measurements without updating the tree. A file already measured in the sample is not added again, the
+    // checksums of all measurements of the file are updated. Returns the last measurement added or found.
+    const Measurement *addMeasurementsTo(Sample *sample, const QStringList &fileNames, DetectorSettings *detector = nullptr);
     void rebuildSampleItems(const void *select); // Sorts and rebuilds the sample items, selects the given sample or measurement
     void importProject(Project &source, const QString &fileName, int targetSample);
     void handleMeasurementDrag(QDropEvent *event, int targetSample);

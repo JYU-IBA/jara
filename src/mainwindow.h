@@ -100,6 +100,7 @@ private:
     QAction *m_saveAction;
     QAction *m_saveAsAction;
     QAction *m_exportArchiveAction;
+    QAction *m_convertCoincidencesAction;
     QAction *m_closeAction;
     QAction *m_closeTabAction;
     QAction *m_preferencesAction;

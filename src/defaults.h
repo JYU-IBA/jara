@@ -32,6 +32,12 @@ struct DepthProfilePreferences {
     bool showLegendConcentrations = true; // Of new depth profiles
 };
 
+// The dialog for converting list-mode files, see coincidence.h. The coincidence parameters are in the detector settings.
+struct CoincidencePreferences {
+    int plotMargin = 500; // Ticks. The plot of the time differences shows this much more on both sides of the window.
+    int previewSignals = 5000000; // Read from the beginning of a file for the plot and the statistics
+};
+
 // Program-wide default settings, used for new projects and new settings sets. Stored with QSettings.
 namespace Defaults {
 ExperimentalSettings experimentalSettings();
@@ -53,6 +59,9 @@ void setHistogramPreferences(const HistogramPreferences &preferences);
 DepthProfilePreferences depthProfilePreferences();
 void setDepthProfilePreferences(const DepthProfilePreferences &preferences);
 DepthProfile depthProfile(); // A new depth profile with the parameters from the preferences
+
+CoincidencePreferences coincidencePreferences();
+void setCoincidencePreferences(const CoincidencePreferences &preferences);
 }
 
 #endif // JARA_DEFAULTS_H

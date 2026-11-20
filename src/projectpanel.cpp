@@ -1,4 +1,5 @@
 #include "projectpanel.h"
+#include "coincidencedialog.h"
 #include "defaults.h"
 #include "elements.h"
 #include "projectimportdialog.h"
@@ -1490,21 +1491,46 @@ void ProjectPanel::addMeasurements() {
 }
 
 void ProjectPanel::addMeasurementFiles(int sampleIndex, const QStringList &fileNames) {
-    Sample *sample = m_project->sample(sampleIndex);
+    const Measurement *last = addMeasurementsTo(m_project->sample(sampleIndex), fileNames);
+    rebuildSampleItems(last);
+    emit modified();
+}
+
+const Measurement *ProjectPanel::addMeasurementsTo(Sample *sample, const QStringList &fileNames, DetectorSettings *detector) {
     const Measurement *last = nullptr;
     QApplication::setOverrideCursor(Qt::WaitCursor); // Checksums of large files take a while
     for(const QString &fileName : fileNames) {
         const QFileInfo fileInfo(fileName);
+        const QString path = fileInfo.absoluteFilePath();
+        const QString checksum = fileChecksum(path);
+        // A file written again, e.g. converted with other parameters, is the same measurement
+        const Measurement *existing = nullptr;
+        for(size_t i = 0; i < m_project->sampleCount(); i++) {
+            for(const auto &measurement : m_project->sample(i)->measurements) {
+                if(measurement->path == path) {
+                    measurement->sha256 = checksum;
+                    if(m_project->sample(i) == sample) {
+                        existing = measurement.get();
+                    }
+                }
+            }
+        }
+        if(existing) {
+            last = existing;
+            continue;
+        }
         // "erda2_666.asc" is named "erda2_666"
         const bool asc = fileInfo.suffix().compare(QLatin1String("asc"), Qt::CaseInsensitive) == 0;
         auto measurement = std::make_unique<Measurement>(asc ? fileInfo.completeBaseName() : fileInfo.fileName(),
-                                                         QString(), fileInfo.absoluteFilePath());
-        measurement->sha256 = fileChecksum(measurement->path);
+                                                         QString(), path);
+        measurement->sha256 = checksum;
         // When there is no choice to make, assign the settings right away
         if(m_project->settingsCount() == 1) {
             measurement->settings = m_project->settings(0);
         }
-        if(m_project->detectorCount() == 1) {
+        if(detector) {
+            measurement->detector = detector;
+        } else if(m_project->detectorCount() == 1) {
             measurement->detector = m_project->detector(0);
         }
         if(m_project->physicsCount() == 1) {
@@ -1514,7 +1540,47 @@ void ProjectPanel::addMeasurementFiles(int sampleIndex, const QStringList &fileN
         sample->measurements.push_back(std::move(measurement));
     }
     QApplication::restoreOverrideCursor();
+    return last;
+}
+
+void ProjectPanel::convertCoincidenceFiles() {
+    if(!m_project) {
+        return;
+    }
+    const QStringList fileNames = QFileDialog::getOpenFileNames(this, "Convert Coincidence Files", projectDirectory(),
+                                                                "Coincidence files (*.evnt);;All files (*)");
+    if(fileNames.isEmpty()) {
+        return;
+    }
+    CoincidenceDialog dialog(*m_project, currentSample(), this);
+    dialog.addFiles(fileNames);
+    if(dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    // Samples are found by name, new names create samples
+    QMap<QString, QStringList> filesBySample;
+    QStringList sampleOrder;
+    for(const CoincidenceDialog::ConvertedFile &file : dialog.converted()) {
+        if(!filesBySample.contains(file.sample)) {
+            sampleOrder.append(file.sample);
+        }
+        filesBySample[file.sample].append(file.path);
+    }
+    const Measurement *last = nullptr;
+    for(const QString &name : sampleOrder) {
+        Sample *sample = nullptr;
+        for(size_t i = 0; i < m_project->sampleCount() && !sample; i++) {
+            if(m_project->sample(i)->name == name) {
+                sample = m_project->sample(i);
+            }
+        }
+        if(!sample) {
+            sample = m_project->addSample(name);
+        }
+        last = addMeasurementsTo(sample, filesBySample.value(name), dialog.detector());
+    }
     rebuildSampleItems(last);
+    emit settingsRenamed(); // Settings tabs show the coincidence parameters stored in the detector
     emit modified();
 }
 

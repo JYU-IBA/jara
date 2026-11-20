@@ -12,11 +12,13 @@
 #include <QDoubleSpinBox>
 #include <QHeaderView>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTableWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -39,6 +41,14 @@ QDoubleSpinBox *createSpinBox(double minimum, double maximum, double unit, int d
 void setValueSilently(QDoubleSpinBox *spinBox, double value) {
     const QSignalBlocker blocker(spinBox);
     spinBox->setValue(value / spinBox->property(UnitProperty).toDouble());
+}
+
+// ADC number in list-mode files, -1 is shown as not set
+QSpinBox *createAdcSpinBox() {
+    auto *spinBox = new QSpinBox;
+    spinBox->setRange(-1, 255);
+    spinBox->setSpecialValueText("Not set");
+    return spinBox;
 }
 
 // Spin box signals are blocked while values are shown, so changes are user edits
@@ -132,6 +142,117 @@ void ExperimentalSettingsEditor::selectBeamIon() {
     emit changed();
 }
 
+CoincidenceSettingsEditor::CoincidenceSettingsEditor(QWidget *parent) : QWidget(parent) {
+    auto tickSpinBox = [](int minimum) {
+        auto *spinBox = new QSpinBox;
+        spinBox->setRange(minimum, 2000000000);
+        spinBox->setSuffix(" ticks");
+        return spinBox;
+    };
+    m_tofAdcSpin = createAdcSpinBox();
+    m_tofAdcSpin->setToolTip("ADC of the ToF signal");
+    m_energyAdcSpin = createAdcSpinBox();
+    m_energyAdcSpin->setToolTip("ADC of the energy signal");
+    m_triggerCombo = new QComboBox;
+    m_triggerCombo->addItem("E", true);
+    m_triggerCombo->addItem("ToF", false);
+    m_triggerCombo->setToolTip("Time differences are measured from the signals of this ADC");
+    m_lowSpin = tickSpinBox(-2000000000);
+    m_highSpin = tickSpinBox(-2000000000);
+    m_lowSpin->setToolTip("Timestamp of the other ADC minus the trigger's, both ends included");
+    m_highSpin->setToolTip(m_lowSpin->toolTip());
+    m_reorderSpin = tickSpinBox(0);
+    m_reorderSpin->setToolTip("Signals are put in time order within this span. A signal arriving later than this "
+                              "after newer signals in the file is dropped as out of order.");
+    m_pairingCombo = new QComboBox;
+    for(CoincidencePairing pairing : CoincidencePairings) {
+        m_pairingCombo->addItem(coincidencePairingName(pairing), static_cast<int>(pairing));
+    }
+    m_pairingCombo->setToolTip("How triggers with several signals in their window, or signals in the window of several "
+                               "triggers, are paired");
+
+    m_layout = new QFormLayout(this);
+    m_layout->setContentsMargins(0, 0, 0, 0);
+    m_layout->addRow("ToF ADC:", m_tofAdcSpin);
+    m_layout->addRow("E ADC:", m_energyAdcSpin);
+    m_layout->addRow("Trigger:", m_triggerCombo);
+    m_layout->addRow("Window low:", m_lowSpin);
+    m_layout->addRow("Window high:", m_highSpin);
+    m_layout->addRow("Reorder span:", m_reorderSpin);
+    m_layout->addRow("Pairing:", m_pairingCombo);
+
+    auto edited = [this]() {
+        m_edited = true;
+        emit changed();
+    };
+    auto finished = [this]() {
+        if(m_edited) {
+            m_edited = false;
+            emit editingFinished();
+        }
+    };
+    connect(m_tofAdcSpin, &QSpinBox::valueChanged, this, [this, edited](int value) {
+        m_settings->tofAdc = value;
+        edited();
+    });
+    connect(m_energyAdcSpin, &QSpinBox::valueChanged, this, [this, edited](int value) {
+        m_settings->energyAdc = value;
+        edited();
+    });
+    // The window is kept low ≤ high by moving the other end
+    connect(m_lowSpin, &QSpinBox::valueChanged, this, [this, edited](int value) {
+        m_settings->windowLow = value;
+        m_highSpin->setValue(std::max(m_highSpin->value(), value));
+        edited();
+    });
+    connect(m_highSpin, &QSpinBox::valueChanged, this, [this, edited](int value) {
+        m_settings->windowHigh = value;
+        m_lowSpin->setValue(std::min(m_lowSpin->value(), value));
+        edited();
+    });
+    connect(m_reorderSpin, &QSpinBox::valueChanged, this, [this, edited](int value) {
+        m_settings->reorderSpan = value;
+        edited();
+    });
+    connect(m_triggerCombo, &QComboBox::currentIndexChanged, this, [this, edited, finished]() {
+        m_settings->triggerIsEnergy = m_triggerCombo->currentData().toBool();
+        edited();
+        finished();
+    });
+    connect(m_pairingCombo, &QComboBox::currentIndexChanged, this, [this, edited, finished]() {
+        m_settings->pairing = static_cast<CoincidencePairing>(m_pairingCombo->currentData().toInt());
+        edited();
+        finished();
+    });
+    for(QSpinBox *spinBox : {m_tofAdcSpin, m_energyAdcSpin, m_lowSpin, m_highSpin, m_reorderSpin}) {
+        connect(spinBox, &QSpinBox::editingFinished, this, finished);
+    }
+}
+
+void CoincidenceSettingsEditor::setSettings(CoincidenceSettings *settings) {
+    m_settings = settings;
+    setEnabled(settings != nullptr);
+    if(!settings) {
+        return;
+    }
+    auto show = [](auto *widget, auto set) {
+        const QSignalBlocker blocker(widget);
+        set(widget);
+    };
+    show(m_tofAdcSpin, [&](QSpinBox *spinBox) { spinBox->setValue(settings->tofAdc); });
+    show(m_energyAdcSpin, [&](QSpinBox *spinBox) { spinBox->setValue(settings->energyAdc); });
+    show(m_lowSpin, [&](QSpinBox *spinBox) { spinBox->setValue(static_cast<int>(settings->windowLow)); });
+    show(m_highSpin, [&](QSpinBox *spinBox) { spinBox->setValue(static_cast<int>(settings->windowHigh)); });
+    show(m_reorderSpin, [&](QSpinBox *spinBox) { spinBox->setValue(static_cast<int>(std::min<qint64>(settings->reorderSpan, 2000000000))); });
+    show(m_triggerCombo, [&](QComboBox *combo) { combo->setCurrentIndex(settings->triggerIsEnergy ? 0 : 1); });
+    show(m_pairingCombo, [&](QComboBox *combo) { combo->setCurrentIndex(combo->findData(static_cast<int>(settings->pairing))); });
+}
+
+void CoincidenceSettingsEditor::setAdcsVisible(bool visible) {
+    m_layout->setRowVisible(m_tofAdcSpin, visible);
+    m_layout->setRowVisible(m_energyAdcSpin, visible);
+}
+
 DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent) {
     m_nameEdit = new QLineEdit;
     m_scatteringAngleSpin = createSpinBox(MinScatteringAngle, MaxScatteringAngle, Units::Degree, 2, "°");
@@ -139,6 +260,10 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     m_tofLengthSpin = createSpinBox(0, 100, Units::Millimetre, 1, " mm");
     m_tofSlopeSpin = createSpinBox(0, 1e-6, Units::Nanosecond, 6, " ns/ch");
     m_tofOffsetSpin = createSpinBox(-1e-3, 1e-3, Units::Nanosecond, 3, " ns");
+    m_coincidenceEditor = new CoincidenceSettingsEditor;
+    auto *coincidenceGroup = new QGroupBox("Coincidence parameters (list-mode files)");
+    auto *coincidenceLayout = new QVBoxLayout(coincidenceGroup);
+    coincidenceLayout->addWidget(m_coincidenceEditor);
     m_foilLabel = new QLabel;
     auto *foilButton = new QPushButton("Edit...");
     auto *foilLayout = new QHBoxLayout;
@@ -163,6 +288,7 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     layout->addRow("ToF calibration slope:", m_tofSlopeSpin);
     layout->addRow("ToF calibration offset:", m_tofOffsetSpin);
     layout->addRow(QString(), m_calibrateButton);
+    layout->addRow(coincidenceGroup);
 
     connect(m_nameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         m_detector->name = text;
@@ -188,6 +314,8 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     for(QDoubleSpinBox *spinBox : {m_scatteringAngleSpin, m_tofLengthSpin, m_tofSlopeSpin, m_tofOffsetSpin}) {
         connect(spinBox, &QDoubleSpinBox::editingFinished, this, finished);
     }
+    connect(m_coincidenceEditor, &CoincidenceSettingsEditor::changed, this, &DetectorSettingsEditor::changed);
+    connect(m_coincidenceEditor, &CoincidenceSettingsEditor::editingFinished, this, finished);
 }
 
 void DetectorSettingsEditor::setDetector(DetectorSettings *detector) {
@@ -201,6 +329,7 @@ void DetectorSettingsEditor::setDetector(DetectorSettings *detector) {
     setValueSilently(m_tofLengthSpin, detector->tofLength);
     setValueSilently(m_tofSlopeSpin, detector->tofSlope);
     setValueSilently(m_tofOffsetSpin, detector->tofOffset);
+    m_coincidenceEditor->setSettings(&detector->coincidence);
     m_foilLabel->setText(foilText(detector->foilMaterial, detector->foilThickness));
     m_efficiencyLabel->setText(efficiencyText(detector->efficiencies));
 }

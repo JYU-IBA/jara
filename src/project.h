@@ -16,6 +16,7 @@
 #include <QString>
 #include <QStringList>
 
+#include "coincidence.h"
 #include "units.h"
 
 struct MetadataEntry {
@@ -152,6 +153,7 @@ struct DetectorSettings {
     Material foilMaterial = carbon();
     double foilThickness = DefaultFoilThickness; // kg/m²
     QList<EfficiencyCurve> efficiencies; // At most one for each isotope, isotopes without one are detected fully
+    CoincidenceSettings coincidence; // For converting list-mode (*.evnt) files
     const EfficiencyCurve *efficiency(int z, int a) const { return findEfficiency(efficiencies, z, a); }
 };
 

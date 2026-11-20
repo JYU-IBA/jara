@@ -3,11 +3,14 @@
 
 #include <QWidget>
 
+struct CoincidenceSettings;
 struct DetectorSettings;
 struct ExperimentalSettings;
 struct PhysicsSettings;
 class QComboBox;
 class QDoubleSpinBox;
+class QFormLayout;
+class QSpinBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -43,6 +46,32 @@ private:
     QDoubleSpinBox *m_incidentAngleSpin;
 };
 
+// Coincidence parameters of list-mode files, see coincidence.h. Part of the detector settings.
+class CoincidenceSettingsEditor : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit CoincidenceSettingsEditor(QWidget *parent = nullptr);
+    void setSettings(CoincidenceSettings *settings); // Not owned
+    void setAdcsVisible(bool visible); // Shown by default
+
+signals:
+    void changed();
+    void editingFinished(); // A field was left or Enter was pressed after changed() was emitted
+
+private:
+    CoincidenceSettings *m_settings = nullptr;
+    bool m_edited = false;
+    QFormLayout *m_layout;
+    QSpinBox *m_tofAdcSpin;
+    QSpinBox *m_energyAdcSpin;
+    QComboBox *m_triggerCombo;
+    QSpinBox *m_lowSpin;
+    QSpinBox *m_highSpin;
+    QSpinBox *m_reorderSpin;
+    QComboBox *m_pairingCombo;
+};
+
 class DetectorSettingsEditor : public QWidget {
     Q_OBJECT
 
@@ -70,6 +99,7 @@ private:
     QDoubleSpinBox *m_tofLengthSpin;
     QDoubleSpinBox *m_tofSlopeSpin;
     QDoubleSpinBox *m_tofOffsetSpin;
+    CoincidenceSettingsEditor *m_coincidenceEditor;
     QLabel *m_foilLabel;
     QLabel *m_efficiencyLabel;
     QPushButton *m_calibrateButton;

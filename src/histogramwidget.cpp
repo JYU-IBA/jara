@@ -114,6 +114,24 @@ void HistogramWidget::setEvents(const std::vector<ToFEEvent> *events) {
     resetZoom();
 }
 
+void HistogramWidget::setAxes(const QString &xName, const QString &xUnit, const QString &yName, const QString &yUnit) {
+    m_xName = xName;
+    m_xUnit = xUnit;
+    m_yName = yName;
+    m_yUnit = yUnit;
+    update();
+}
+
+void HistogramWidget::setFullXRange(double min, double max) {
+    m_fullX = {std::floor(min), std::floor(max) + 1};
+    resetZoom();
+}
+
+void HistogramWidget::setVerticalMarkers(const QList<double> &x) {
+    m_markers = x;
+    update();
+}
+
 void HistogramWidget::setCuts(QList<Cut> *cuts) {
     m_cuts = cuts;
     update();
@@ -329,6 +347,7 @@ void HistogramWidget::paintEvent(QPaintEvent *) {
         painter.drawImage(target, m_image);
     }
     painter.setRenderHint(QPainter::Antialiasing);
+    drawMarkers(painter);
     drawCuts(painter);
     drawPolygonInProgress(painter);
     painter.restore();
@@ -341,6 +360,18 @@ QPolygonF HistogramWidget::cutInPixels(int index) const {
         polygon.append(dataToPixel(point));
     }
     return polygon;
+}
+
+void HistogramWidget::drawMarkers(QPainter &painter) const {
+    const QRect plot = plotRect();
+    for(const double x : m_markers) {
+        const double px = dataToPixel({x, 0}).x();
+        // Light under dark, like the cuts
+        painter.setPen(QPen(QColor(255, 255, 255, 200), 3.5));
+        painter.drawLine(QPointF(px, plot.top()), QPointF(px, plot.bottom()));
+        painter.setPen(QPen(Qt::red, 1.5, Qt::DashLine));
+        painter.drawLine(QPointF(px, plot.top()), QPointF(px, plot.bottom()));
+    }
 }
 
 void HistogramWidget::drawCuts(QPainter &painter) const {
@@ -455,9 +486,9 @@ void HistogramWidget::drawAxes(QPainter &painter, const QRect &plot) const {
         painter.drawText(plot.left() - 8 - metrics.horizontalAdvance(label), py + metrics.ascent() / 2, label);
     }
 
-    const QString xTitle = QStringLiteral("ToF (ch)");
+    const QString xTitle = QString("%1 (%2)").arg(m_xName, m_xUnit);
     painter.drawText(plot.center().x() - metrics.horizontalAdvance(xTitle) / 2, height() - 8, xTitle);
-    const QString yTitle = QStringLiteral("E (ch)");
+    const QString yTitle = QString("%1 (%2)").arg(m_yName, m_yUnit);
     painter.save();
     painter.translate(14, plot.center().y() + metrics.horizontalAdvance(yTitle) / 2);
     painter.rotate(-90);
@@ -466,8 +497,9 @@ void HistogramWidget::drawAxes(QPainter &painter, const QRect &plot) const {
 
     if(m_events) {
         painter.drawText(plot.left(), MarginTop - 10,
-                         QString("Bin %1 × %2 ch, max %3 counts/bin, %4 color scale")
-                                 .arg(m_binWidthX).arg(m_binWidthY).arg(m_maxCount)
+                         QString("Bin %1 × %2, max %3 counts/bin, %4 color scale")
+                                 .arg(m_xUnit == m_yUnit ? QString::number(m_binWidthX) : QString("%1 %2").arg(m_binWidthX).arg(m_xUnit))
+                                 .arg(QString("%1 %2").arg(m_binWidthY).arg(m_yUnit)).arg(m_maxCount)
                                  .arg(m_logScale ? "log" : "linear"));
     }
 }
@@ -649,8 +681,8 @@ void HistogramWidget::updateCursorInfo(const QPoint &pos) {
     const double energy = m_viewY.min + by * m_binWidthY;
     const QString tofText = m_binWidthX > 1 ? QString("%1–%2").arg(tof).arg(tof + m_binWidthX - 1) : QString::number(tof);
     const QString energyText = m_binWidthY > 1 ? QString("%1–%2").arg(energy).arg(energy + m_binWidthY - 1) : QString::number(energy);
-    emit cursorInfoChanged(QString("ToF %1 ch, E %2 ch: %3 counts")
-                                   .arg(tofText, energyText)
+    emit cursorInfoChanged(QString("%1 %2 %3, %4 %5 %6: %7 counts")
+                                   .arg(m_xName, tofText, m_xUnit, m_yName, energyText, m_yUnit)
                                    .arg(m_counts[static_cast<size_t>(by) * m_binsX + bx]));
 }
 

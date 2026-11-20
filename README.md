@@ -9,6 +9,8 @@ spectra and depth profiles. Stopping, masses and isotopes come from [JIBAL](http
 - **Projects** of samples and measurements, with the experimental, detector and physics settings shared between
   measurements. Referenced files are checked for changes when a project is opened, and a project can be exported as an
   archive together with its data files. See [Getting started](docs/getting-started.md) and [Settings](docs/settings.md).
+- **Coincidence files**: list-mode files (`*.evnt`) converted to ToF-E events, with the timing window chosen from a
+  plot of the time differences. See [Coincidence files](docs/coincidences.md).
 - **ToF-E histograms with polygon selections** of recoils (ERD), scattered ions (RBS) and reference selections. An
   isotope can stand for its natural element, and the events of a selection can be given an extra weight. See
   [Selections](docs/selections.md).
@@ -40,6 +42,7 @@ spectra and depth profiles. Stopping, masses and isotopes come from [JIBAL](http
 - [Getting started](docs/getting-started.md): projects, samples, measurements, files and exporting
 - [Settings](docs/settings.md): experimental, detector and physics settings, efficiencies, the timing detector foil,
   preferences
+- [Coincidence files](docs/coincidences.md): converting list-mode files to measurements
 - [Selections](docs/selections.md): the ToF-E histogram and selections
 - [ToF calibration](docs/tof-calibration.md)
 - [Energy spectra](docs/energy-spectra.md)

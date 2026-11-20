@@ -28,6 +28,8 @@ incident angle.
   Isotopes without a curve are detected fully.
 - **ToF calibration**: t = slope × channel + offset, set by hand or with the
   [ToF calibration tool](tof-calibration.md) (**ToF Calibration...**).
+- **Coincidence parameters (list-mode files)**: the ToF and E ADCs, the trigger, the timing window, the reorder span
+  and the pairing used when [converting coincidence files](coincidences.md#coincidence-parameters)
 
 ## Physics settings
 
@@ -47,4 +49,5 @@ File → Preferences holds the program-wide defaults:
 - ToF-E histogram binning and colour scheme
 - Depth profile iterations and convergence tolerance, the parameters of new depth profiles and the default legend
   corner
+- The plot margin and the size of the preview when [converting coincidence files](coincidences.md)
 - Colours of the elements, used for new selections

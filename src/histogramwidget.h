@@ -31,6 +31,10 @@ public:
     void setSelectedCuts(const QList<int> &indices); // Drawn highlighted
     void applyPreferences(const HistogramPreferences &preferences); // Binning and color scheme, the scale is kept
     void setLogScale(bool logScale);
+    // Names and units of the axes, ToF and E in channels by default. Other data is passed in ToFEEvent as x and y.
+    void setAxes(const QString &xName, const QString &xUnit, const QString &yName, const QString &yUnit);
+    void setFullXRange(double min, double max); // Instead of the range of the events, call after setEvents()
+    void setVerticalMarkers(const QList<double> &x); // Dashed lines
 
 public slots:
     void setMode(HistogramWidget::Mode mode);
@@ -81,11 +85,17 @@ private:
     void drawCuts(QPainter &painter) const;
     void drawCutLabel(QPainter &painter, const Cut &cut, const QPolygonF &polygon) const;
     void drawPolygonInProgress(QPainter &painter) const;
+    void drawMarkers(QPainter &painter) const;
 
     const std::vector<ToFEEvent> *m_events = nullptr;
     QList<Cut> *m_cuts = nullptr;
     int m_highlightedCut = -1;
     QList<int> m_selectedCuts;
+    QString m_xName = QStringLiteral("ToF");
+    QString m_xUnit = QStringLiteral("ch");
+    QString m_yName = QStringLiteral("E");
+    QString m_yUnit = QStringLiteral("ch");
+    QList<double> m_markers;
     Mode m_mode = Mode::Zoom;
     HistogramPreferences m_preferences;
     bool m_logScale;
