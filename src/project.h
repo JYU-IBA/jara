@@ -159,21 +159,22 @@ struct AngleCalibration {
     bool operator==(const AngleCalibration &) const = default;
 };
 
-// Mass calibration of the E axis, see massselection.h. The proto-mass ln(E channel × (t / ns)²) of a particle of mass
-// m is ln(m / u) + Σ coefficient × ln(m / u)^massPower × ln(t / 100 ns)^timePower, t from the ToF calibration.
-struct MassCalibrationTerm {
-    int massPower = 0;
-    int timePower = 0;
-    double coefficient = 0;
-    bool operator==(const MassCalibrationTerm &) const = default;
+// Calibration of the energy detector, a gas ionization chamber, see energydetector.h:
+// E channel = offset + gain × (1 + zSlope × (Z - 6)) × ionizing energy, with the window thickness scaled by windowScale
+struct EnergyDetectorCalibration {
+    bool valid = false; // Fitted in the automatic selections and applied
+    double offset = 0; // Channels
+    double gain = 0; // Channels/J
+    double zSlope = 0; // Relative change of the gain per unit of Z
+    double windowScale = 1; // The window with the dead layer behind it is this many times as thick in effect
+    bool operator==(const EnergyDetectorCalibration &) const = default;
 };
-struct MassCalibration {
-    QList<MassCalibrationTerm> terms; // Empty when not calibrated
-    double minMass = 0; // kg, the lightest and heaviest masses it was fitted to
-    double maxMass = 0;
-    bool isValid() const { return !terms.isEmpty(); }
-    bool operator==(const MassCalibration &) const = default;
-};
+
+// Si3N4 and C4H10, the defaults of the entrance window and the gas of the energy detector
+Material siliconNitride();
+Material isobutane();
+constexpr double DefaultWindowThickness = 100e-9 * 3170; // kg/m², 100 nm of Si3N4 at 3.17 g/cm³
+constexpr double DefaultStopFoilThickness = 8 * Units::MicrogramPerSquareCentimetre; // kg/m², of carbon
 
 // Parameters of the detector, shared by the measurements assigned to them
 struct DetectorSettings {
@@ -190,7 +191,14 @@ struct DetectorSettings {
     double detectorDistance = 0; // m, from the sample to the window of the energy detector
     double windowWidth = 0; // m, of the detector window in the scattering plane
     AngleCalibration angleCalibration;
-    MassCalibration massCalibration;
+    // Energy detector: the foil of the stop timing detector before it, its entrance window and its gas, see
+    // energydetector.h
+    Material stopFoilMaterial = carbon();
+    double stopFoilThickness = DefaultStopFoilThickness; // kg/m²
+    Material windowMaterial = siliconNitride();
+    double windowThickness = DefaultWindowThickness; // kg/m²
+    Material gasMaterial = isobutane();
+    EnergyDetectorCalibration energyCalibration;
     // The calibration and the geometry give each event an angle, see anglecalibration.h
     bool hasAngleCalibration() const { return angleCalibration.valid && detectorDistance > 0 && windowWidth > 0; }
     const EfficiencyCurve *efficiency(int z, int a) const { return findEfficiency(efficiencies, z, a); }

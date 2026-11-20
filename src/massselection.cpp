@@ -1,10 +1,14 @@
 #include "massselection.h"
 #include "elements.h"
+#include "energyspectrum.h"
+#include "stopping.h"
 #include "tofcalibration.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
+#include <memory>
 
 #include <gsl/gsl_multifit.h>
 
@@ -14,12 +18,23 @@ constexpr double OutlierFraction = 0.001; // Of the events on each side, left ou
 constexpr double Prominence = 4; // Standard deviations of the smoothed counts a peak rises above its valleys
 constexpr double FwhmPerSigma = 2.3548;
 constexpr double EdgeWidths = 2; // Events within this many widths of the ridge are used for the leading edge
+constexpr double DeviationSpan = 600; // Channels of a ridge after its edge compared with the response
 constexpr double EdgeSearchSlices = 8; // The leading edge is looked for from this many slices before the ridge starts
+constexpr double LayerRise = 0.25; // Relative rise of the events along a band where a layer below begins
+constexpr double LayerSignificance = 5; // Standard deviations of the rise
+constexpr int LayerRiseSlices = 6; // The rise happens within this many slices
+constexpr int MaxLayers = 3; // Of a band
 
 struct Point {
     double tof;
     double protoMass;
 };
+
+// E channel of the proto-mass at the ToF channel
+double energyChannel(double tof, double protoMass, double tofSlope, double tofOffset) {
+    const double t = (tofSlope * tof + tofOffset) / Units::Nanosecond;
+    return std::exp(protoMass) / (t * t);
+}
 
 double quantile(std::vector<double> values, double fraction) {
     const auto index = static_cast<size_t>(fraction * static_cast<double>(values.size() - 1));
@@ -164,22 +179,62 @@ double interpolate(const std::vector<QPointF> &points, double x) {
 }
 
 namespace {
-constexpr double ReferenceTime = 100; // ns, of the time term of the mass calibration
-constexpr double LightestMass = 0.5; // u, the range of masses looked for
-constexpr double HeaviestMass = 400;
-
-// ln(t / 100 ns), NaN when the time of flight is not positive
-double logTime(double tofChannel, double tofSlope, double tofOffset) {
-    const double t = (tofSlope * tofChannel + tofOffset) / Units::Nanosecond;
-    return t > 0 ? std::log(t / ReferenceTime) : NaN;
-}
-
-double polynomial(const MassCalibration &calibration, double logMass, double logT) {
-    double sum = 0;
-    for(const MassCalibrationTerm &term : calibration.terms) {
-        sum += term.coefficient * std::pow(logMass, term.massPower) * std::pow(logT, term.timePower);
+// Where a layer below begins along the band: after a dip, the events rise by a significant fraction within a few
+// slices. The middle of the rise, and its width as a standard deviation. NaN when there is no such rise.
+double findLayer(const MassBand &band, double sliceWidth, double &sigma) {
+    if(!std::isfinite(band.edgeTof) || band.ridge.size() < 2) {
+        return NaN;
     }
-    return sum;
+    const double start = band.edgeTof + 2 * std::max(band.edgeSigma, sliceWidth);
+    const double end = band.endTof();
+    std::vector<double> slices;
+    for(double tof = start; tof + sliceWidth <= end; tof += sliceWidth) {
+        double sum = 0;
+        for(auto channel = static_cast<size_t>(std::max(0.0, tof)); channel < static_cast<size_t>(tof + sliceWidth) && channel < band.profile.size(); channel++) {
+            sum += static_cast<double>(band.profile[channel]);
+        }
+        slices.push_back(sum);
+    }
+    const auto n = static_cast<int>(slices.size());
+    std::vector<double> smooth(slices.size());
+    for(int i = 0; i < n; i++) {
+        const int first = std::max(0, i - 1);
+        const int last = std::min(n - 1, i + 1);
+        double sum = 0;
+        for(int j = first; j <= last; j++) {
+            sum += slices[j];
+        }
+        smooth[i] = sum / (last - first + 1);
+    }
+    for(int i = 1; i + 1 < n; i++) {
+        if(!(smooth[i] <= smooth[i - 1] && smooth[i] <= smooth[i + 1])) {
+            continue;
+        }
+        int top = i;
+        for(int j = i + 1; j <= std::min(n - 1, i + LayerRiseSlices); j++) {
+            if(smooth[j] > smooth[top]) {
+                top = j;
+            }
+        }
+        const double low = smooth[i];
+        const double high = smooth[top];
+        if(high - low < std::max(LayerRise * high, LayerSignificance * std::sqrt(high))) {
+            continue;
+        }
+        // Crossings of a quarter, half and three quarters of the rise
+        auto crossing = [&](double fraction) {
+            const double level = low + fraction * (high - low);
+            for(int j = i; j < top; j++) {
+                if(smooth[j] <= level && smooth[j + 1] > level) {
+                    return start + (j + 0.5 + (level - smooth[j]) / (smooth[j + 1] - smooth[j])) * sliceWidth;
+                }
+            }
+            return start + (top + 0.5) * sliceWidth;
+        };
+        sigma = std::max(sliceWidth / 2, (crossing(0.75) - crossing(0.25)) / 1.349);
+        return crossing(0.5);
+    }
+    return NaN;
 }
 }
 
@@ -369,154 +424,89 @@ std::vector<MassBand> findMassBands(std::span<const ToFEEvent> events, double to
             }
             counts[channel]++;
         }
-        const EdgeFit edge = findAndFitEdge(counts);
-        band.edgeTof = edge.ok ? edge.mu : NaN;
-        band.edgeSigma = edge.ok ? edge.sigma : 0;
+        // Without a fit, e.g. for few events, the first guess is close enough for identifying the band
+        const EdgeFit guess = findEdge(counts);
+        const EdgeFit edge = guess.ok ? fitEdge(counts, guess) : guess;
+        band.edgeTof = edge.ok ? edge.mu : guess.ok ? guess.mu : NaN;
+        band.edgeSigma = edge.ok ? edge.sigma : guess.ok ? guess.sigma : 0;
+        band.edgeFitted = edge.ok;
+        band.profile = std::move(counts);
     }
-    std::sort(bands.begin(), bands.end(), [](const MassBand &a, const MassBand &b) {
-        return a.ridge.front().y() < b.ridge.front().y();
-    });
-    return bands;
-}
 
-MassCalibrationFit fitMassCalibration(const std::vector<MassCalibrationPoint> &points, double tofSlope, double tofOffset,
-                                      int maxDegree) {
-    MassCalibrationFit fit;
-    std::vector<double> masses;
-    for(const MassCalibrationPoint &point : points) {
-        if(std::none_of(masses.begin(), masses.end(), [&point](double m) { return std::abs(m - point.mass) < 1e-3 * point.mass; })) {
-            masses.push_back(point.mass);
+    // Layers: after the leading edge, a sharp rise of the events along the band begins a layer below. The layers split
+    // off are looked at in turn.
+    const size_t maxBands = bands.size() * MaxLayers;
+    for(size_t b = 0; b < bands.size() && bands.size() < maxBands; b++) {
+        double sigma = 0;
+        const double split = findLayer(bands[b], options.tofSliceWidth, sigma);
+        if(!std::isfinite(split)) {
+            continue;
         }
-    }
-    if(masses.size() < 2) {
-        fit.errorMessage = QStringLiteral("Bands of at least two masses are needed.");
-        return fit;
-    }
-    // Terms up to the degree, the power of the mass below the number of masses
-    const int degree = std::max(1, maxDegree);
-    const int maxMassPower = static_cast<int>(masses.size()) - 1;
-    QList<MassCalibrationTerm> terms;
-    for(int d = 0; d <= degree; d++) {
-        for(int j = 0; j <= d; j++) {
-            if(d - j <= maxMassPower) {
-                terms.append({d - j, j, 0});
+        MassBand &band = bands[b];
+        MassBand below;
+        below.layerAbove = static_cast<int>(b);
+        const auto first = static_cast<size_t>(std::lower_bound(band.ridge.begin(), band.ridge.end(), split,
+                                                                [](const QPointF &p, double tof) { return p.x() < tof; })
+                                               - band.ridge.begin());
+        below.ridge.assign(band.ridge.begin() + static_cast<std::ptrdiff_t>(first), band.ridge.end());
+        below.widths.assign(band.widths.begin() + static_cast<std::ptrdiff_t>(first), band.widths.end());
+        below.counts.assign(band.counts.begin() + static_cast<std::ptrdiff_t>(first), band.counts.end());
+        band.ridge.resize(first);
+        band.widths.resize(first);
+        band.counts.resize(first);
+        below.edgeTof = split;
+        below.edgeSigma = sigma;
+        below.layerEnd = band.layerEnd;
+        band.layerEnd = split - 2 * sigma;
+        below.profile = band.profile;
+        for(MassBand *part : {&band, &below}) {
+            part->events = 0;
+            for(const double count : part->counts) {
+                part->events += static_cast<size_t>(count);
             }
         }
+        bands.push_back(std::move(below));
     }
-    struct Row {
-        double logMass;
-        double logT;
-        double residual; // Proto-mass - ln(m / u)
-        double weight;
-    };
-    std::vector<Row> rows;
-    for(const MassCalibrationPoint &point : points) {
-        const double logT = logTime(point.tof, tofSlope, tofOffset);
-        if(std::isfinite(logT) && std::isfinite(point.protoMass) && point.mass > 0 && point.weight > 0) {
-            const double logMass = std::log(point.mass / Units::AtomicMassUnit);
-            rows.push_back({logMass, logT, point.protoMass - logMass, point.weight});
+    // Sorted by proto-mass, the layers keep pointing to the bands above them
+    std::vector<size_t> order(bands.size());
+    for(size_t i = 0; i < order.size(); i++) {
+        order[i] = i;
+    }
+    std::sort(order.begin(), order.end(), [&bands](size_t a, size_t b) {
+        const double qa = bands[a].ridge.front().y();
+        const double qb = bands[b].ridge.front().y();
+        return qa != qb ? qa < qb : bands[a].startTof() < bands[b].startTof();
+    });
+    std::vector<int> position(bands.size());
+    for(size_t i = 0; i < order.size(); i++) {
+        position[order[i]] = static_cast<int>(i);
+    }
+    std::vector<MassBand> sorted;
+    for(const size_t i : order) {
+        sorted.push_back(std::move(bands[i]));
+        if(sorted.back().layerAbove >= 0) {
+            sorted.back().layerAbove = position[static_cast<size_t>(sorted.back().layerAbove)];
         }
+        sorted.back().profile.clear();
     }
-    const auto n = rows.size();
-    const auto p = static_cast<size_t>(terms.size());
-    if(n <= p) {
-        fit.errorMessage = QString("At least %1 points on the bands are needed.").arg(p + 1);
-        return fit;
-    }
-    gsl_matrix *x = gsl_matrix_alloc(n, p);
-    gsl_vector *y = gsl_vector_alloc(n);
-    gsl_vector *w = gsl_vector_alloc(n);
-    gsl_vector *c = gsl_vector_alloc(p);
-    gsl_matrix *covariance = gsl_matrix_alloc(p, p);
-    for(size_t i = 0; i < n; i++) {
-        for(size_t k = 0; k < p; k++) {
-            const MassCalibrationTerm &term = terms[static_cast<qsizetype>(k)];
-            gsl_matrix_set(x, i, k, std::pow(rows[i].logMass, term.massPower) * std::pow(rows[i].logT, term.timePower));
-        }
-        gsl_vector_set(y, i, rows[i].residual);
-        gsl_vector_set(w, i, rows[i].weight);
-    }
-    gsl_error_handler_t *handler = gsl_set_error_handler_off();
-    gsl_multifit_linear_workspace *workspace = gsl_multifit_linear_alloc(n, p);
-    double chiSquared = 0;
-    const int status = gsl_multifit_wlinear(x, w, y, c, covariance, &chiSquared, workspace);
-    for(size_t k = 0; k < p; k++) {
-        terms[static_cast<qsizetype>(k)].coefficient = gsl_vector_get(c, k);
-    }
-    gsl_multifit_linear_free(workspace);
-    gsl_matrix_free(covariance);
-    gsl_vector_free(c);
-    gsl_vector_free(w);
-    gsl_vector_free(y);
-    gsl_matrix_free(x);
-    gsl_set_error_handler(handler);
-    if(status != GSL_SUCCESS) {
-        fit.errorMessage = QString("The fit failed: %1.").arg(gsl_strerror(status));
-        return fit;
-    }
-    fit.calibration.terms = terms;
-    fit.calibration.minMass = *std::min_element(masses.begin(), masses.end());
-    fit.calibration.maxMass = *std::max_element(masses.begin(), masses.end());
-    double sum = 0;
-    double weights = 0;
-    for(const MassCalibrationPoint &point : points) {
-        const double logT = logTime(point.tof, tofSlope, tofOffset);
-        const double t = (tofSlope * point.tof + tofOffset) / Units::Nanosecond;
-        const double mass = calibratedMass(fit.calibration, point.tof, std::exp(point.protoMass) / (t * t), tofSlope, tofOffset);
-        if(std::isfinite(logT) && std::isfinite(mass)) {
-            sum += point.weight * std::pow(mass / point.mass - 1, 2);
-            weights += point.weight;
-        }
-    }
-    fit.rmsResidual = weights > 0 ? std::sqrt(sum / weights) : NaN;
-    fit.ok = true;
-    return fit;
-}
-
-double calibratedProtoMass(const MassCalibration &calibration, double tofChannel, double mass, double tofSlope,
-                           double tofOffset) {
-    const double logT = logTime(tofChannel, tofSlope, tofOffset);
-    if(!std::isfinite(logT) || mass <= 0) {
-        return NaN;
-    }
-    const double logMass = std::log(mass / Units::AtomicMassUnit);
-    return logMass + polynomial(calibration, logMass, logT);
-}
-
-double calibratedEnergyChannel(const MassCalibration &calibration, double tofChannel, double mass, double tofSlope,
-                               double tofOffset) {
-    const double protoMass = calibratedProtoMass(calibration, tofChannel, mass, tofSlope, tofOffset);
-    const double t = (tofSlope * tofChannel + tofOffset) / Units::Nanosecond;
-    return std::isfinite(protoMass) ? std::exp(protoMass) / (t * t) : NaN;
-}
-
-double calibratedMass(const MassCalibration &calibration, double tofChannel, double energyChannel, double tofSlope,
-                      double tofOffset) {
-    const double protoMass = logProtoMass(tofChannel, energyChannel, tofSlope, tofOffset);
-    const double logT = logTime(tofChannel, tofSlope, tofOffset);
-    if(!calibration.isValid() || !std::isfinite(protoMass) || !std::isfinite(logT)) {
-        return NaN;
-    }
-    // The proto-mass grows with the mass, the root is bracketed and halved
-    auto g = [&](double logMass) { return logMass + polynomial(calibration, logMass, logT) - protoMass; };
-    double low = std::log(LightestMass);
-    double high = std::log(HeaviestMass);
-    if(g(low) > 0 || g(high) < 0) {
-        return NaN;
-    }
-    for(int i = 0; i < 50; i++) {
-        const double middle = (low + high) / 2;
-        (g(middle) < 0 ? low : high) = middle;
-    }
-    return std::exp((low + high) / 2) * Units::AtomicMassUnit;
+    return sorted;
 }
 
 namespace {
 constexpr double EdgeTolerance = 0.012; // Relative, a leading edge matches the expected one within this or 4 sigma
 constexpr double EdgeSigmas = 4;
-constexpr double MassTolerance = 0.04; // Relative, a band and an isotope match within this
-constexpr double OutlierMass = 0.05; // Relative, bands identified by their edge farther from their calibrated mass are dropped
-constexpr double ContinuationMass = 0.12; // Relative, a band starting late within this of another's mass continues it
+constexpr double MinAnchorSigma = 20; // Channels, an edge this sharp, or sharper than below, can anchor the identities
+constexpr double AnchorSharpness = 0.015; // Relative to the edge
+constexpr double GuessSigmas = 8; // Of a guessed edge, in place of EdgeSigmas
+constexpr double OutlierDeviation = 0.04; // Anchors whose ridges deviate more from the response are dropped, and
+constexpr double OutlierFactor = 4; // more than this many times the median deviation of the anchors
+constexpr double ContinuationDeviation = 0.05; // A band following the response of another's identity this well continues it
+constexpr double MinResponseSigma = 0.015; // Relative, smallest uncertainty of a ridge against the response
+constexpr double ResponseSigmas = 3; // A band and an isotope match within this many uncertainties
+constexpr double SurfaceLikelihood = 3; // Relative likelihood of a band whose edge is where the surface particles are
+constexpr double LighterThanHydrogen = 0.1; // Relative, a band this far below the response of H is no particle
+constexpr double ExtrapolationPerZ = 0.01; // Relative uncertainty of the response per unit of Z beyond the calibration
+constexpr int MaxExtrapolationZ = 30; // Of the range of candidates tried
 
 struct Candidate {
     BandIdentity identity;
@@ -527,6 +517,21 @@ struct Candidate {
 
 std::vector<Candidate> surfaceCandidates(const ExperimentalSettings &settings, const DetectorSettings &detector,
                                          const PhysicsSettings &physics) {
+    // As expectedSurfaceTof() in tofcalibration.h, with the loss in the timing foil of each element of the detected
+    // particles tabulated once and scaled to the mass of the isotope: stopping depends on the velocity
+    std::map<int, std::unique_ptr<FoilEnergyLoss>> foils;
+    auto energyAfterFoil = [&](int z, double mass, double energy) {
+        const double elementMass = Elements::mass(z, 0);
+        auto &foil = foils[z];
+        if(!foil) {
+            foil = std::make_unique<FoilEnergyLoss>(z, elementMass, detector.foilMaterial, detector.foilThickness, physics);
+        }
+        if(!foil->isValid() || elementMass <= 0) {
+            return NaN;
+        }
+        const double scale = mass / elementMass;
+        return scale * foil->energyAfter(energy / scale);
+    };
     std::vector<Candidate> candidates;
     for(int z = 1; z <= Elements::maxZ(); z++) {
         for(const Elements::Isotope &isotope : Elements::isotopes(z)) {
@@ -538,13 +543,19 @@ std::vector<Candidate> surfaceCandidates(const ExperimentalSettings &settings, c
                 cut.z = z;
                 cut.a = isotope.a;
                 cut.type = type;
-                const ExpectedTof expected = expectedSurfaceTof(&settings, detector, physics, cut);
-                if(!expected.isValid()) {
+                QString error;
+                const double energy = surfaceEnergy(&settings, detector, cut, error);
+                const BandIdentity identity{z, isotope.a, type};
+                const double mass = detectedMass(identity, &settings);
+                if(!(energy > 0) || mass <= 0) {
                     continue;
                 }
-                const BandIdentity identity{z, isotope.a, type};
-                const double edge = (expected.tof - detector.tofOffset) / detector.tofSlope;
-                candidates.push_back({identity, detectedMass(identity, &settings), edge, isotope.abundance});
+                const double after = energyAfterFoil(detectedZ(identity, &settings), mass, energy);
+                if(!(after > 0)) {
+                    continue;
+                }
+                const double edge = (energyToTof(after, mass, detector.tofLength) - detector.tofOffset) / detector.tofSlope;
+                candidates.push_back({identity, mass, edge, isotope.abundance});
             }
         }
     }
@@ -562,38 +573,47 @@ double detectedMass(const BandIdentity &identity, const ExperimentalSettings *se
     return Elements::mass(identity.z, identity.a);
 }
 
-double bandMass(const MassBand &band, const MassCalibration &calibration, double tofSlope, double tofOffset) {
-    std::vector<std::pair<double, double>> masses; // Mass and events
-    double total = 0;
-    for(size_t i = 0; i < band.ridge.size(); i++) {
-        const double t = (tofSlope * band.ridge[i].x() + tofOffset) / Units::Nanosecond;
-        const double mass = t > 0 ? calibratedMass(calibration, band.ridge[i].x(), std::exp(band.ridge[i].y()) / (t * t), tofSlope, tofOffset)
-                                  : NaN;
-        if(std::isfinite(mass)) {
-            masses.push_back({mass, band.counts[i]});
-            total += band.counts[i];
-        }
+int detectedZ(const BandIdentity &identity, const ExperimentalSettings *settings) {
+    if(!identity.isKnown()) {
+        return 0;
     }
-    if(masses.empty()) {
-        return NaN;
-    }
-    std::sort(masses.begin(), masses.end());
-    double sum = 0;
-    for(const auto &[mass, events] : masses) {
-        sum += events;
-        if(sum >= total / 2) {
-            return mass;
-        }
-    }
-    return masses.back().first;
+    return identity.type == CutType::Scattered ? (settings ? settings->beamZ : 0) : identity.z;
 }
 
-MassCalibrationFit calibrateFromBands(const std::vector<MassBand> &bands, const std::vector<BandIdentity> &identities,
-                                      const ExperimentalSettings &settings, const DetectorSettings &detector) {
-    std::vector<MassCalibrationPoint> points;
+double bandDeviation(const MassBand &band, const BandIdentity &identity, const ExperimentalSettings &settings,
+                     EnergyDetectorModel &model, const EnergyDetectorCalibration &calibration) {
+    const int z = detectedZ(identity, &settings);
+    const double mass = detectedMass(identity, &settings);
+    if(z <= 0 || mass <= 0 || !calibration.valid) {
+        return NaN;
+    }
+    const DetectorSettings &detector = model.detector();
+    double sum = 0;
+    double weights = 0;
+    // Near the edge, where the energies are highest and the response best known
+    const double start = std::isfinite(band.edgeTof) ? band.edgeTof - 2 * band.edgeSigma : band.startTof();
+    for(size_t k = 0; k < band.ridge.size(); k++) {
+        if(band.ridge[k].x() < start || band.ridge[k].x() > start + DeviationSpan) {
+            continue;
+        }
+        const double predicted = model.energyChannel(calibration, z, mass, band.ridge[k].x());
+        const double observed = energyChannel(band.ridge[k].x(), band.ridge[k].y(), detector.tofSlope, detector.tofOffset);
+        if(predicted > 0 && observed > 0) {
+            sum += band.counts[k] * std::pow(std::log(observed / predicted), 2);
+            weights += band.counts[k];
+        }
+    }
+    return weights > 0 ? std::sqrt(sum / weights) : NaN;
+}
+
+EnergyDetectorFit calibrateFromBands(const std::vector<MassBand> &bands, const std::vector<BandIdentity> &identities,
+                                     const ExperimentalSettings &settings, EnergyDetectorModel &model) {
+    std::vector<EnergyDetectorPoint> points;
+    const DetectorSettings &detector = model.detector();
     for(size_t i = 0; i < bands.size() && i < identities.size(); i++) {
+        const int z = detectedZ(identities[i], &settings);
         const double mass = detectedMass(identities[i], &settings);
-        if(mass <= 0) {
+        if(z <= 0 || mass <= 0) {
             continue;
         }
         const MassBand &band = bands[i];
@@ -602,23 +622,54 @@ MassCalibrationFit calibrateFromBands(const std::vector<MassBand> &bands, const 
             if(std::isfinite(band.edgeTof) && band.ridge[k].x() < band.edgeTof - 2 * band.edgeSigma) {
                 continue;
             }
-            points.push_back({band.ridge[k].x(), band.ridge[k].y(), mass, band.counts[k]});
+            points.push_back({z, mass, band.ridge[k].x(),
+                              energyChannel(band.ridge[k].x(), band.ridge[k].y(), detector.tofSlope, detector.tofOffset),
+                              band.counts[k]});
         }
     }
-    return fitMassCalibration(points, detector.tofSlope, detector.tofOffset);
+    return fitEnergyDetector(model, points);
 }
 
 IdentityProposal proposeIdentities(const std::vector<MassBand> &bands, const ExperimentalSettings &settings,
-                                   const DetectorSettings &detector, const PhysicsSettings &physics) {
+                                   const DetectorSettings &detector, EnergyDetectorModel &model,
+                                   const PhysicsSettings &physics, const std::vector<BandIdentity> &given) {
     IdentityProposal proposal;
     proposal.bands.resize(bands.size());
     if(detector.tofSlope <= 0 || detector.tofLength <= 0 || settings.beamZ <= 0 || settings.beamEnergy <= 0) {
         proposal.calibration.errorMessage = QStringLiteral("The experimental settings and the ToF calibration are needed.");
         return proposal;
     }
+    std::vector<BandIdentity> identities(bands.size());
+    for(size_t b = 0; b < bands.size() && b < given.size(); b++) {
+        if(given[b].isKnown()) {
+            identities[b] = given[b];
+            proposal.bands[b].basis = IdentityBasis::User;
+        }
+    }
+    auto taken = [&identities](const BandIdentity &identity) {
+        return std::find(identities.begin(), identities.end(), identity) != identities.end();
+    };
+    // The stopping of all elements in the foils, the window and the gas is needed, it is read at once
+    QList<int> z1s;
+    for(int z = 1; z <= Elements::maxZ(); z++) {
+        z1s.append(z);
+    }
+    QList<int> targets;
+    for(const Material *material : {&detector.foilMaterial, &detector.stopFoilMaterial, &detector.windowMaterial, &detector.gasMaterial}) {
+        for(const MaterialElement &element : material->elements) {
+            if(!targets.contains(element.z)) {
+                targets.append(element.z);
+            }
+        }
+    }
+    prepareStopping(z1s, targets, physics);
     const std::vector<Candidate> candidates = surfaceCandidates(settings, detector, physics);
+    auto edgeTolerance = [](const MassBand &band) {
+        return std::max(EdgeTolerance * band.edgeTof, (band.edgeFitted ? EdgeSigmas : GuessSigmas) * band.edgeSigma);
+    };
 
-    // Candidates of each band by its leading edge, scored by the match and the abundance
+    // Anchors: bands with a sharp fitted leading edge where particles from the surface of some isotope are expected,
+    // scored by the match and the abundance
     struct Option {
         size_t candidate;
         double score;
@@ -626,13 +677,14 @@ IdentityProposal proposeIdentities(const std::vector<MassBand> &bands, const Exp
     std::vector<std::vector<Option>> options(bands.size());
     for(size_t b = 0; b < bands.size(); b++) {
         const MassBand &band = bands[b];
-        if(!std::isfinite(band.edgeTof)) {
+        if(identities[b].isKnown() || !band.edgeFitted || band.layerAbove >= 0
+           || band.edgeSigma > std::max(MinAnchorSigma, AnchorSharpness * band.edgeTof)) {
             continue;
         }
-        const double tolerance = std::max(EdgeTolerance * band.edgeTof, EdgeSigmas * band.edgeSigma);
+        const double tolerance = edgeTolerance(band);
         for(size_t c = 0; c < candidates.size(); c++) {
             const double difference = (candidates[c].edge - band.edgeTof) / tolerance;
-            if(std::abs(difference) <= 1) {
+            if(std::abs(difference) <= 1 && !taken(candidates[c].identity)) {
                 options[b].push_back({c, std::exp(-2 * difference * difference) * (0.1 + candidates[c].prior)});
             }
         }
@@ -652,7 +704,6 @@ IdentityProposal proposeIdentities(const std::vector<MassBand> &bands, const Exp
         double mass; // Of the last band identified
         std::vector<int> chosen; // Option of each band in order, -1 for none
     };
-    // States kept by the mass of the last identified band, the best for each
     std::vector<State> states{{0, 0, {}}};
     for(const size_t b : order) {
         std::vector<State> next;
@@ -686,7 +737,6 @@ IdentityProposal proposeIdentities(const std::vector<MassBand> &bands, const Exp
         }
     }
     const State &best = *std::max_element(states.begin(), states.end(), [](const State &a, const State &c) { return a.score < c.score; });
-    std::vector<BandIdentity> identities(bands.size());
     for(size_t i = 0; i < order.size(); i++) {
         const size_t b = order[i];
         if(best.chosen[i] >= 0) {
@@ -697,95 +747,185 @@ IdentityProposal proposeIdentities(const std::vector<MassBand> &bands, const Exp
         }
     }
 
-    // Calibration from the bands identified by their edges, without those far from their calibrated mass
-    MassCalibrationFit fit = calibrateFromBands(bands, identities, settings, detector);
+    // Calibration from the anchors and the given identities, without anchors whose ridges follow the response clearly
+    // worse than the others: an edge that matches by chance. How well the response can follow the bands depends on the
+    // detector, so the limit is relative to the typical deviation.
+    EnergyDetectorFit fit = calibrateFromBands(bands, identities, settings, model);
     while(fit.ok) {
-        size_t worst = bands.size();
-        double worstDifference = OutlierMass;
+        std::vector<std::pair<double, size_t>> deviations;
         for(size_t b = 0; b < bands.size(); b++) {
-            const double expected = detectedMass(identities[b], &settings);
-            if(expected <= 0) {
-                continue;
+            if(proposal.bands[b].basis == IdentityBasis::Edge) {
+                const double deviation = bandDeviation(bands[b], identities[b], settings, model, fit.calibration);
+                deviations.push_back({std::isfinite(deviation) ? deviation : 1e300, b});
             }
-            const double difference = std::abs(bandMass(bands[b], fit.calibration, detector.tofSlope, detector.tofOffset) / expected - 1);
-            if(!(difference <= worstDifference)) {
-                worst = b;
-                worstDifference = std::isfinite(difference) ? difference : 1e300;
-            }
+        }
+        if(deviations.size() < 3) {
+            break;
+        }
+        std::sort(deviations.begin(), deviations.end());
+        const double typical = deviations[deviations.size() / 2].first;
+        const auto [worstDeviation, worst] = deviations.back();
+        if(worstDeviation <= std::max(OutlierDeviation, OutlierFactor * typical)) {
+            break;
         }
         if(worst == bands.size()) {
             break;
         }
         identities[worst] = {};
         proposal.bands[worst].basis = IdentityBasis::None;
-        const MassCalibrationFit refit = calibrateFromBands(bands, identities, settings, detector);
+        const EnergyDetectorFit refit = calibrateFromBands(bands, identities, settings, model);
         if(!refit.ok) {
             break;
         }
         fit = refit;
     }
-
-    if(!fit.ok && detector.massCalibration.isValid()) {
-        fit.calibration = detector.massCalibration;
+    if(!fit.ok && detector.energyCalibration.valid) {
+        fit.calibration = detector.energyCalibration;
         fit.rmsResidual = NaN;
         fit.ok = true;
         fit.errorMessage.clear();
     }
 
-    // Bands without an identity that start in the later half of an identified band, near its mass, continue it
     if(fit.ok) {
+        // Bands without an identity that start in the later half of an identified band and follow its response
+        // continue it. Layers split off a band above them do not.
         for(size_t b = 0; b < bands.size(); b++) {
-            if(identities[b].isKnown()) {
+            if(identities[b].isKnown() || bands[b].layerAbove >= 0) {
                 continue;
             }
-            const double mass = bandMass(bands[b], fit.calibration, detector.tofSlope, detector.tofOffset);
-            double bestDifference = ContinuationMass;
+            double bestDeviation = ContinuationDeviation;
             for(size_t other = 0; other < bands.size(); other++) {
-                const double otherMass = detectedMass(identities[other], &settings);
                 const MassBand &parent = bands[other];
-                if(otherMass <= 0 || bands[b].startTof() < (parent.startTof() + parent.endTof()) / 2) {
+                if(!identities[other].isKnown() || bands[b].startTof() < (parent.startTof() + parent.endTof()) / 2) {
                     continue;
                 }
-                const double difference = std::abs(mass / otherMass - 1);
-                if(difference < bestDifference) {
-                    bestDifference = difference;
+                const double deviation = bandDeviation(bands[b], identities[other], settings, model, fit.calibration);
+                if(deviation < bestDeviation) {
+                    bestDeviation = deviation;
                     proposal.bands[b].continues = static_cast<int>(other);
                 }
             }
         }
-    }
 
-    // The other bands get the isotope of the nearest mass, within the masses the calibration was fitted to
-    if(fit.ok) {
+        // The other bands get the most likely isotope by how well their ridges follow the response, their leading
+        // edges (no particles come before those from the surface, and particles from the surface are more likely) and
+        // the abundance. Layers are not of the element above them. Candidates are tried in order of mass from where the
+        // response is below the ridge until it is well above it.
+        std::vector<size_t> byMass(candidates.size());
+        for(size_t c = 0; c < byMass.size(); c++) {
+            byMass[c] = c;
+        }
+        std::sort(byMass.begin(), byMass.end(), [&](size_t a, size_t c) { return candidates[a].mass < candidates[c].mass; });
+        // The response is trusted up to the ToF where identified bands of two particles still have ridges. Bands that
+        // start deeper are left to the user, except layers, which are tied to the band above them.
+        std::vector<double> ends;
         for(size_t b = 0; b < bands.size(); b++) {
-            if(identities[b].isKnown() || proposal.bands[b].continues >= 0) {
+            if(identities[b].isKnown()) {
+                ends.push_back(bands[b].endTof());
+            }
+        }
+        std::sort(ends.begin(), ends.end(), std::greater<>());
+        const double supported = ends.size() >= 2 ? ends[1] : -1;
+        const double hydrogenMass = Elements::mass(1, 1);
+        for(size_t b = 0; b < bands.size(); b++) {
+            const MassBand &band = bands[b];
+            if(identities[b].isKnown() || proposal.bands[b].continues >= 0 || band.ridge.empty()) {
                 continue;
             }
-            const double mass = bandMass(bands[b], fit.calibration, detector.tofSlope, detector.tofOffset);
-            if(!(mass >= fit.calibration.minMass * (1 - MassTolerance) && mass <= fit.calibration.maxMass * (1 + MassTolerance))) {
+            // Lighter than H along most of the ridge, it may join H at its end
+            double lighter = 0;
+            double total = 0;
+            for(size_t k = 0; k < band.ridge.size(); k++) {
+                const double hydrogen = model.energyChannel(fit.calibration, 1, hydrogenMass, band.ridge[k].x());
+                const double observed = energyChannel(band.ridge[k].x(), band.ridge[k].y(), detector.tofSlope, detector.tofOffset);
+                if(hydrogen > 0 && std::log(observed / hydrogen) < -LighterThanHydrogen) {
+                    lighter += band.counts[k];
+                }
+                total += band.counts[k];
+            }
+            if(lighter > total / 2) {
+                proposal.bands[b].artifact = true;
                 continue;
+            }
+            if(band.layerAbove < 0 && band.startTof() > supported) {
+                continue;
+            }
+            // Where the ridge has the most events
+            const size_t peak = static_cast<size_t>(std::max_element(band.counts.begin(), band.counts.end()) - band.counts.begin());
+            const double tof = band.ridge[peak].x();
+            const double observed = energyChannel(tof, band.ridge[peak].y(), detector.tofSlope, detector.tofOffset);
+            const int aboveZ = band.layerAbove >= 0 ? identities[static_cast<size_t>(band.layerAbove)].z : 0;
+            const double bandSigma = std::max(MinResponseSigma, band.widthAt(tof));
+            // Less certain beyond the Z of the calibration, known only when it was fitted here
+            auto sigmaOf = [&](const Candidate &candidate) {
+                const int z = detectedZ(candidate.identity, &settings);
+                const int beyond = fit.maxZ > 0 ? std::max({0, z - fit.maxZ, fit.minZ - z}) : 0;
+                return std::hypot(bandSigma, ExtrapolationPerZ * beyond);
+            };
+            const double widest = std::hypot(bandSigma, ExtrapolationPerZ * MaxExtrapolationZ);
+            auto logRatio = [&](size_t c) {
+                const Candidate &candidate = candidates[c];
+                const double predicted = model.energyChannel(fit.calibration, detectedZ(candidate.identity, &settings),
+                                                             candidate.mass, tof);
+                return predicted > 0 ? std::log(predicted / observed) : -1e300;
+            };
+            // The lightest candidate whose response is not far below the ridge, the response grows with the mass
+            const double lowest = -ResponseSigmas * widest;
+            size_t first = 0;
+            size_t last = byMass.size();
+            while(first < last) {
+                const size_t middle = (first + last) / 2;
+                if(logRatio(byMass[middle]) < lowest) {
+                    first = middle + 1;
+                } else {
+                    last = middle;
+                }
             }
             double bestScore = 0;
-            for(int z = 1; z <= Elements::maxZ(); z++) {
-                for(const Elements::Isotope &isotope : Elements::isotopes(z)) {
-                    const double difference = std::abs(isotope.mass / mass - 1) / MassTolerance;
-                    const BandIdentity identity{z, isotope.a, CutType::Recoil};
-                    const bool taken = std::find(identities.begin(), identities.end(), identity) != identities.end();
-                    const double score = std::exp(-2 * difference * difference) * isotope.abundance;
-                    if(isotope.abundance > 0 && difference <= 1 && !taken && score > bestScore) {
-                        bestScore = score;
-                        identities[b] = identity;
+            for(size_t i = first; i < byMass.size(); i++) {
+                const Candidate &candidate = candidates[byMass[i]];
+                const double ratio = logRatio(byMass[i]);
+                if(ratio < lowest) {
+                    continue;
+                }
+                if(ratio > ResponseSigmas * widest) {
+                    break; // Heavier ones are farther above it
+                }
+                const double sigma = sigmaOf(candidate);
+                if(candidate.identity.z == aboveZ || taken(candidate.identity)) {
+                    continue;
+                }
+                double edgeFactor = 1;
+                if(std::isfinite(band.edgeTof)) {
+                    // A guessed edge is not sure enough to rule out particles from the surface coming later
+                    const double edgeDifference = (band.edgeTof - candidate.edge) / edgeTolerance(band);
+                    if(edgeDifference < -1 && band.edgeFitted) {
+                        continue;
                     }
+                    if(edgeDifference <= 1 && band.layerAbove < 0) {
+                        edgeFactor = SurfaceLikelihood;
+                    }
+                }
+                const double deviation = bandDeviation(band, candidate.identity, settings, model, fit.calibration);
+                if(!(deviation <= ResponseSigmas * sigma)) {
+                    continue;
+                }
+                const double score = std::exp(-0.5 * std::pow(deviation / sigma, 2)) * edgeFactor * (0.05 + candidate.prior);
+                if(score > bestScore) {
+                    bestScore = score;
+                    identities[b] = candidate.identity;
+                    proposal.bands[b].expectedEdge = edgeFactor > 1 ? candidate.edge : NaN;
                 }
             }
             if(identities[b].isKnown()) {
-                proposal.bands[b].basis = IdentityBasis::Mass;
+                proposal.bands[b].basis = IdentityBasis::Response;
             }
         }
     }
     for(size_t b = 0; b < bands.size(); b++) {
         proposal.bands[b].identity = identities[b];
-        if(proposal.bands[b].basis != IdentityBasis::Edge) {
+        proposal.bands[b].deviation = fit.ok ? bandDeviation(bands[b], identities[b], settings, model, fit.calibration) : NaN;
+        if(proposal.bands[b].basis == IdentityBasis::None || proposal.bands[b].basis == IdentityBasis::User) {
             proposal.bands[b].expectedEdge = NaN;
         }
     }
@@ -818,8 +958,8 @@ double logDensity(double x, double weight, double centre, double sigma) {
 // Centre of a band against ToF: its ridge smoothed, beyond it the calibration of its mass or the ridge extended straight
 class BandCentre {
 public:
-    BandCentre(const SelectionBand &band, const MassCalibration &calibration, double tofSlope, double tofOffset)
-        : m_band(band), m_calibration(calibration), m_slope(tofSlope), m_offset(tofOffset) {
+    BandCentre(const SelectionBand &band, EnergyDetectorModel &model, const EnergyDetectorCalibration &calibration)
+        : m_band(band), m_model(model), m_calibration(calibration) {
         const std::vector<QPointF> &ridge = band.band->ridge;
         for(size_t i = 0; i < ridge.size(); i++) {
             std::vector<double> window;
@@ -838,9 +978,9 @@ public:
             return interpolate(m_ridge, tof);
         }
         const double end = m_ridge.back().x();
-        if(m_band.mass > 0 && m_calibration.isValid()) {
-            const double shift = m_ridge.back().y() - calibratedProtoMass(m_calibration, end, m_band.mass, m_slope, m_offset);
-            const double value = calibratedProtoMass(m_calibration, tof, m_band.mass, m_slope, m_offset) + shift;
+        if(m_band.z > 0 && m_calibration.valid) {
+            const double shift = m_ridge.back().y() - response(end);
+            const double value = response(tof) + shift;
             if(std::isfinite(value)) {
                 return value;
             }
@@ -849,10 +989,17 @@ public:
     }
 
 private:
+    // Proto-mass of the response of the energy detector
+    double response(double tof) const {
+        const DetectorSettings &detector = m_model.detector();
+        const double channel = m_model.energyChannel(m_calibration, m_band.z, m_band.mass, tof);
+        const double t = (detector.tofSlope * tof + detector.tofOffset) / Units::Nanosecond;
+        return channel > 0 && t > 0 ? std::log(channel * t * t) : NaN;
+    }
+
     const SelectionBand &m_band;
-    const MassCalibration &m_calibration;
-    double m_slope;
-    double m_offset;
+    EnergyDetectorModel &m_model;
+    const EnergyDetectorCalibration &m_calibration;
     std::vector<QPointF> m_ridge;
 };
 
@@ -861,6 +1008,7 @@ struct Component {
     double sigma;
     double weight; // Events
     double maxSigma; // A band fades out with depth, its width is kept near that of its ridge instead of taking the background
+    bool active = true; // A layer has no events before it begins, the layer above none after it
 };
 
 // Fits the weights, widths and centres (near their starting values) of the components and the background density to
@@ -883,7 +1031,9 @@ void fitMixture(const std::vector<double> &values, std::vector<Component> &compo
             for(size_t c = 0; c < k; c++) {
                 const Component &component = components[c];
                 const double z = (x - component.centre) / component.sigma;
-                responsibilities[c] = z * z < 100 ? component.weight / (component.sigma * std::sqrt(2 * M_PI)) * std::exp(-0.5 * z * z) : 0;
+                responsibilities[c] = component.active && z * z < 100
+                                              ? component.weight / (component.sigma * std::sqrt(2 * M_PI)) * std::exp(-0.5 * z * z)
+                                              : 0;
                 total += responsibilities[c];
             }
             responsibilities[k] = background;
@@ -973,22 +1123,20 @@ QList<QPointF> simplified(const QList<QPointF> &points) {
     return result;
 }
 
-double energyChannel(double tof, double protoMass, double tofSlope, double tofOffset) {
-    const double t = (tofSlope * tof + tofOffset) / Units::Nanosecond;
-    return std::exp(protoMass) / (t * t);
-}
 }
 
 std::vector<BandSelection> selectBands(std::span<const ToFEEvent> events, const std::vector<SelectionBand> &bands,
-                                       const MassCalibration &calibration, double tofSlope, double tofOffset,
+                                       EnergyDetectorModel &model, const EnergyDetectorCalibration &calibration,
                                        const SelectionOptions &options) {
+    const double tofSlope = model.detector().tofSlope;
+    const double tofOffset = model.detector().tofOffset;
     std::vector<BandSelection> selections(bands.size());
     if(bands.empty() || tofSlope <= 0) {
         return selections;
     }
     std::vector<BandCentre> centres;
     for(const SelectionBand &band : bands) {
-        centres.emplace_back(band, calibration, tofSlope, tofOffset);
+        centres.emplace_back(band, model, calibration);
     }
     std::vector<Point> points;
     for(const ToFEEvent &event : events) {
@@ -1043,7 +1191,10 @@ std::vector<BandSelection> selectBands(std::span<const ToFEEvent> events, const 
         for(size_t b = 0; b < bands.size(); b++) {
             const double centre = centres[b].at(middle);
             const double width = std::clamp(bands[b].band->widthAt(middle), MinWidth, MaxWidth);
-            slice.components.push_back({centre, width, 1, std::min(MaxWidth, MaxWidthGrowth * width)});
+            const MassBand &band = *bands[b].band;
+            // No events of a band before its leading edge, nor of a layer above after the layer below it begins
+            const bool active = !(middle > band.layerEnd) && middle >= starts[b];
+            slice.components.push_back({centre, width, 1, std::min(MaxWidth, MaxWidthGrowth * width), active});
             qLow = std::min(qLow, centre - 5 * width);
             qHigh = std::max(qHigh, centre + 5 * width);
         }
@@ -1060,6 +1211,9 @@ std::vector<BandSelection> selectBands(std::span<const ToFEEvent> events, const 
                 const Component &before = slices.back().components[static_cast<size_t>(&component - slice.components.data())];
                 component.sigma = before.sigma;
                 component.weight = std::max(1.0, before.weight);
+            }
+            if(!component.active) {
+                component.weight = 0;
             }
         }
         if(!values.empty()) {
@@ -1092,6 +1246,13 @@ std::vector<BandSelection> selectBands(std::span<const ToFEEvent> events, const 
                 continue;
             }
             const Component &own = slice.components[b];
+            if(!own.active && slice.low > bands[b].band->layerEnd) {
+                if(!edges.empty()) {
+                    edges.push_back({bands[b].band->layerEnd, edges.back().lower, edges.back().upper, 0, 0});
+                }
+                selection.endReason = QStringLiteral("the layer below begins");
+                break;
+            }
             double lower = own.centre - options.maxSigmas * own.sigma;
             double upper = own.centre + options.maxSigmas * own.sigma;
             for(size_t other = 0; other < slice.components.size(); other++) {

@@ -20,8 +20,9 @@ class QTreeWidget;
 class QTreeWidgetItem;
 
 // Window of the automatic selections of a measurement, see massselection.h. Finds the mass bands of the measurement's
-// events, proposes their identities and the mass calibration, and shows the selections they would get in the ToF-E
-// histogram. The user corrects identities and chooses the bands to select. The calculation runs in the background.
+// events, proposes their identities and the calibration of the energy detector, and shows the selections they would
+// get in the ToF-E histogram. The user corrects identities, which are kept when the others are proposed again, and
+// chooses the bands to select. The calculation runs in the background.
 // Making the selections replaces the earlier automatic selections of the measurement: those of the same particle keep
 // their ids, so spectra and depth profiles keep using them.
 class MassSelectionWindow : public QWidget {
@@ -35,7 +36,7 @@ public:
 
 signals:
     void selectionsMade(); // The selections of the measurement were changed
-    void calibrationApplied(DetectorSettings *detector); // Its mass calibration was changed
+    void calibrationApplied(DetectorSettings *detector); // Its energy detector calibration was changed
 
 private:
     // What a calculation starts from and what it gives
@@ -48,7 +49,7 @@ private:
         SelectionOptions options;
         std::vector<MassBand> bands;
         std::vector<BandProposal> proposals; // Of each band, with the identities
-        MassCalibrationFit calibration;
+        EnergyDetectorFit calibration;
         std::vector<BandSelection> selections; // Of each band, none for those that continue others
         QString errorMessage;
     };

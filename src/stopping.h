@@ -13,6 +13,10 @@
 QStringList stoppingFileNames();
 QStringList stoppingFileNames(int z1, int z2); // Of the files with stopping of Z1 in Z2, or in some elements if AnyElement
 
+// Reads the stopping of all the pairs of incident and target elements at once, which is much faster than pair by pair
+// when many are needed. The stopping tables read the rest themselves.
+void prepareStopping(const QList<int> &z1s, const QList<int> &elements, const PhysicsSettings &physics);
+
 // Stopping cross sections of a particle in elements, tabulated with the physics settings: electronic stopping from the
 // GSTO file chosen for each pair of elements, or by JIBAL, and universal nuclear stopping, each multiplied by its
 // correction factors. The table covers energies from 1 keV to 2 GeV evenly on a logarithmic scale and is

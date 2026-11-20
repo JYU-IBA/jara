@@ -16,7 +16,6 @@ constexpr double Kiloelectronvolt = C_KEV;
 constexpr double Megaelectronvolt = C_MEV;
 constexpr double MicrogramPerSquareCentimetre = C_UG / C_CM2;
 constexpr double ThinFilmUnit = C_TFU; // 1e15 atoms/cm² as atoms/m²
-constexpr double AtomicMassUnit = C_U; // kg
 }
 
 #endif // JARA_UNITS_H

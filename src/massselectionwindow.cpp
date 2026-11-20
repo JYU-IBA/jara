@@ -24,15 +24,15 @@ namespace {
 constexpr int BandRole = Qt::UserRole;
 const QColor RidgeColor(0x60, 0x60, 0x60);
 
-enum Column { BandColumn, BasisColumn, EdgeColumn, ExpectedColumn, MassColumn, RangeColumn, EventsColumn, OthersColumn,
-              EndsColumn };
+enum Column { BandColumn, BasisColumn, EdgeColumn, ExpectedColumn, DeviationColumn, RangeColumn, EventsColumn,
+              OthersColumn, EndsColumn };
 
 QString basisText(IdentityBasis basis) {
     switch(basis) {
     case IdentityBasis::Edge:
         return QStringLiteral("edge");
-    case IdentityBasis::Mass:
-        return QStringLiteral("mass");
+    case IdentityBasis::Response:
+        return QStringLiteral("response");
     case IdentityBasis::User:
         return QStringLiteral("you");
     case IdentityBasis::None:
@@ -49,19 +49,25 @@ QString channelText(double channel) {
     return std::isfinite(channel) ? QString::number(channel, 'f', 0) : QStringLiteral("—");
 }
 
-// Finds the bands, identities and selections, in a thread of its own
+// Finds the bands, identities and selections, in a thread of its own. Identities given by the user are kept.
 template<typename Analysis> void analyze(Analysis &analysis, const std::vector<ToFEEvent> &events) {
-    const double slope = analysis.detector.tofSlope;
-    const double offset = analysis.detector.tofOffset;
     if(analysis.findBands) {
-        analysis.bands = findMassBands(events, slope, offset);
+        analysis.bands = findMassBands(events, analysis.detector.tofSlope, analysis.detector.tofOffset);
     }
     if(analysis.bands.empty()) {
         analysis.errorMessage = QStringLiteral("No mass bands were found.");
         return;
     }
+    EnergyDetectorModel model(analysis.detector, analysis.physics);
     if(analysis.propose) {
-        IdentityProposal proposal = proposeIdentities(analysis.bands, analysis.settings, analysis.detector, analysis.physics);
+        std::vector<BandIdentity> given(analysis.bands.size());
+        for(size_t b = 0; b < analysis.proposals.size() && b < given.size(); b++) {
+            if(analysis.proposals[b].basis == IdentityBasis::User) {
+                given[b] = analysis.proposals[b].identity;
+            }
+        }
+        IdentityProposal proposal = proposeIdentities(analysis.bands, analysis.settings, analysis.detector, model,
+                                                      analysis.physics, given);
         analysis.proposals = std::move(proposal.bands);
         analysis.calibration = proposal.calibration;
     } else {
@@ -69,22 +75,30 @@ template<typename Analysis> void analyze(Analysis &analysis, const std::vector<T
         for(const BandProposal &proposal : analysis.proposals) {
             identities.push_back(proposal.identity);
         }
-        analysis.calibration = calibrateFromBands(analysis.bands, identities, analysis.settings, analysis.detector);
-        if(!analysis.calibration.ok && analysis.detector.massCalibration.isValid()) {
-            analysis.calibration.calibration = analysis.detector.massCalibration;
+        analysis.calibration = calibrateFromBands(analysis.bands, identities, analysis.settings, model);
+        if(!analysis.calibration.ok && analysis.detector.energyCalibration.valid) {
+            analysis.calibration.calibration = analysis.detector.energyCalibration;
             analysis.calibration.rmsResidual = std::numeric_limits<double>::quiet_NaN();
             analysis.calibration.ok = true;
+        }
+        for(size_t b = 0; b < analysis.proposals.size(); b++) {
+            analysis.proposals[b].deviation = analysis.calibration.ok
+                                                      ? bandDeviation(analysis.bands[b], analysis.proposals[b].identity,
+                                                                      analysis.settings, model, analysis.calibration.calibration)
+                                                      : std::numeric_limits<double>::quiet_NaN();
         }
     }
     std::vector<SelectionBand> bands;
     std::vector<size_t> indices;
     for(size_t b = 0; b < analysis.bands.size(); b++) {
-        if(analysis.proposals[b].continues < 0) {
-            bands.push_back({&analysis.bands[b], detectedMass(analysis.proposals[b].identity, &analysis.settings), true});
+        const BandProposal &proposal = analysis.proposals[b];
+        if(proposal.continues < 0 && !proposal.artifact) {
+            bands.push_back({&analysis.bands[b], detectedZ(proposal.identity, &analysis.settings),
+                             detectedMass(proposal.identity, &analysis.settings), true});
             indices.push_back(b);
         }
     }
-    std::vector<BandSelection> selections = selectBands(events, bands, analysis.calibration.calibration, slope, offset,
+    std::vector<BandSelection> selections = selectBands(events, bands, model, analysis.calibration.calibration,
                                                         analysis.options);
     analysis.selections.assign(analysis.bands.size(), {});
     for(size_t i = 0; i < indices.size(); i++) {
@@ -99,16 +113,17 @@ MassSelectionWindow::MassSelectionWindow(Measurement *measurement, const std::ve
 
     m_table = new QTreeWidget;
     m_table->setRootIsDecorated(false);
-    m_table->setHeaderLabels({"Band", "By", "Edge (ch)", "Expected (ch)", "Mass (u)", "Selection (ch)", "Events",
+    m_table->setHeaderLabels({"Band", "By", "Edge (ch)", "Expected (ch)", "Deviation (%)", "Selection (ch)", "Events",
                               "Others (%)", "Ends because"});
     m_table->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_table->setContextMenuPolicy(Qt::CustomContextMenu);
     m_table->headerItem()->setToolTip(BandColumn, "Check the bands to select. Double-click to identify a band.");
-    m_table->headerItem()->setToolTip(BasisColumn, "How the band was identified: by its leading edge, by its mass from "
-                                                   "the calibration, or by you");
+    m_table->headerItem()->setToolTip(BasisColumn, "How the band was identified: by its leading edge, by how its ridge "
+                                                   "follows the response of the energy detector, or by you");
     m_table->headerItem()->setToolTip(EdgeColumn, "Leading (short ToF) edge of the band");
     m_table->headerItem()->setToolTip(ExpectedColumn, "Where the particles from the surface are expected");
-    m_table->headerItem()->setToolTip(MassColumn, "Of the particles of the band, from the mass calibration");
+    m_table->headerItem()->setToolTip(DeviationColumn, "Of the ridge of the band from the response of the energy detector "
+                                                       "to its particles, root mean square");
     m_table->headerItem()->setToolTip(EventsColumn, "Expected events of the band in its selection");
     m_table->headerItem()->setToolTip(OthersColumn, "Expected events of other bands and the background in the selection");
 
@@ -121,12 +136,12 @@ MassSelectionWindow::MassSelectionWindow(Measurement *measurement, const std::ve
     m_overlapSpin->setKeyboardTracking(false);
     m_overlapSpin->setToolTip("A selection ends where events of other bands would exceed this fraction of its events");
     m_proposeButton = new QPushButton("Propose Again");
-    m_proposeButton->setToolTip("Identify the bands again, your identities are discarded");
+    m_proposeButton->setToolTip("Identify the bands again, your identities are kept");
     m_calibrationLabel = new QLabel;
     m_calibrationLabel->setWordWrap(true);
     m_applyButton = new QPushButton("Apply to Detector");
-    m_applyButton->setToolTip("Store the mass calibration in the detector settings, it is then used for bands that "
-                              "cannot be identified by their edges, also in other measurements");
+    m_applyButton->setToolTip("Store the calibration of the energy detector in the detector settings, it is then used "
+                              "when too few bands can be identified by their edges, also in other measurements");
     m_makeButton = new QPushButton("Make Selections");
     m_makeButton->setToolTip("Make selections of the checked bands. Earlier automatic selections are replaced, those of "
                              "the same particle keep their place in spectra and depth profiles.");
@@ -204,21 +219,7 @@ MassSelectionWindow::MassSelectionWindow(Measurement *measurement, const std::ve
                 ->setEnabled(m_analysis.proposals[static_cast<size_t>(bandOf(item))].identity.isKnown());
         menu.exec(m_table->viewport()->mapToGlobal(pos));
     });
-    // The mass at the cursor from the calibration
-    connect(m_histogram, &HistogramWidget::cursorMoved, this, [this](QPointF position) {
-        m_cursorInfo->setProperty("mass", std::numeric_limits<double>::quiet_NaN());
-        const DetectorSettings *detector = m_measurement->detector;
-        if(detector && m_analysis.calibration.ok) {
-            m_cursorInfo->setProperty("mass", calibratedMass(m_analysis.calibration.calibration, position.x(), position.y(),
-                                                             detector->tofSlope, detector->tofOffset));
-        }
-    });
-    connect(m_histogram, &HistogramWidget::cursorInfoChanged, this, [this](const QString &text) {
-        const double mass = m_cursorInfo->property("mass").toDouble();
-        m_cursorInfo->setText(text.isEmpty() || !std::isfinite(mass)
-                                      ? text
-                                      : QString("%1   mass %2 u").arg(text).arg(mass / Units::AtomicMassUnit, 0, 'f', 2));
-    });
+    connect(m_histogram, &HistogramWidget::cursorInfoChanged, m_cursorInfo, &QLabel::setText);
 
     showAnalysis();
     start(true, true);
@@ -254,10 +255,9 @@ void MassSelectionWindow::start(bool findBands, bool propose) {
     analysis->detector = *detector;
     analysis->physics = m_measurement->physicsOrDefault();
     analysis->options.maxContamination = m_overlapSpin->value() / 100;
+    // The identities are kept with the bands, also when proposing the others again
     if(!findBands) {
         analysis->bands = m_analysis.bands;
-    }
-    if(!propose) {
         analysis->proposals = m_analysis.proposals;
     }
     m_running = analysis;
@@ -306,11 +306,12 @@ void MassSelectionWindow::showAnalysis() {
     const DetectorSettings *detector = m_measurement->detector;
     for(size_t b = 0; b < analysis.bands.size(); b++) {
         const BandProposal &proposal = analysis.proposals[b];
-        if(proposal.continues >= 0) {
-            continue;
-        }
         const MassBand &band = analysis.bands[b];
         const BandSelection &selection = analysis.selections[b];
+        // Pieces of other bands, and deep fragments without identity or selection, are left out
+        if(proposal.continues >= 0 || proposal.artifact || (!proposal.identity.isKnown() && !selection.ok)) {
+            continue;
+        }
         auto *item = new QTreeWidgetItem(m_table);
         item->setData(BandColumn, BandRole, static_cast<int>(b));
         item->setText(BandColumn, identityText(proposal.identity));
@@ -330,10 +331,8 @@ void MassSelectionWindow::showAnalysis() {
         item->setText(BasisColumn, basisText(proposal.basis));
         item->setText(EdgeColumn, channelText(band.edgeTof));
         item->setText(ExpectedColumn, channelText(proposal.expectedEdge));
-        const double mass = analysis.calibration.ok && detector
-                                    ? bandMass(band, analysis.calibration.calibration, detector->tofSlope, detector->tofOffset)
-                                    : std::numeric_limits<double>::quiet_NaN();
-        item->setText(MassColumn, std::isfinite(mass) ? QString::number(mass / Units::AtomicMassUnit, 'f', 2) : QStringLiteral("—"));
+        item->setText(DeviationColumn, std::isfinite(proposal.deviation) ? QString::number(100 * proposal.deviation, 'f', 1)
+                                                                         : QStringLiteral("—"));
         if(selection.ok) {
             item->setText(RangeColumn, QString("%1–%2").arg(selection.startTof, 0, 'f', 0).arg(selection.endTof, 0, 'f', 0));
             item->setText(EventsColumn, QString::number(selection.events, 'f', 0));
@@ -347,15 +346,15 @@ void MassSelectionWindow::showAnalysis() {
     }
 
     // The calibration and what there is to do
-    const MassCalibrationFit &fit = analysis.calibration;
+    const EnergyDetectorFit &fit = analysis.calibration;
     if(fit.ok) {
-        QString text = QString("Mass calibration from %1–%2 u").arg(fit.calibration.minMass / Units::AtomicMassUnit, 0, 'f', 1)
-                               .arg(fit.calibration.maxMass / Units::AtomicMassUnit, 0, 'f', 1);
-        text += std::isfinite(fit.rmsResidual) ? QString(", masses within %1 % (rms)").arg(100 * fit.rmsResidual, 0, 'f', 1)
-                                               : QStringLiteral(", from the detector settings");
+        QString text = energyCalibrationText(fit.calibration);
+        text += std::isfinite(fit.rmsResidual) ? QString(". Fitted to %1 particles, within %2 % (rms).").arg(fit.particles)
+                                                         .arg(100 * fit.rmsResidual, 0, 'f', 1)
+                                               : QStringLiteral(", from the detector settings.");
         m_calibrationLabel->setText(text);
     } else {
-        m_calibrationLabel->setText(QString("No mass calibration: %1").arg(fit.errorMessage));
+        m_calibrationLabel->setText(QString("No energy detector calibration: %1").arg(fit.errorMessage));
     }
     if(!m_thread) {
         m_proposeButton->setEnabled(!analysis.bands.empty());
@@ -373,14 +372,15 @@ QList<Cut> MassSelectionWindow::proposedCuts(bool all) const {
     const Analysis &analysis = m_analysis;
     for(size_t b = 0; b < analysis.bands.size(); b++) {
         const BandIdentity &identity = analysis.proposals[b].identity;
-        if(analysis.proposals[b].continues >= 0 || !identity.isKnown() || !analysis.selections[b].ok || (!all && !m_checked[b])) {
+        if(analysis.proposals[b].continues >= 0 || analysis.proposals[b].artifact || !identity.isKnown()
+           || !analysis.selections[b].ok || (!all && !m_checked[b])) {
             continue;
         }
         // Isotopes are selected separately when another isotope of the element has a band of its own
         bool resolved = false;
         for(size_t other = 0; other < analysis.bands.size(); other++) {
             const BandIdentity &otherIdentity = analysis.proposals[other].identity;
-            if(other != b && analysis.proposals[other].continues < 0 && otherIdentity.z == identity.z
+            if(other != b && analysis.proposals[other].continues < 0 && !analysis.proposals[other].artifact && otherIdentity.z == identity.z
                && otherIdentity.type == identity.type && otherIdentity.a != identity.a) {
                 resolved = true;
             }
@@ -470,8 +470,8 @@ void MassSelectionWindow::applyCalibration() {
     if(!detector || !m_analysis.calibration.ok) {
         return;
     }
-    detector->massCalibration = m_analysis.calibration.calibration;
-    m_statusLabel->setText(QString("The mass calibration was stored in the detector settings %1.").arg(detector->name));
+    detector->energyCalibration = m_analysis.calibration.calibration;
+    m_statusLabel->setText(QString("The energy detector calibration was stored in the detector settings %1.").arg(detector->name));
     emit calibrationApplied(detector);
 }
 

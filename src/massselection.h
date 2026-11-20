@@ -1,6 +1,7 @@
 #ifndef JARA_MASSSELECTION_H
 #define JARA_MASSSELECTION_H
 
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -8,6 +9,7 @@
 #include <QPointF>
 #include <QString>
 
+#include "energydetector.h"
 #include "project.h"
 #include "tofedata.h"
 
@@ -28,7 +30,14 @@ struct MassBand {
     std::vector<double> counts; // Events of the band in each slice
     double edgeTof = 0; // Channel of the leading (short ToF) edge, NaN when it was not found
     double edgeSigma = 0; // Channels
+    bool edgeFitted = false; // Otherwise the edge is a first guess, or where a layer begins
     size_t events = 0; // Within the band, summed over the slices
+    // A band whose events rise again sharply deeper in the sample is split there into layers: e.g. a film of Al on a Si
+    // substrate, whose masses are too near to be told apart. The deeper layer has the index of the one above it, which
+    // ends where it begins. NaN and -1 for bands that are not split.
+    double layerEnd = std::numeric_limits<double>::quiet_NaN(); // Channel
+    int layerAbove = -1;
+    std::vector<size_t> profile; // Events near the ridge in each ToF channel, only while the bands are found
     double protoMassAt(double tof) const; // Interpolated along the ridge, extended level beyond its ends
     double widthAt(double tof) const; // Same as above
     double startTof() const { return ridge.empty() ? 0 : ridge.front().x(); }
@@ -51,37 +60,6 @@ struct BandSearchOptions {
 std::vector<MassBand> findMassBands(std::span<const ToFEEvent> events, double tofSlope, double tofOffset,
                                     const BandSearchOptions &options = {});
 
-// Mass calibration of the E axis (see MassCalibration in project.h): the proto-mass minus ln(m / u) is a polynomial in
-// ln(m / u) and ln(t / 100 ns), fitted to points on the ridges of bands of known mass. Its degree in the mass is limited
-// by the number of different masses.
-struct MassCalibrationPoint {
-    double tof; // Channel
-    double protoMass;
-    double mass; // kg
-    double weight; // Events
-};
-
-struct MassCalibrationFit {
-    MassCalibration calibration;
-    double rmsResidual = 0; // Of the masses of the points, relative
-    bool ok = false;
-    QString errorMessage; // When not ok
-};
-
-constexpr int MaxMassCalibrationDegree = 3;
-MassCalibrationFit fitMassCalibration(const std::vector<MassCalibrationPoint> &points, double tofSlope, double tofOffset,
-                                      int maxDegree = MaxMassCalibrationDegree);
-
-// Mass in kg of a particle at the channels, NaN when the calibration gives none
-double calibratedMass(const MassCalibration &calibration, double tofChannel, double energyChannel, double tofSlope,
-                      double tofOffset);
-// Proto-mass of a particle of the mass (kg) at the ToF channel, NaN when the ToF is not positive
-double calibratedProtoMass(const MassCalibration &calibration, double tofChannel, double mass, double tofSlope,
-                           double tofOffset);
-// E channel of a particle of the mass (kg) at the ToF channel
-double calibratedEnergyChannel(const MassCalibration &calibration, double tofChannel, double mass, double tofSlope,
-                               double tofOffset);
-
 // What a band is: recoils of an isotope, or the incident ions scattered from it. Recoils of an element whose isotopes
 // are not resolved are one band, its identity is then the most abundant isotope, but its selection is of the element.
 struct BandIdentity {
@@ -92,17 +70,22 @@ struct BandIdentity {
     bool operator==(const BandIdentity &) const = default;
 };
 
-// Mass in kg of the particles of the band: the isotope, or the incident ion for scattered ions. Zero when not known.
+// Atomic number and mass in kg of the particles of the band: the isotope, or the incident ion for scattered ions. Zero
+// when not known.
+int detectedZ(const BandIdentity &identity, const ExperimentalSettings *settings);
 double detectedMass(const BandIdentity &identity, const ExperimentalSettings *settings);
 
-// Mass in kg of the band from the calibration, the median along its ridge weighted by the events. NaN without one.
-double bandMass(const MassBand &band, const MassCalibration &calibration, double tofSlope, double tofOffset);
+// How far the ridge of a band is from the E channels the energy detector gives particles of the identity, see
+// energydetector.h: the root mean square of the relative difference, weighted by the events, from the leading edge on.
+// NaN when it cannot be calculated.
+double bandDeviation(const MassBand &band, const BandIdentity &identity, const ExperimentalSettings &settings,
+                     EnergyDetectorModel &model, const EnergyDetectorCalibration &calibration);
 
 // How a band was identified
 enum class IdentityBasis {
     None,
     Edge, // Its leading edge is where the particles from the surface are expected
-    Mass, // Its mass from the calibration
+    Response, // Its ridge follows the response of the energy detector to the particles
     User
 };
 
@@ -110,31 +93,39 @@ struct BandProposal {
     BandIdentity identity;
     IdentityBasis basis = IdentityBasis::None;
     double expectedEdge = 0; // Channel of the particles from the surface, NaN when not known
+    double deviation = 0; // Of the ridge from the response of the energy detector to the identity, NaN when not known
     // Index of the band this one continues at longer ToF, -1 for none. Such a band is a piece of the other, split off
     // where the ridge was lost, and has no identity or selection of its own.
     int continues = -1;
+    // Below the response of the lightest particle, H: e.g. random coincidences. No identity or selection, and not one
+    // of the neighbours of the selections.
+    bool artifact = false;
 };
 
 struct IdentityProposal {
     std::vector<BandProposal> bands; // Of each band
-    MassCalibrationFit calibration;
+    EnergyDetectorFit calibration;
 };
 
-// Identities of the bands from their leading edges, which are compared with those of the particles from the surface of
-// all naturally occurring isotopes, recoiled or the incident ion scattered. The masses must grow with the proto-mass. The
-// bands so identified give the mass calibration; bands whose edge does not match get the isotope nearest to their mass
-// from it, unless they continue another band. Without enough bands identified by their edges, the mass calibration of
-// the detector is used when it has one. Needs the experimental settings and the ToF calibration.
+// Identities of the bands. Those given (by the user, known identities in the list) are kept. The others are first
+// identified by their leading edges, which are compared with those of the particles from the surface of all naturally
+// occurring isotopes, recoiled or the incident ion scattered; the masses must grow with the proto-mass. The bands so
+// identified give the calibration of the energy detector, which is then the most likely isotope for each of the other
+// bands by its ridge, its leading edge (particles from the surface are more likely, none come before them) and its
+// abundance, unless the band continues another one. Without enough identified bands, the calibration of the detector
+// is used when it has one. Needs the experimental settings and the ToF calibration.
 IdentityProposal proposeIdentities(const std::vector<MassBand> &bands, const ExperimentalSettings &settings,
-                                   const DetectorSettings &detector, const PhysicsSettings &physics);
+                                   const DetectorSettings &detector, EnergyDetectorModel &model,
+                                   const PhysicsSettings &physics, const std::vector<BandIdentity> &given = {});
 
-// Mass calibration from bands of known identity, the others are left out
-MassCalibrationFit calibrateFromBands(const std::vector<MassBand> &bands, const std::vector<BandIdentity> &identities,
-                                      const ExperimentalSettings &settings, const DetectorSettings &detector);
+// Calibration of the energy detector from the ridges of bands of known identity, the others are left out
+EnergyDetectorFit calibrateFromBands(const std::vector<MassBand> &bands, const std::vector<BandIdentity> &identities,
+                                     const ExperimentalSettings &settings, EnergyDetectorModel &model);
 
 // Selections of bands that reach as deep (long ToF) as they can without significant overlap with other bands. In slices
 // of ToF, the proto-mass distribution is fitted as a sum of Gaussians, one for each band, centred on their ridges, and a
-// flat background. Beyond its ridge, a band follows its mass in the calibration, or its ridge extended straight. The
+// flat background. Beyond its ridge, a band follows the response of the energy detector to its particles, or its ridge
+// extended straight. The
 // boundary between two neighbouring bands is where their densities are equal, at most a few widths from each centre.
 // A selection starts before the leading edge of its band and ends where the expected fraction of events of other bands
 // in it exceeds the limit, or where the events of its band are no longer significant above the background.
@@ -148,7 +139,8 @@ struct SelectionOptions {
 // A band in the selections
 struct SelectionBand {
     const MassBand *band;
-    double mass = 0; // kg, detected, zero when not known
+    int z = 0; // Of the detected particles, zero when not known
+    double mass = 0; // kg
     bool selected = false; // A selection is made for it, otherwise it is only one of the neighbours
 };
 
@@ -166,7 +158,7 @@ struct BandSelection {
 
 // Selections of the selected bands, in the order of the bands
 std::vector<BandSelection> selectBands(std::span<const ToFEEvent> events, const std::vector<SelectionBand> &bands,
-                                       const MassCalibration &calibration, double tofSlope, double tofOffset,
+                                       EnergyDetectorModel &model, const EnergyDetectorCalibration &calibration,
                                        const SelectionOptions &options = {});
 
 #endif // JARA_MASSSELECTION_H
