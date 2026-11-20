@@ -30,6 +30,7 @@ public:
         QPolygonF points;
         QColor color;
         Qt::PenStyle style = Qt::SolidLine;
+        double width = 1.5; // Pixels
     };
 
     explicit HistogramWidget(QWidget *parent = nullptr);

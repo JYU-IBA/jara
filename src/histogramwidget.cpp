@@ -414,9 +414,9 @@ void HistogramWidget::drawOverlayLines(QPainter &painter) const {
             pixels.append(dataToPixel(point));
         }
         // Light under dark, like the cuts
-        painter.setPen(QPen(QColor(255, 255, 255, 200), 3.5));
+        painter.setPen(QPen(QColor(255, 255, 255, 200), line.width + 2));
         painter.drawPolyline(pixels);
-        painter.setPen(QPen(line.color, 1.5, line.style));
+        painter.setPen(QPen(line.color, line.width, line.style));
         painter.drawPolyline(pixels);
     }
 }

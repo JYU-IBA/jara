@@ -34,7 +34,8 @@ constexpr int EdgePoints = 41; // Across the window
 constexpr int FitPointsPerBin = 4; // Of the fitted curve
 const QColor RangeColor(0x80, 0x80, 0x80);
 const QColor FitColor(0x1f, 0x77, 0xb4);
-const QColor EdgeColor(0xd6, 0x27, 0x28);
+const QColor EdgeColor(0x80, 0x00, 0x00);
+constexpr double EdgeWidth = 3; // Pixels
 const QColor DataColor(0x40, 0x40, 0x40);
 
 enum SliceColumn { SliceTofColumn, SliceEventsColumn, SliceCentreColumn };
@@ -57,8 +58,8 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
     m_list = new QListWidget;
     m_list->setToolTip("The events of the checked measurements are used together");
     m_edgeCombo = new QComboBox;
-    m_edgeCombo->setToolTip("The expected leading edge of the selection over the window is drawn for both directions "
-                            "of the angle. Needs the experimental settings and the ToF calibration.");
+    m_edgeCombo->setToolTip("The expected leading edge of the selection over the window is drawn for the chosen "
+                            "direction of the angle. Needs the experimental settings and the ToF calibration.");
     m_maxTofSpin = new QSpinBox;
     m_maxTofSpin->setRange(0, 1000000);
     m_maxTofSpin->setSuffix(" ch");
@@ -84,8 +85,8 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
                                 "the fitted resolution σ, not the window.");
     m_smoothingSpin->setValue(detector->angleCalibration.timingSmoothing);
     m_reversedCheck = new QCheckBox("Larger timing is a smaller angle");
-    m_reversedCheck->setToolTip("The direction of the angle, not known from the fit. The expected edges tell it: the "
-                                "solid one should follow the leading edge of the data.");
+    m_reversedCheck->setToolTip("The direction of the angle, not known from the fit. The expected edge tells it: it "
+                                "should follow the leading edge of the data.");
     m_reversedCheck->setChecked(detector->angleCalibration.reversed);
     m_edgeNote = new QLabel;
     m_edgeNote->setWordWrap(true);
@@ -462,7 +463,7 @@ void AngleCalibrationWindow::updateOverlay() {
         lines.append({line, FitColor, offset == 0 ? Qt::DotLine : Qt::SolidLine});
     }
 
-    // Expected leading edge of the chosen selection at each angle over the window, for both directions
+    // Expected leading edge of the chosen selection at each angle over the window, for the chosen direction
     Measurement *measurement = measurementOf(m_edgeCombo->currentData(MeasurementRole));
     const Cut *cut = measurement ? measurement->cut(m_edgeCombo->currentData(CutIdRole).toInt()) : nullptr;
     if(cut) {
@@ -473,27 +474,24 @@ void AngleCalibrationWindow::updateOverlay() {
             m_edgeNote->setText("The ToF calibration is needed for the expected edge.");
         } else {
             QString error;
-            for(const bool reversed : {false, true}) {
-                QPolygonF edge;
-                for(int i = 0; i < EdgePoints; i++) {
-                    const double position = -1 + 2.0 * i / (EdgePoints - 1); // From the low timing edge to the high
-                    DetectorSettings detector = *m_detector;
-                    detector.scatteringAngle += std::atan((reversed ? -position : position) * std::tan(halfAngle));
-                    const ExpectedTof expected = expectedSurfaceTof(measurement->settings, detector,
-                                                                    measurement->physicsOrDefault(), *cut);
-                    if(!expected.isValid()) {
-                        error = expected.errorMessage;
-                        continue;
-                    }
-                    const double channel = (expected.tof - m_detector->tofOffset) / m_detector->tofSlope;
-                    edge.append({channel, m_fit.centreAt(channel) + position * window.halfWidth});
+            const bool reversed = m_reversedCheck->isChecked();
+            QPolygonF edge;
+            for(int i = 0; i < EdgePoints; i++) {
+                const double position = -1 + 2.0 * i / (EdgePoints - 1); // From the low timing edge to the high
+                DetectorSettings detector = *m_detector;
+                detector.scatteringAngle += std::atan((reversed ? -position : position) * std::tan(halfAngle));
+                const ExpectedTof expected = expectedSurfaceTof(measurement->settings, detector,
+                                                                measurement->physicsOrDefault(), *cut);
+                if(!expected.isValid()) {
+                    error = expected.errorMessage;
+                    continue;
                 }
-                const bool current = reversed == m_reversedCheck->isChecked();
-                lines.append({edge, EdgeColor, current ? Qt::SolidLine : Qt::DashLine});
+                const double channel = (expected.tof - m_detector->tofOffset) / m_detector->tofSlope;
+                edge.append({channel, m_fit.centreAt(channel) + position * window.halfWidth});
             }
-            m_edgeNote->setText(error.isEmpty() ? QStringLiteral("The solid edge is that of the chosen direction, the "
-                                                                 "dashed one of the other. The edge of the data should "
-                                                                 "follow the solid one.")
+            lines.append({edge, EdgeColor, Qt::DashLine, EdgeWidth});
+            m_edgeNote->setText(error.isEmpty() ? QStringLiteral("The edge of the data should follow the dashed edge. "
+                                                                 "If it slopes the other way, change the direction.")
                                                 : error);
         }
     }

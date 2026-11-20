@@ -28,8 +28,8 @@ struct Measurement;
 // Window of the angle calibration tool for a detector, see anglecalibration.h. The events of the checked measurements
 // assigned to the detector are pooled. Their timing is plotted against ToF, where the longest ToF used is dragged, and
 // as a distribution with the fit of the window, where the fit range can be dragged. The expected leading edge of a
-// selection over the window, from its kinematics at each angle, is drawn for both directions of the angle: the one
-// that follows the edge of the data tells the direction. The calibration is applied to the detector.
+// selection over the window, from its kinematics at each angle, is drawn for the chosen direction of the angle: it
+// should follow the edge of the data. The calibration is applied to the detector.
 class AngleCalibrationWindow : public QWidget {
     Q_OBJECT
 
