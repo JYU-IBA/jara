@@ -1081,8 +1081,15 @@ void MainWindow::about() {
                           .arg(Version::gitCommitSha1(), Version::gitCommitDate(), Version::gitBranch(),
                                Version::gitDirty() ? " with uncommitted changes" : "");
     }
-    QMessageBox::about(this, "About JaRA",
-                       QString("<b>JaRA %1</b><p>Analysis of ToF-ERDA data.</p>"
-                               "%2<p>JIBAL %3<br>GSL %4<br>Qt %5</p>")
-                               .arg(Version::version(), gitInfo, jibal_version(), GSL_VERSION, qVersion()));
+    QMessageBox box(QMessageBox::NoIcon, "About JaRA",
+                    QString("<b>JaRA %1</b><p>Analysis of ToF-ERDA data.</p>"
+                            "%2<p>JIBAL %3<br>GSL %4<br>Qt %5</p>")
+                            .arg(Version::version(), gitInfo, jibal_version(), GSL_VERSION, qVersion()),
+                    QMessageBox::Ok, this);
+    const qreal dpr = devicePixelRatioF();
+    QPixmap icon = QPixmap(":/icons/jara_256.png").scaled(QSize(128, 128) * dpr, Qt::KeepAspectRatio,
+                                                          Qt::SmoothTransformation);
+    icon.setDevicePixelRatio(dpr);
+    box.setIconPixmap(icon);
+    box.exec();
 }
