@@ -80,12 +80,19 @@ ExperimentalSettingsEditor::ExperimentalSettingsEditor(QWidget *parent) : QWidge
     m_incidentAngleSpin = createSpinBox(MinIncidentAngle, MaxIncidentAngle, Units::Degree, 2, "°");
     m_incidentAngleSpin->setToolTip(FromSurface);
 
-    auto *layout = createFormLayout(this);
+    auto *generalGroup = new QGroupBox("General");
+    auto *general = createFormLayout(generalGroup);
+    general->addRow("Name:", m_nameEdit);
+    auto *beamGroup = new QGroupBox("Beam");
+    auto *beam = createFormLayout(beamGroup);
+    beam->addRow("Incident ion:", beamIonLayout);
+    beam->addRow("Beam energy:", m_beamEnergySpin);
+    beam->addRow("Incident angle:", m_incidentAngleSpin);
+    alignFormLabels({general, beam});
+    auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addRow("Name:", m_nameEdit);
-    layout->addRow("Beam energy:", m_beamEnergySpin);
-    layout->addRow("Incident ion:", beamIonLayout);
-    layout->addRow("Incident angle:", m_incidentAngleSpin);
+    layout->addWidget(generalGroup);
+    layout->addWidget(beamGroup);
 
     connect(m_nameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         m_settings->name = text;
@@ -527,14 +534,27 @@ PhysicsSettingsEditor::PhysicsSettingsEditor(QWidget *parent) : QWidget(parent) 
                                   "remove pairs.");
     m_correctionTable->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    auto *layout = createFormLayout(this);
+    auto *generalGroup = new QGroupBox("General");
+    auto *general = createFormLayout(generalGroup);
+    general->addRow("Name:", m_nameEdit);
+    auto *crossSectionGroup = new QGroupBox("Cross sections");
+    auto *crossSections = createFormLayout(crossSectionGroup);
+    crossSections->addRow("Screening:", m_screeningCombo);
+    auto *stoppingGroup = new QGroupBox("Stopping of all elements");
+    auto *stopping = createFormLayout(stoppingGroup);
+    stopping->addRow("Electronic factor:", m_electronicSpin);
+    stopping->addRow("Nuclear factor:", m_nuclearSpin);
+    stopping->addRow("Stopping file:", m_stoppingFileCombo);
+    alignFormLabels({general, crossSections, stopping});
+    auto *pairGroup = new QGroupBox("Stopping of element pairs");
+    auto *pairLayout = new QVBoxLayout(pairGroup);
+    pairLayout->addWidget(m_correctionTable);
+    auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addRow("Name:", m_nameEdit);
-    layout->addRow("Screening:", m_screeningCombo);
-    layout->addRow("Electronic stopping factor:", m_electronicSpin);
-    layout->addRow("Nuclear stopping factor:", m_nuclearSpin);
-    layout->addRow("Stopping file:", m_stoppingFileCombo);
-    layout->addRow("Element pairs:", m_correctionTable);
+    layout->addWidget(generalGroup);
+    layout->addWidget(crossSectionGroup);
+    layout->addWidget(stoppingGroup);
+    layout->addWidget(pairGroup);
 
     connect(m_nameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         m_physics->name = text;

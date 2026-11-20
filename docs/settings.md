@@ -12,7 +12,9 @@ incident angle.
 
 ## Experimental settings
 
-- **Beam energy** and **incident ion** (a specific isotope)
+**Beam**
+
+- **Incident ion** (a specific isotope) and **beam energy**
 - **Incident angle** from the sample surface
 
 ## Detector settings
@@ -51,11 +53,11 @@ incident angle.
 
 Used by depth profiles and the foil correction. Measurements without physics settings use the defaults.
 
-- **Screening** of the Rutherford cross sections: none or Andersen
-- **Electronic and nuclear stopping factors** that multiply the stopping of all elements
-- **Stopping file**: the GSTO file of electronic stopping, or JIBAL's choice
-- **Element pairs**: corrections for an incident element in a target element, or in any target, with their own
-  factors and stopping file
+- **Cross sections**: the **screening** of the Rutherford cross sections, none or Andersen
+- **Stopping of all elements**: **electronic and nuclear factors** that multiply the stopping, and the **stopping
+  file**, the GSTO file of electronic stopping or JIBAL's choice
+- **Stopping of element pairs**: corrections for an incident element in a target element, or in any target, with their
+  own factors and stopping file
 
 ## Preferences
 
