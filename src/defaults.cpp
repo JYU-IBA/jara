@@ -246,9 +246,11 @@ CoincidencePreferences Defaults::coincidencePreferences() {
     const QJsonObject json = load(CoincidenceKey);
     preferences.plotMargin = std::max(0, json["plotMargin"].toInt(preferences.plotMargin));
     preferences.previewSignals = std::max(1000, json["previewSignals"].toInt(preferences.previewSignals));
+    preferences.logScale = json["logScale"].toBool(preferences.logScale);
     return preferences;
 }
 
 void Defaults::setCoincidencePreferences(const CoincidencePreferences &preferences) {
-    store(CoincidenceKey, QJsonObject{{"plotMargin", preferences.plotMargin}, {"previewSignals", preferences.previewSignals}});
+    store(CoincidenceKey, QJsonObject{{"plotMargin", preferences.plotMargin}, {"previewSignals", preferences.previewSignals},
+                                      {"logScale", preferences.logScale}});
 }

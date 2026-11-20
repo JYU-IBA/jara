@@ -261,8 +261,8 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     m_tofSlopeSpin = createSpinBox(0, 1e-6, Units::Nanosecond, 6, " ns/ch");
     m_tofOffsetSpin = createSpinBox(-1e-3, 1e-3, Units::Nanosecond, 3, " ns");
     m_coincidenceEditor = new CoincidenceSettingsEditor;
-    auto *coincidenceGroup = new QGroupBox("Coincidence parameters (list-mode files)");
-    auto *coincidenceLayout = new QVBoxLayout(coincidenceGroup);
+    m_coincidenceGroup = new QGroupBox("Coincidence parameters (list-mode files)");
+    auto *coincidenceLayout = new QVBoxLayout(m_coincidenceGroup);
     coincidenceLayout->addWidget(m_coincidenceEditor);
     m_foilLabel = new QLabel;
     auto *foilButton = new QPushButton("Edit...");
@@ -288,7 +288,7 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     layout->addRow("ToF calibration slope:", m_tofSlopeSpin);
     layout->addRow("ToF calibration offset:", m_tofOffsetSpin);
     layout->addRow(QString(), m_calibrateButton);
-    layout->addRow(coincidenceGroup);
+    layout->addRow(m_coincidenceGroup);
 
     connect(m_nameEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
         m_detector->name = text;
@@ -366,6 +366,10 @@ void DetectorSettingsEditor::refresh() {
 
 void DetectorSettingsEditor::setCalibrationAvailable(bool available) {
     m_calibrateButton->setVisible(available);
+}
+
+void DetectorSettingsEditor::setCoincidenceVisible(bool visible) {
+    m_coincidenceGroup->setVisible(visible);
 }
 
 namespace {

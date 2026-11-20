@@ -2,8 +2,10 @@
 #include "defaults.h"
 #include "histogramwidget.h"
 #include "settingseditors.h"
+#include "spectrumplotwidget.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -62,6 +64,18 @@ private:
     QProgressDialog m_dialog;
 };
 
+// Of the distribution of the time differences, the bins start from the origin
+SpectrumPlotWidget::XAxis timeDifferenceAxis(double origin) {
+    SpectrumPlotWidget::XAxis axis;
+    axis.title = QStringLiteral("Time difference (ticks)");
+    axis.unit = QStringLiteral("ticks");
+    axis.decimals = 0;
+    axis.origin = origin;
+    axis.binWidthScale = 1;
+    axis.binWidthUnit = QStringLiteral("ticks");
+    return axis;
+}
+
 // The preview has to be read again when these change
 bool sameReading(const CoincidenceSettings &a, const CoincidenceSettings &b) {
     return a.tofAdc == b.tofAdc && a.energyAdc == b.energyAdc && a.reorderSpan == b.reorderSpan;
@@ -70,7 +84,7 @@ bool sameReading(const CoincidenceSettings &a, const CoincidenceSettings &b) {
 
 CoincidenceDialog::CoincidenceDialog(Project &project, const Sample *currentSample, QWidget *parent)
     : QDialog(parent), m_project(project), m_defaultSample(currentSample ? currentSample->name : QString()) {
-    setWindowTitle("Convert Coincidence Files");
+    setWindowTitle("Import Event Data");
     resize(1100, 750);
     const CoincidencePreferences preferences = Defaults::coincidencePreferences();
     m_previewSignals = preferences.previewSignals;
@@ -145,15 +159,36 @@ CoincidenceDialog::CoincidenceDialog(Project &project, const Sample *currentSamp
     m_histogram->applyPreferences(Defaults::histogramPreferences());
     m_histogram->setLogScale(true);
     m_histogram->setEvents(&m_plotEvents);
+    m_histogram->setMarkersDraggable(true);
     m_statistics = new QLabel;
     m_statistics->setWordWrap(true);
     m_statistics->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_distribution = new SpectrumPlotWidget;
+    m_distribution->setXAxis(timeDifferenceAxis(0));
+    SpectrumPlotWidget::YAxis yAxis;
+    yAxis.title = QStringLiteral("Counts");
+    yAxis.legendEvents = false;
+    m_distribution->setYAxis(yAxis);
+    m_distribution->setLogScale(preferences.logScale);
+    m_distribution->setAutoYScale(true);
+    m_distribution->setToolTip("Drag the edges of the window to change it");
+    m_histogram->setToolTip(m_distribution->toolTip());
+    auto *plots = new QSplitter(Qt::Vertical);
+    plots->addWidget(m_histogram);
+    plots->addWidget(m_distribution);
+    plots->setSizes({450, 250});
     m_cursorInfo = new QLabel;
+    auto *refreshButton = new QPushButton("Refresh Plots");
+    refreshButton->setToolTip("Calculate the plots again for the window and the margin around it. They are "
+                              "otherwise calculated again only when the window no longer fits in them.");
+    auto *cursorRow = new QHBoxLayout;
+    cursorRow->addWidget(m_cursorInfo, 1);
+    cursorRow->addWidget(refreshButton);
     auto *right = new QWidget;
     auto *rightLayout = new QVBoxLayout(right);
     rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->addWidget(m_histogram, 1);
-    rightLayout->addWidget(m_cursorInfo);
+    rightLayout->addWidget(plots, 1);
+    rightLayout->addLayout(cursorRow);
     rightLayout->addWidget(m_statistics);
 
     auto *splitter = new QSplitter;
@@ -182,8 +217,17 @@ CoincidenceDialog::CoincidenceDialog(Project &project, const Sample *currentSamp
     connect(m_detectorCombo, &QComboBox::currentIndexChanged, this, &CoincidenceDialog::updateDetector);
     connect(m_settingsEditor, &CoincidenceSettingsEditor::changed, m_previewTimer, qOverload<>(&QTimer::start));
     connect(m_marginSpin, &QSpinBox::valueChanged, m_previewTimer, qOverload<>(&QTimer::start));
-    connect(m_previewTimer, &QTimer::timeout, this, &CoincidenceDialog::updatePreview);
+    connect(m_previewTimer, &QTimer::timeout, this, [this]() { updatePreview(); });
+    connect(refreshButton, &QPushButton::clicked, this, [this]() { updatePreview(true); });
     connect(m_histogram, &HistogramWidget::cursorInfoChanged, m_cursorInfo, &QLabel::setText);
+    connect(m_distribution, &SpectrumPlotWidget::cursorInfoChanged, m_cursorInfo, &QLabel::setText);
+    connect(m_histogram, &HistogramWidget::markerMoved, this, &CoincidenceDialog::moveWindowEdge);
+    connect(m_distribution, &SpectrumPlotWidget::markerMoved, this, &CoincidenceDialog::moveWindowEdge);
+    connect(m_distribution, &SpectrumPlotWidget::logScaleChanged, this, [](bool logScale) {
+        CoincidencePreferences preferences = Defaults::coincidencePreferences();
+        preferences.logScale = logScale;
+        Defaults::setCoincidencePreferences(preferences);
+    });
     connect(m_buttons, &QDialogButtonBox::accepted, this, &CoincidenceDialog::accept);
     connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
@@ -280,10 +324,27 @@ void CoincidenceDialog::clearPreview(const QString &message) {
     m_hasPlot = false;
     m_histogram->setEvents(&m_plotEvents);
     m_histogram->setVerticalMarkers({});
+    m_distribution->setCurves(1, {}, SpectrumPlotWidget::ViewChange::ShowAll);
+    m_distribution->setMarkers({});
     m_statistics->setText(message);
 }
 
-void CoincidenceDialog::updatePreview() {
+void CoincidenceDialog::moveWindowEdge(int marker, double x) {
+    // The markers are at the edges of the bins of the ends, which are included. The other end is moved along when
+    // the window would become empty, as in the editor.
+    const auto edge = static_cast<qint64>(std::round(x));
+    if(marker == 0) {
+        m_settings.windowLow = edge;
+        m_settings.windowHigh = std::max(m_settings.windowHigh, edge);
+    } else {
+        m_settings.windowHigh = edge - 1;
+        m_settings.windowLow = std::min(m_settings.windowLow, edge - 1);
+    }
+    m_settingsEditor->setSettings(&m_settings);
+    updatePreview();
+}
+
+void CoincidenceDialog::updatePreview(bool recalculatePlots) {
     m_previewTimer->stop();
     const int row = m_files->currentRow();
     if(row < 0) {
@@ -310,7 +371,7 @@ void CoincidenceDialog::updatePreview() {
     const qint64 margin = m_marginSpin->value();
     // The plot is recalculated only when it no longer covers the window and the margin, so that the zoom is kept
     // while the window is adjusted
-    const bool covered = m_hasPlot && m_plotted.triggerIsEnergy == m_settings.triggerIsEnergy
+    const bool covered = !recalculatePlots && m_hasPlot && m_plotted.triggerIsEnergy == m_settings.triggerIsEnergy
                          && m_plotted.windowLow <= m_settings.windowLow - margin
                          && m_plotted.windowHigh >= m_settings.windowHigh + margin;
     if(!covered) {
@@ -327,10 +388,21 @@ void CoincidenceDialog::updatePreview() {
         }
         m_histogram->setEvents(&m_plotEvents);
         m_histogram->setFullXRange(static_cast<double>(m_plotted.windowLow), static_cast<double>(m_plotted.windowHigh));
+        // One tick per bin
+        SpectrumPlotWidget::Curve curve{QStringLiteral("All pairs"), QColor(31, 119, 180), pairs.size(),
+                                        std::vector<double>(static_cast<size_t>(m_plotted.windowHigh - m_plotted.windowLow + 1))};
+        for(const CoincidenceEvent &pair : pairs) {
+            curve.values[static_cast<size_t>(pair.timeDifference - m_plotted.windowLow)]++;
+        }
+        m_distribution->setXAxis(timeDifferenceAxis(static_cast<double>(m_plotted.windowLow)));
+        m_distribution->setCurves(1, {curve}, SpectrumPlotWidget::ViewChange::ShowAll);
         m_hasPlot = true;
     }
     // At the edges of the bins of the ends, which are included
-    m_histogram->setVerticalMarkers({static_cast<double>(m_settings.windowLow), static_cast<double>(m_settings.windowHigh + 1)});
+    const double low = static_cast<double>(m_settings.windowLow);
+    const double high = static_cast<double>(m_settings.windowHigh + 1);
+    m_histogram->setVerticalMarkers({low, high});
+    m_distribution->setMarkers({{low, Qt::red, Qt::SolidLine, true}, {high, Qt::red, Qt::SolidLine, true}});
 
     CoincidenceStatistics statistics;
     findCoincidences(m_preview.events, m_settings, statistics);
@@ -391,7 +463,7 @@ void CoincidenceDialog::accept() {
     }
 
     if(!errors.isEmpty()) {
-        QMessageBox::warning(this, "Convert Coincidence Files",
+        QMessageBox::warning(this, "Import Event Data",
                              QString("%1\n\nNot converted:\n%2").arg(summary.isEmpty() ? QString("Nothing was converted.") : summary.join("\n"),
                                                                      errors.join("\n")));
     }

@@ -29,7 +29,8 @@ incident angle.
 - **ToF calibration**: t = slope × channel + offset, set by hand or with the
   [ToF calibration tool](tof-calibration.md) (**ToF Calibration...**).
 - **Coincidence parameters (list-mode files)**: the ToF and E ADCs, the trigger, the timing window, the reorder span
-  and the pairing used when [converting coincidence files](coincidences.md#coincidence-parameters)
+  and the pairing used when [importing event data](coincidences.md#coincidence-parameters). The defaults are on the
+  Coincidences page of the preferences.
 
 ## Physics settings
 
@@ -50,5 +51,6 @@ File → Preferences holds the program-wide defaults:
 - Depth profile iterations and convergence tolerance, the parameters of new depth profiles, the default legend
   corner, and whether new depth profiles show concentrations in the legend and round them in the legend and in the
   table of averages
-- The plot margin and the size of the preview when [converting coincidence files](coincidences.md)
+- The default coincidence parameters, the plot margin, the size of the preview and the scale of the distribution of
+  time differences when [importing event data](coincidences.md)
 - Colours of the elements, used for new selections

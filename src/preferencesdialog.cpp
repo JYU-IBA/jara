@@ -53,6 +53,7 @@ QWidget *PreferencesDialog::createSettingsPage() {
 
     auto *detectorEditor = new DetectorSettingsEditor;
     detectorEditor->setDetector(&m_detector);
+    detectorEditor->setCoincidenceVisible(false); // On the coincidence page
     auto *detectorGroup = new QGroupBox("Default detector settings");
     auto *detectorLayout = new QVBoxLayout(detectorGroup);
     detectorLayout->addWidget(detectorEditor);
@@ -159,22 +160,37 @@ QWidget *PreferencesDialog::createCoincidencePage() {
     preview->setGroupSeparatorShown(true);
     preview->setValue(m_coincidence.previewSignals);
     preview->setToolTip("Long files are previewed from their beginning. Converting always reads the whole file.");
+    auto *scaleCombo = new QComboBox;
+    scaleCombo->addItem("Logarithmic", true);
+    scaleCombo->addItem("Linear", false);
+    scaleCombo->setCurrentIndex(m_coincidence.logScale ? 0 : 1);
 
-    auto *note = new QLabel("The dialog for converting coincidence files (*.evnt). The coincidence parameters (ADCs, "
-                            "timing window, reorder span, trigger and pairing) are part of the detector settings.");
+    auto *coincidenceEditor = new CoincidenceSettingsEditor;
+    coincidenceEditor->setSettings(&m_detector.coincidence);
+    auto *parametersGroup = new QGroupBox("Default coincidence parameters (part of the detector settings)");
+    auto *parametersLayout = new QVBoxLayout(parametersGroup);
+    parametersLayout->addWidget(coincidenceEditor);
+
+    auto *note = new QLabel("Importing event data (*.evnt). The coincidence parameters are part of the detector "
+                            "settings, new detector settings start with these.");
     note->setWordWrap(true);
 
     auto *page = new QWidget;
     auto *form = new QFormLayout;
     form->addRow("Shown around the window:", margin);
-    form->addRow("Signals in the preview:", preview);
+    form->addRow("Events in the preview:", preview);
+    form->addRow("Time difference counts:", scaleCombo);
     auto *layout = new QVBoxLayout(page);
     layout->addWidget(note);
+    layout->addWidget(parametersGroup);
     layout->addLayout(form);
     layout->addStretch();
 
     connect(margin, &QSpinBox::valueChanged, this, [this](int value) { m_coincidence.plotMargin = value; });
     connect(preview, &QSpinBox::valueChanged, this, [this](int value) { m_coincidence.previewSignals = value; });
+    connect(scaleCombo, &QComboBox::currentIndexChanged, this, [this, scaleCombo]() {
+        m_coincidence.logScale = scaleCombo->currentData().toBool();
+    });
     return page;
 }
 

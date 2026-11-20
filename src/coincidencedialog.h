@@ -16,13 +16,14 @@ class QComboBox;
 class QDialogButtonBox;
 class QLabel;
 class QSpinBox;
+class SpectrumPlotWidget;
 class QTableWidget;
 class QTimer;
 
 // Converts coincidence files (*.evnt) into ToF-E event files (*.asc) next to them, see coincidence.h. The coincidence
 // parameters start from the detector settings and are stored there when the files are converted. The time
-// differences of the beginning of the selected file are plotted against ToF so that the window can be chosen. Each
-// file is assigned to an existing sample or a new one, which the caller adds the converted files to as measurements.
+// differences of the beginning of the selected file are plotted against ToF and as a distribution so that the window
+// can be chosen, also by dragging its edges in the plots. Each file is assigned to an existing sample or a new one, which the caller adds the converted files to as measurements.
 class CoincidenceDialog : public QDialog {
     Q_OBJECT
 
@@ -44,7 +45,10 @@ private:
     void chooseFiles();
     void removeSelectedFiles();
     void updateDetector();
-    void updatePreview(); // Reads the file when needed, recalculates the plot when its range changes, statistics always
+    // Reads the file when needed, recalculates the plots when they do not cover the window and the margin or when
+    // asked to, statistics always
+    void updatePreview(bool recalculatePlots = false);
+    void moveWindowEdge(int marker, double x); // Marker 0 at the low end, 1 at the high end
     void clearPreview(const QString &message);
     void updateConvertButton();
 
@@ -58,6 +62,7 @@ private:
     CoincidenceSettingsEditor *m_settingsEditor;
     QSpinBox *m_marginSpin;
     HistogramWidget *m_histogram;
+    SpectrumPlotWidget *m_distribution; // Of the time differences, the window edges are dragged there
     QLabel *m_statistics;
     QLabel *m_cursorInfo;
     QDialogButtonBox *m_buttons;

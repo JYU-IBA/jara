@@ -35,6 +35,7 @@ public:
     void setAxes(const QString &xName, const QString &xUnit, const QString &yName, const QString &yUnit);
     void setFullXRange(double min, double max); // Instead of the range of the events, call after setEvents()
     void setVerticalMarkers(const QList<double> &x); // Dashed lines
+    void setMarkersDraggable(bool draggable); // Except in Move mode, markerMoved() is emitted when one is released
 
 public slots:
     void setMode(HistogramWidget::Mode mode);
@@ -47,6 +48,7 @@ signals:
     void polygonCompleted(const QList<QPointF> &polygon); // ToF and E in channels
     void cutClicked(int index); // In Edit mode
     void cutEdited(int index);
+    void markerMoved(int index, double x);
 
 protected:
     bool event(QEvent *event) override;
@@ -81,6 +83,7 @@ private:
     int vertexAt(const QPoint &pos) const; // Vertex of the highlighted cut at pos, -1 if none
     bool insertVertexAt(const QPoint &pos); // On an edge of the highlighted cut
     void updateEditCursor(const QPoint &pos);
+    int markerAt(const QPoint &pos) const; // Index of the draggable marker near the position, -1 when there is none
     void drawAxes(QPainter &painter, const QRect &plot) const;
     void drawCuts(QPainter &painter) const;
     void drawCutLabel(QPainter &painter, const Cut &cut, const QPolygonF &polygon) const;
@@ -96,6 +99,8 @@ private:
     QString m_yName = QStringLiteral("E");
     QString m_yUnit = QStringLiteral("ch");
     QList<double> m_markers;
+    bool m_markersDraggable = false;
+    int m_draggedMarker = -1;
     Mode m_mode = Mode::Zoom;
     HistogramPreferences m_preferences;
     bool m_logScale;

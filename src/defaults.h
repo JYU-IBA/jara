@@ -36,8 +36,9 @@ struct DepthProfilePreferences {
 
 // The dialog for converting list-mode files, see coincidence.h. The coincidence parameters are in the detector settings.
 struct CoincidencePreferences {
-    int plotMargin = 500; // Ticks. The plot of the time differences shows this much more on both sides of the window.
+    int plotMargin = 100; // Ticks. The plot of the time differences shows this much more on both sides of the window.
     int previewSignals = 5000000; // Read from the beginning of a file for the plot and the statistics
+    bool logScale = true; // Of the distribution of the time differences, also changed from its context menu
 };
 
 // Program-wide default settings, used for new projects and new settings sets. Stored with QSettings.

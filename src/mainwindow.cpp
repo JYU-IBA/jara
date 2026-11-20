@@ -281,7 +281,7 @@ void MainWindow::createActions() {
     m_exportArchiveAction->setToolTip("The project with copies of its measurements and files, to continue elsewhere");
     connect(m_exportArchiveAction, &QAction::triggered, this, &MainWindow::exportArchive);
 
-    m_convertCoincidencesAction = new QAction("Convert &Coincidence Files...", this);
+    m_convertCoincidencesAction = new QAction("Import &Event Data...", this);
     m_convertCoincidencesAction->setToolTip("Find coincidences in list-mode files (*.evnt) and add them as measurements");
     connect(m_convertCoincidencesAction, &QAction::triggered, m_projectPanel, &ProjectPanel::convertCoincidenceFiles);
 

@@ -1558,7 +1558,7 @@ void ProjectPanel::convertCoincidenceFiles() {
     if(!m_project) {
         return;
     }
-    const QStringList fileNames = QFileDialog::getOpenFileNames(this, "Convert Coincidence Files", projectDirectory(),
+    const QStringList fileNames = QFileDialog::getOpenFileNames(this, "Import Event Data", projectDirectory(),
                                                                 "Coincidence files (*.evnt);;All files (*)");
     if(fileNames.isEmpty()) {
         return;

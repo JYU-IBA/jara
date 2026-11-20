@@ -116,6 +116,8 @@ public:
     // Exactly these ranges, also beyond the data, e.g. for printing. Until the curves or the axes change.
     void setFixedRange(double xMin, double xMax, double yMin, double yMax);
     void setStale(bool stale); // Drawn faded and dashed
+    // The y axis always shows the values of the bins in view, zooming and moving change only the x axis
+    void setAutoYScale(bool autoYScale);
     bool logScale() const { return m_logScale; }
 
 public slots:
@@ -157,6 +159,7 @@ private:
     QPointF dataToPixel(double x, double y) const; // y as from toPlotY()
     QPointF pixelToData(const QPointF &pixel) const;
     void updateFullRange();
+    Range autoYRange(const Range &x) const; // Covers the values of the bins in the x range
     void setView(const Range &x, const Range &y);
     void zoomAt(const QPointF &anchor, double factor);
     void moveByPixels(const QPointF &delta);
@@ -201,6 +204,7 @@ private:
     double m_minValue = 0; // Lowest value minus its error
     bool m_logScale = false; // Spectra start with a linear count axis
     bool m_stale = false;
+    bool m_autoYScale = false;
     Mode m_mode = Mode::Zoom;
     Range m_fullX{0, 1}, m_fullY{0, 1};
     Range m_viewX{0, 1}, m_viewY{0, 1};

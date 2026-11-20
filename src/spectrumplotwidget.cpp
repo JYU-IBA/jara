@@ -185,6 +185,11 @@ void SpectrumPlotWidget::setStale(bool stale) {
     update();
 }
 
+void SpectrumPlotWidget::setAutoYScale(bool autoYScale) {
+    m_autoYScale = autoYScale;
+    setView(m_viewX, m_viewY);
+}
+
 void SpectrumPlotWidget::setLogScale(bool logScale) {
     if(logScale == m_logScale) {
         return;
@@ -220,6 +225,20 @@ void SpectrumPlotWidget::updateFullRange() {
         return;
     }
     m_fullY = m_logScale ? Range{std::log10(floor), std::log10(top) + 0.1} : Range{0, top * 1.05};
+}
+
+SpectrumPlotWidget::Range SpectrumPlotWidget::autoYRange(const Range &x) const {
+    const int firstInView = binAt(x.min);
+    const size_t first = firstInView < 0 ? 0 : static_cast<size_t>(firstInView);
+    double max = 0;
+    for(const Curve &curve : m_curves) {
+        for(size_t i = first; i < std::min(curve.values.size(), m_bins) && binStart(i) < x.max; i++) {
+            max = std::max(max, curve.values[i] + (i < curve.errors.size() ? curve.errors[i] : 0));
+        }
+    }
+    const double floor = m_yAxis.logFloor;
+    const double top = std::max(max, 2 * floor);
+    return m_logScale ? Range{std::log10(floor), std::log10(top) + 0.1} : Range{0, top * 1.05};
 }
 
 void SpectrumPlotWidget::resetZoom() {
@@ -284,7 +303,7 @@ void SpectrumPlotWidget::setView(const Range &x, const Range &y) {
     };
     const double minBinSize = m_edges.empty() ? m_binWidth : (m_edges.back() - m_edges.front()) / static_cast<double>(m_edges.size() - 1);
     m_viewX = clamped(x, m_fullX, minBinSize);
-    m_viewY = clamped(y, m_fullY, m_logScale ? 0.1 : std::min(1.0, m_fullY.size() / 100));
+    m_viewY = m_autoYScale ? autoYRange(m_viewX) : clamped(y, m_fullY, m_logScale ? 0.1 : std::min(1.0, m_fullY.size() / 100));
     update();
 }
 

@@ -10,6 +10,7 @@ struct PhysicsSettings;
 class QComboBox;
 class QDoubleSpinBox;
 class QFormLayout;
+class QGroupBox;
 class QSpinBox;
 class QLabel;
 class QLineEdit;
@@ -80,6 +81,7 @@ public:
     void setDetector(DetectorSettings *detector); // Not owned
     void refresh(); // Shows the values again after the detector was changed elsewhere
     void setCalibrationAvailable(bool available); // Shows the button for the ToF calibration tool, hidden by default
+    void setCoincidenceVisible(bool visible); // The coincidence parameters, shown by default
 
 signals:
     void changed();
@@ -100,6 +102,7 @@ private:
     QDoubleSpinBox *m_tofSlopeSpin;
     QDoubleSpinBox *m_tofOffsetSpin;
     CoincidenceSettingsEditor *m_coincidenceEditor;
+    QGroupBox *m_coincidenceGroup;
     QLabel *m_foilLabel;
     QLabel *m_efficiencyLabel;
     QPushButton *m_calibrateButton;

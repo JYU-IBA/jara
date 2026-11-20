@@ -1,6 +1,6 @@
 # Coincidence files
 
-File → **Convert Coincidence Files...** finds ToF-E coincidences in list-mode files (`*.evnt`), writes them as
+File → **Import Event Data...** finds ToF-E coincidences in list-mode files (`*.evnt`), writes them as
 measurement files (`*.asc`) and adds them to samples.
 
 ## List-mode files
@@ -38,8 +38,12 @@ default, otherwise to a new sample named after the file.
 The coincidence parameters start from the chosen detector settings and can be changed in the dialog (the ADCs only in
 the detector settings). They are stored in the detector settings when the files are converted.
 
-The plot shows the time differences of the selected file against the ToF channel over the window and some more on
-both sides, with the window marked by dashed lines. Below it are the counts of signals, of pairs in the window and of
+The plots show the time differences of the selected file over the window and some more on both sides: against the
+ToF channel, and below that as a distribution with one bin per tick. The distribution's vertical axis follows the
+bins in view; its scale (logarithmic by default) is changed from its context menu and remembered. The window is
+marked in both plots, and its edges can be dragged with the mouse, which changes the window low and high. The plots
+are calculated again only when the window no longer fits in them, so that the zoom is kept; **Refresh Plots**
+calculates them again for the current window and margin. Below the plots are the counts of signals, of pairs in the window and of
 ambiguous signals, and the number of coincidences with the pairing. Long files are previewed from their beginning,
 which the statistics then say; converting always reads the whole file.
 
@@ -47,5 +51,6 @@ which the statistics then say; converting always reads the whole file.
 difference (ticks) in three columns, in the order of the trigger timestamps. They are added as measurements with the
 chosen detector settings; a file already measured in its sample is not added again, its checksum is updated.
 
-File → Preferences → Coincidences sets how much is shown around the window and how many signals are read for the
-preview.
+File → Preferences → Coincidences has the default coincidence parameters of new detector settings, and sets how much
+is shown around the window (100 ticks by default), how many events are read for the preview and the scale of the
+distribution.

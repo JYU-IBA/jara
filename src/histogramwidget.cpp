@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <map>
+#include <utility>
 
 #include <QContextMenuEvent>
 #include <QKeyEvent>
@@ -24,6 +25,7 @@ constexpr int MarginTop = 30;
 constexpr int MarginBottom = 50;
 constexpr double CloseDistance = 8; // Pixels, clicking this close to the first vertex completes a polygon
 constexpr double MinimumViewSize = 2; // Channels
+constexpr int MarkerGrabDistance = 4; // Pixels
 
 // Color map interpolated between evenly spaced stops, built once per scheme
 const std::array<QRgb, 256> &colorMap(ColorScheme scheme) {
@@ -129,7 +131,25 @@ void HistogramWidget::setFullXRange(double min, double max) {
 
 void HistogramWidget::setVerticalMarkers(const QList<double> &x) {
     m_markers = x;
+    m_draggedMarker = -1;
     update();
+}
+
+void HistogramWidget::setMarkersDraggable(bool draggable) {
+    m_markersDraggable = draggable;
+    m_draggedMarker = -1;
+}
+
+int HistogramWidget::markerAt(const QPoint &pos) const {
+    if(!m_markersDraggable || m_mode == Mode::Move || !plotRect().contains(pos)) {
+        return -1;
+    }
+    for(int i = 0; i < m_markers.size(); i++) {
+        if(std::abs(dataToPixel({m_markers[i], 0}).x() - pos.x()) <= MarkerGrabDistance) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 void HistogramWidget::setCuts(QList<Cut> *cuts) {
@@ -166,6 +186,7 @@ void HistogramWidget::setMode(HistogramWidget::Mode mode) {
     m_moving = false;
     m_dragVertex = -1;
     m_draggingCut = false;
+    m_draggedMarker = -1;
     setCursor(mode == Mode::Move ? Qt::OpenHandCursor : mode == Mode::Edit ? Qt::ArrowCursor : Qt::CrossCursor);
     update();
 }
@@ -537,6 +558,10 @@ void HistogramWidget::mousePressEvent(QMouseEvent *event) {
     if(event->button() != Qt::LeftButton || !plotRect().contains(event->pos())) {
         return;
     }
+    if(const int marker = markerAt(event->pos()); marker >= 0) {
+        m_draggedMarker = marker;
+        return;
+    }
     switch(m_mode) {
         case Mode::Zoom:
             m_dragStart = event->pos();
@@ -594,7 +619,10 @@ void HistogramWidget::mouseMoveEvent(QMouseEvent *event) {
         const double dy = std::round((event->pos().y() - m_dragStart.y()) * m_moveStartY.size() / plot.height());
         setView({m_moveStartX.min + dx, m_moveStartX.max + dx}, {m_moveStartY.min + dy, m_moveStartY.max + dy});
     }
-    if(m_dragVertex >= 0) {
+    if(m_draggedMarker >= 0) {
+        m_markers[m_draggedMarker] = std::clamp(pixelToData(event->position()).x(), m_viewX.min, m_viewX.max);
+        update();
+    } else if(m_dragVertex >= 0) {
         (*m_cuts)[m_highlightedCut].polygon[m_dragVertex] = pixelToData(event->position());
         m_cutChanged = true;
         update();
@@ -608,6 +636,8 @@ void HistogramWidget::mouseMoveEvent(QMouseEvent *event) {
         update();
     } else if(m_mode == Mode::Edit) {
         updateEditCursor(event->pos());
+    } else if(m_markersDraggable && m_mode != Mode::Move && !(event->buttons() & Qt::LeftButton)) {
+        setCursor(markerAt(event->pos()) >= 0 ? Qt::SizeHorCursor : Qt::CrossCursor);
     }
     if(!m_polygon.isEmpty()) {
         update();
@@ -688,6 +718,11 @@ void HistogramWidget::updateCursorInfo(const QPoint &pos) {
 
 void HistogramWidget::mouseReleaseEvent(QMouseEvent *event) {
     if(event->button() != Qt::LeftButton) {
+        return;
+    }
+    if(m_draggedMarker >= 0) {
+        const int marker = std::exchange(m_draggedMarker, -1);
+        emit markerMoved(marker, m_markers[marker]);
         return;
     }
     if(m_moving) {
