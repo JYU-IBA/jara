@@ -100,6 +100,9 @@ public:
         CutType type = CutType::Recoil;
         bool representsElement = false;
         double rangeWeight = 1; // Reference counts in the profile's range / in the selection's part of it
+        // Relative covariances of the range weight with those of each selection. The fraction of the reference counts
+        // in a part is a binomial estimate of its fraction of the fluence. A selection using the whole range has none.
+        std::vector<double> rangeCovariances;
         std::vector<double> energies; // J, detected, of the events used
         // 1 / efficiency of the events used, also / natural abundance when the isotope represents its element and times
         // the additional weight of the selection and its range weight
@@ -180,7 +183,9 @@ struct DepthProfileCurve {
     // The element when the isotope represents it, otherwise as cutLabel()
     QString label(bool superscript = true) const { return cutLabel(z, representsElement ? 0 : a, type, superscript); }
     std::vector<double> concentrations; // Atomic fractions
-    std::vector<double> uncertainties; // Statistical, atomic fractions, including the normalization
+    // Statistical, atomic fractions, including the normalization and the range weights. Without events, the 84 % upper
+    // limit of the concentration (1.84 events with the weight of the events nearby).
+    std::vector<double> uncertainties;
     std::vector<size_t> counts; // Events
     size_t events = 0; // In the profile
     // True when all of the selections are in the list, e.g. the ones left out of the averages
@@ -200,7 +205,7 @@ struct DepthProfileResult {
     double averageMax = 0;
     struct Average {
         double concentration = 0; // Atomic fraction, as in the profile
-        double uncertainty = 0; // Statistical, including the normalization
+        double uncertainty = 0; // Statistical, as those of the curves, also the upper limit without events
         double renormalized = 0; // Among the selections not left out, NaN when left out
         double renormalizedUncertainty = 0; // Statistical, NaN when left out
         size_t counts = 0;

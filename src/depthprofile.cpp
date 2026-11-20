@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
 #include <random>
 
 #include <QStringList>
@@ -26,6 +27,8 @@ constexpr double AutoDepthCutLevel = 0.8; // The bins are cut when fewer than th
 constexpr int MaxBinsAboveSurface = 100; // Events higher above the surface are left out of the profile
 constexpr int GridPoints = 250; // Of the energy grid of the exit energy tables, evenly spaced on a logarithmic scale
 constexpr double GridRange = 100; // Highest energy of the grid divided by the lowest
+// Events of the one-sided 84.13 % Poisson upper limit for no events (Gehrels 1986), the level of one standard deviation
+constexpr double EmptyUpperLimitEvents = 1.841;
 constexpr int MaxSteps = 50; // Of slowing down, particles losing more stop or nearly, the exact energy hardly matters
 constexpr int AutoNormalizationSmoothing = 2; // Bins on each side in the moving average of the total
 constexpr double AutoNormalizationTolerance = 0.1; // Relative difference of the total from its typical level allowed
@@ -295,6 +298,21 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         selection.depths.assign(selection.energies.size(), 0);
         selection.weights.assign(selection.energies.size(), 0);
         m_selections.push_back(std::move(selection));
+    }
+    // With n_s reference counts in the part of selection s, n_st in the overlap of two parts and R in the range,
+    // cov(n_s / R, n_t / R) = (n_st - n_s n_t / R) / R², so the relative covariance of R / n_s and R / n_t is
+    // n_st / (n_s n_t) - 1 / R
+    for(qsizetype s = 0; s < inputs.cuts.size(); s++) {
+        const auto &cut = inputs.cuts[s];
+        const auto counts = static_cast<double>(division.referenceCountsIn(cut.rangeMin, cut.rangeMax));
+        for(const auto &other : inputs.cuts) {
+            const double overlapMin = std::max(cut.rangeMin, other.rangeMin);
+            const double overlapMax = std::min(cut.rangeMax, other.rangeMax);
+            const auto overlap = overlapMax > overlapMin ? static_cast<double>(division.referenceCountsIn(overlapMin, overlapMax)) : 0.0;
+            const auto otherCounts = static_cast<double>(division.referenceCountsIn(other.rangeMin, other.rangeMax));
+            m_selections[static_cast<size_t>(s)].rangeCovariances.push_back(overlap / (counts * otherCounts)
+                                                                            - 1 / static_cast<double>(referenceCounts));
+        }
     }
     initialComposition();
 }
@@ -621,6 +639,10 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
         }
         result.curves.push_back(std::move(curve));
     }
+    // The selections' own weights and the curves they are in, for the uncertainties of the range weights
+    const std::vector<std::vector<double>> selectionWeights = weights;
+    std::vector<size_t> curveOf(weights.size());
+    std::iota(curveOf.begin(), curveOf.end(), size_t{0});
     // Selections of the same element and type summed into a curve of the element. Their events are independent, so
     // the variances add up as well.
     if(!profile.separateIsotopes) {
@@ -633,12 +655,14 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
                 return other.z == curve.z && other.type == curve.type;
             });
             if(same == curves.end()) {
+                curveOf[c] = curves.size();
                 curves.push_back(std::move(curve));
                 curveWeights.push_back(std::move(weights[c]));
                 curveVariances.push_back(std::move(variances[c]));
                 continue;
             }
             const auto index = static_cast<size_t>(same - curves.begin());
+            curveOf[c] = index;
             same->a = 0;
             same->representsElement = false;
             same->cutIds.append(curve.cutId);
@@ -753,6 +777,57 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     // Statistical uncertainties come from the variances of the summed weights, propagated through the normalization.
     // The scale is the average total in the normalization interval, so bins in it are correlated with the scale: a
     // single selection normalized over the interval it is averaged over has no uncertainty.
+    //
+    // The range weight of a selection using a part of the measurement scales all of its weights, so its uncertainty is
+    // correlated over the bins and with the scale. With d_s the derivative of a value (in weights) by the logarithm of
+    // the range weight of selection s, the variance gets sum over s, t of d_s d_t cov(s, t), see Selection.
+    const auto &selections = calculation.selections();
+    std::vector<std::pair<size_t, size_t>> correlated; // Selections with a non-zero covariance
+    for(size_t s = 0; s < selections.size(); s++) {
+        for(size_t t = 0; t < selections.size(); t++) {
+            if(std::abs(selections[s].rangeCovariances[t]) > 1e-15) {
+                correlated.emplace_back(s, t);
+            }
+        }
+    }
+    auto rangeVariance = [&selections, &correlated](const std::vector<double> &derivatives) {
+        double variance = 0;
+        for(const auto &[s, t] : correlated) {
+            variance += derivatives[s] * derivatives[t] * selections[s].rangeCovariances[t];
+        }
+        return variance;
+    };
+    std::vector<double> selectionScales(selections.size(), 0); // Each selection's part of the scale
+    for(size_t s = 0; s < selections.size(); s++) {
+        for(const size_t i : normalizationBins) {
+            selectionScales[s] += selectionWeights[s][i];
+        }
+        selectionScales[s] /= static_cast<double>(normalizationBins.size());
+    }
+    std::vector<double> derivatives(selections.size());
+
+    // Without events, the uncertainty is the upper limit of EmptyUpperLimitEvents events with the mean weight of the
+    // curve's events in the nearest bins with events on either side
+    auto emptyUncertainty = [&result, &weights, bins](size_t c, size_t first, size_t last) {
+        const DepthProfileCurve &curve = result.curves[c];
+        double sum = 0;
+        int sides = 0;
+        for(size_t i = first; i-- > 0;) {
+            if(curve.counts[i] > 0) {
+                sum += weights[c][i] / static_cast<double>(curve.counts[i]);
+                sides++;
+                break;
+            }
+        }
+        for(size_t i = last + 1; i < bins; i++) {
+            if(curve.counts[i] > 0) {
+                sum += weights[c][i] / static_cast<double>(curve.counts[i]);
+                sides++;
+                break;
+            }
+        }
+        return sides > 0 ? EmptyUpperLimitEvents * sum / sides : 0.0;
+    };
     const auto normalizationCount = static_cast<double>(normalizationBins.size());
     std::vector<bool> inNormalization(bins, false);
     double normalizationVariance = 0; // Of the sum of the weights of all selections in the normalization bins
@@ -771,10 +846,15 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
             const double concentration = weights[c][i] / scale;
             // c = W / S: the bin's own weight enters both, the other normalization bins only the scale
             const double share = inNormalization[i] ? concentration / normalizationCount : 0;
-            const double variance = variances[c][i] * ((1 - share) * (1 - share) - share * share)
-                                    + concentration * concentration * normalizationVariance / (normalizationCount * normalizationCount);
+            double variance = variances[c][i] * ((1 - share) * (1 - share) - share * share)
+                              + concentration * concentration * normalizationVariance / (normalizationCount * normalizationCount);
+            for(size_t s = 0; s < selections.size(); s++) {
+                derivatives[s] = (curveOf[s] == c ? selectionWeights[s][i] : 0) - concentration * selectionScales[s];
+            }
+            variance += rangeVariance(derivatives);
             curve.concentrations[i] = concentration;
-            curve.uncertainties[i] = std::sqrt(std::max(0.0, variance)) / scale;
+            curve.uncertainties[i] = curve.counts[i] > 0 ? std::sqrt(std::max(0.0, variance)) / scale
+                                                         : emptyUncertainty(c, i, i) / scale;
             result.totals[i] += concentration;
         }
     }
@@ -789,6 +869,13 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
         inAverage[i] = true;
     }
     std::vector<double> averageVariances(result.curves.size(), 0); // Of the mean weights over the averaging interval
+    std::vector<double> selectionAverages(selections.size(), 0); // Mean weights of the selections
+    for(size_t s = 0; s < selections.size(); s++) {
+        for(const size_t i : averageBins) {
+            selectionAverages[s] += selectionWeights[s][i];
+        }
+        selectionAverages[s] /= std::max(1.0, averageCount);
+    }
     for(size_t c = 0; c < result.curves.size(); c++) {
         DepthProfileResult::Average average;
         for(const size_t i : averageBins) {
@@ -811,7 +898,13 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
                     variance += derivative * derivative * variances[j][i];
                 }
             }
-            average.uncertainty = std::sqrt(variance) / scale;
+            for(size_t s = 0; s < selections.size(); s++) {
+                derivatives[s] = (curveOf[s] == c ? selectionAverages[s] : 0) - average.concentration * selectionScales[s];
+            }
+            variance += rangeVariance(derivatives);
+            average.uncertainty = average.counts > 0 ? std::sqrt(std::max(0.0, variance)) / scale
+                                                     : emptyUncertainty(c, averageBins.front(), averageBins.back())
+                                                               / (averageCount * scale);
         }
         result.averages.push_back(average);
     }
@@ -838,10 +931,17 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
             const double derivative = (j == c ? 1.0 : 0.0) - (included ? renormalized : 0.0); // Times 1 / T
             variance += derivative * derivative * averageVariances[j];
         }
+        for(size_t s = 0; s < selections.size(); s++) {
+            const bool included = !result.curves[curveOf[s]].allIn(profile.cutIdsExcludedFromAverage);
+            derivatives[s] = ((curveOf[s] == c ? 1.0 : 0.0) - (included ? renormalized : 0.0)) * selectionAverages[s];
+        }
+        variance += rangeVariance(derivatives);
         // Left out selections have no renormalized value
         const bool excluded = result.curves[c].allIn(profile.cutIdsExcludedFromAverage);
         average.renormalized = excluded ? NaN : renormalized;
-        average.renormalizedUncertainty = excluded ? NaN : std::sqrt(variance) / includedSum;
+        const double uncertainty = average.counts > 0 ? std::sqrt(std::max(0.0, variance))
+                                                      : average.uncertainty * scale; // The upper limit, see above
+        average.renormalizedUncertainty = excluded ? NaN : uncertainty / includedSum;
     }
     return result;
 }

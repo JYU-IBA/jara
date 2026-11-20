@@ -24,6 +24,10 @@ detector settings with a [ToF calibration](tof-calibration.md).
   number of iterations is reached. **Iterate More** continues, **Recalculate** starts again.
 - The profile bins the events again with the profile bin width. The concentrations are normalized so that the total
   is 100 % on average over the normalization interval. Uncertainties are statistical and include the normalization.
+  The weights of a selection using its own part of the measurement (see below) come from the reference counts in
+  that part, whose binomial uncertainty is included as well. A bin or an average without events has 0 with the 84 %
+  upper limit as its uncertainty: 1.84 events (the Poisson upper limit for none) with the weight of the events in the
+  nearest bins.
 
 Depths are areal densities, shown in 10¹⁵ at./cm², µg/cm² or nm (with the density given in the panel).
 
