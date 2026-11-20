@@ -713,6 +713,7 @@ QList<Cut> cutsFromJson(const QJsonArray &json) {
         }
         cuts.append(cut);
     }
+    sortCuts(cuts);
     return cuts;
 }
 
@@ -755,6 +756,53 @@ QString materialText(const Material &material) {
         parts.append(QString("%1 %2 %").arg(Elements::symbol(element.z)).arg(element.fraction * 100, 0, 'g', 4));
     }
     return parts.join(QStringLiteral(", "));
+}
+
+void sortElements(Material &material) {
+    std::stable_sort(material.elements.begin(), material.elements.end(),
+                     [](const MaterialElement &a, const MaterialElement &b) { return a.z < b.z; });
+}
+
+void sortEfficiencies(QList<EfficiencyCurve> &curves) {
+    std::stable_sort(curves.begin(), curves.end(), [](const EfficiencyCurve &a, const EfficiencyCurve &b) {
+        return a.z != b.z ? a.z < b.z : a.a < b.a;
+    });
+}
+
+void PhysicsSettings::sortCorrections() {
+    auto key = [](int z) { return z > 0 ? z : z == AnyElement ? 1000 : 1001; }; // Any, then not given yet
+    std::stable_sort(corrections.begin(), corrections.end(), [&key](const StoppingCorrection &a, const StoppingCorrection &b) {
+        const bool aMissing = a.z1 == 0 || a.z2 == 0;
+        const bool bMissing = b.z1 == 0 || b.z2 == 0;
+        if(aMissing != bMissing) {
+            return bMissing;
+        }
+        return key(a.z1) != key(b.z1) ? key(a.z1) < key(b.z1) : key(a.z2) < key(b.z2);
+    });
+}
+
+bool cutBefore(const Cut &a, const Cut &b) {
+    auto typeOrder = [](CutType type) { return type == CutType::Recoil ? 0 : type == CutType::Scattered ? 1 : 2; };
+    const bool aNoElement = a.z <= 0;
+    const bool bNoElement = b.z <= 0;
+    if(aNoElement != bNoElement) {
+        return bNoElement;
+    }
+    if(a.z != b.z) {
+        return a.z < b.z;
+    }
+    if(a.a != b.a) {
+        return a.a < b.a;
+    }
+    return typeOrder(a.type) < typeOrder(b.type);
+}
+
+void sortCuts(QList<Cut> &cuts) {
+    std::stable_sort(cuts.begin(), cuts.end(), cutBefore);
+}
+
+void Measurement::sortCuts() {
+    ::sortCuts(cuts);
 }
 
 Material carbon() {
@@ -895,6 +943,7 @@ DetectorSettings detectorFromJson(const QJsonObject &json) {
             material.elements.append({element["z"].toInt(), element["fraction"].toDouble()});
         }
         detector.foilMaterial = isValidMaterial(material) ? material : carbon(); // Carbon by default
+        sortElements(detector.foilMaterial);
     }
     for(const auto &value : json["efficiencies"].toArray()) {
         const QJsonObject object = value.toObject();
@@ -908,6 +957,7 @@ DetectorSettings detectorFromJson(const QJsonObject &json) {
             detector.efficiencies.append(curve);
         }
     }
+    sortEfficiencies(detector.efficiencies);
     return detector;
 }
 
@@ -1038,6 +1088,7 @@ PhysicsSettings physicsFromJson(const QJsonObject &json) {
             physics.corrections.append(c);
         }
     }
+    physics.sortCorrections();
     return physics;
 }
 

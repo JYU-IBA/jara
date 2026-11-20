@@ -28,7 +28,10 @@ from its context menu) to open it again.
 
 ## The selection list
 
-The list next to the histogram shows the selections with their event counts. Its context menu can change the type or
+The list next to the histogram shows the selections with their event counts. Selections are kept in order of the
+element (Z), then the mass number (the element before its isotopes), recoils before scattered ions and references;
+references without an element come last. Energy spectra, depth profiles, their legends and tables follow the same
+order, and so do efficiency curves, stopping corrections and the elements of materials. Its context menu can change the type or
 colour of several selections at once, reset all colours, remove selections, and copy and paste selections between
 measurements (also with Ctrl/Cmd+C and Ctrl/Cmd+V). **Divides the Measurement** makes a selection the one that divides
 the measurement in split analyses and in the ranges of spectra and profiles; it is shown in bold.

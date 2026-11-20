@@ -110,9 +110,7 @@ EfficiencyDialog::EfficiencyDialog(const QList<EfficiencyCurve> &curves, QWidget
 }
 
 void EfficiencyDialog::updateTable() {
-    std::sort(m_curves.begin(), m_curves.end(), [](const EfficiencyCurve &a, const EfficiencyCurve &b) {
-        return a.z != b.z ? a.z < b.z : a.a < b.a;
-    });
+    sortEfficiencies(m_curves);
     m_table->clear();
     for(const EfficiencyCurve &curve : m_curves) {
         double minEfficiency = curve.points.first().y();

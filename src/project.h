@@ -86,6 +86,11 @@ double abundanceCorrection(const Cut &cut);
 QString cutLabel(int z, int a, CutType type, bool superscript = true);
 // As above, a reference selection without an element is told apart by its id ("Ref 3")
 QString cutLabel(const Cut &cut, bool superscript = true);
+// Selections, and everything listed from them (spectra, depth profiles, legends, tables), are in this order: by Z, then
+// the mass number (the element before its isotopes), recoils before scattered ions and references. References without
+// an element come last. Stable, so selections of the same particle keep their order.
+bool cutBefore(const Cut &a, const Cut &b);
+void sortCuts(QList<Cut> &cuts);
 // Used in energy spectra and depth profiles, i.e. not a reference selection
 inline bool isAnalyzed(const Cut &cut) { return cut.type != CutType::Reference; }
 
@@ -120,6 +125,7 @@ struct Material {
 
 constexpr double MaterialFractionTolerance = 1e-9; // Allowed difference of the sum of the fractions from one
 bool isValidMaterial(const Material &material); // Has elements, all known and not negative, and they sum up to one
+void sortElements(Material &material); // By Z, as they are listed
 double averageAtomMass(const Material &material); // kg, weighted by the atomic fractions
 QString materialText(const Material &material); // "C" or "C 95 %, H 5 %"
 Material carbon();
@@ -138,6 +144,7 @@ double efficiency(const EfficiencyCurve &curve, double energy);
 // The curve of an isotope, nullptr when there is none. Without a mass number (a = 0), the curve of the most abundant
 // isotope.
 const EfficiencyCurve *findEfficiency(const QList<EfficiencyCurve> &curves, int z, int a);
+void sortEfficiencies(QList<EfficiencyCurve> &curves); // By Z, then the mass number
 
 // Default foil of the first timing detector, a typical DLC foil
 constexpr double DefaultFoilThickness = 3 * Units::MicrogramPerSquareCentimetre; // kg/m²
@@ -245,6 +252,9 @@ struct PhysicsSettings {
     // The correction that applies to the pair: its own, or that of the incident element in any target. nullptr when
     // neither is listed.
     const StoppingCorrection *correctionFor(int z1, int z2) const;
+    // By the incident element, then the target, any target after the elements. Pairs still being edited (an element
+    // zero) come last.
+    void sortCorrections();
 };
 
 // Built-in defaults of new depth profiles, see also the preferences in defaults.h. Depths are areal densities in atoms/m², 1e15 at./cm² = Units::ThinFilmUnit.
@@ -343,6 +353,7 @@ struct Measurement {
     const Cut *referenceCut() const { return cut(referenceCutId); } // nullptr when all events count
     QList<QPointF> referencePolygon() const; // Of the reference, empty when all events count
     void removeCut(int index); // Also from the spectra, depth profiles, split analyses and as the reference
+    void sortCuts(); // In the order of sortCuts(QList<Cut> &), call after cuts were added or their elements changed
     QString uniqueSpectrumName(const QString &name) const;
     QString uniqueDepthProfileName(const QString &name) const;
     QString uniqueSplitAnalysisName(const QString &name) const;

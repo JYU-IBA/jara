@@ -95,6 +95,7 @@ MaterialEditor::MaterialEditor(QWidget *parent) : QWidget(parent) {
 
 void MaterialEditor::setMaterial(const Material &material) {
     m_material = material;
+    sortElements(m_material);
     updateTable();
 }
 
@@ -171,8 +172,13 @@ void MaterialEditor::addElement() {
         }
     }
     m_material.elements.append({z, std::max(0.0, 1 - sum())}); // What is missing from 100 %
+    sortElements(m_material);
     updateTable();
-    m_table->selectRow(static_cast<int>(m_material.elements.size()) - 1);
+    for(int row = 0; row < m_material.elements.size(); row++) {
+        if(m_material.elements[row].z == z) {
+            m_table->selectRow(row);
+        }
+    }
     emit changed();
 }
 

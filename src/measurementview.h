@@ -42,6 +42,9 @@ private:
     QWidget *createToolBar();
     QWidget *createCutPanel();
     void updateCutList();
+    // Sorts the selections after they were added or their elements changed, the current and the selected ones by id
+    // stay so
+    void sortCuts(int currentId, const QList<int> &selectedIds);
     QList<int> selectedCutRows() const; // Ascending
 
     Measurement *m_measurement;

@@ -278,6 +278,22 @@ void MeasurementView::updateCutList() {
     m_histogram->update();
 }
 
+void MeasurementView::sortCuts(int currentId, const QList<int> &selectedIds) {
+    m_measurement->sortCuts();
+    updateCutList();
+    const QList<Cut> &cuts = m_measurement->cuts;
+    for(int row = 0; row < cuts.size(); row++) {
+        if(cuts[row].id == currentId) {
+            m_cutList->setCurrentRow(row);
+        }
+    }
+    for(int row = 0; row < cuts.size(); row++) {
+        if(selectedIds.contains(cuts[row].id)) {
+            m_cutList->item(row)->setSelected(true);
+        }
+    }
+}
+
 void MeasurementView::polygonCompleted(const QList<QPointF> &polygon) {
     ElementDialog dialog(0, 0, this);
     dialog.setWindowTitle("New Selection");
@@ -296,8 +312,7 @@ void MeasurementView::polygonCompleted(const QList<QPointF> &polygon) {
     if(cut.type == CutType::Reference && !m_measurement->referenceCut()) {
         m_measurement->referenceCutId = cut.id;
     }
-    updateCutList();
-    m_cutList->setCurrentRow(static_cast<int>(m_measurement->cuts.size()) - 1);
+    sortCuts(cut.id, {cut.id});
     emit modified();
 }
 
@@ -326,7 +341,7 @@ void MeasurementView::editCut() {
     if(cut.type == CutType::Reference && !m_measurement->referenceCut()) {
         m_measurement->referenceCutId = cut.id;
     }
-    updateCutList();
+    sortCuts(cut.id, {cut.id});
     emit modified();
 }
 
@@ -385,10 +400,12 @@ void MeasurementView::setCutType(CutType type) {
     if(type == CutType::Reference && !m_measurement->referenceCut() && !rows.isEmpty()) {
         m_measurement->referenceCutId = m_measurement->cuts.at(rows.first()).id;
     }
-    updateCutList();
+    QList<int> ids;
     for(int row : rows) {
-        m_cutList->item(row)->setSelected(true);
+        ids.append(m_measurement->cuts.at(row).id);
     }
+    const int current = m_cutList->currentRow();
+    sortCuts(current >= 0 ? m_measurement->cuts.at(current).id : 0, ids);
     emit modified();
 }
 
@@ -438,18 +455,15 @@ void MeasurementView::pasteCuts() {
     if(cuts.isEmpty()) {
         return;
     }
-    const auto first = static_cast<int>(m_measurement->cuts.size());
+    QList<int> ids;
     for(Cut cut : cuts) {
         cut.id = m_measurement->newCutId(); // The ids of the copied cuts belong to their measurement
         cut.tofEdge.reset(); // Found in the data of the measurement the cut was copied from
         m_measurement->cuts.append(cut);
+        ids.append(cut.id);
     }
-    updateCutList();
-    // Select the pasted selections
-    m_cutList->setCurrentRow(first);
-    for(int row = first; row < m_cutList->count(); row++) {
-        m_cutList->item(row)->setSelected(true);
-    }
+    // The pasted selections are selected
+    sortCuts(ids.first(), ids);
     m_statusLabel->setText(QString("Pasted %1 selection(s).").arg(cuts.size()));
     emit modified();
 }

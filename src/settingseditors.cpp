@@ -630,11 +630,16 @@ void PhysicsSettingsEditor::correctionItemChanged(QTableWidgetItem *item) {
         const int z1 = incident ? z : correction.z1;
         const int z2 = incident ? correction.z2 : z;
         const bool valid = z != 0 && (z1 == 0 || z2 == 0 || !m_physics->correction(z1, z2));
+        int selected = row;
         if(valid) {
             (incident ? correction.z1 : correction.z2) = z;
+            // Sorted by the elements, the edited pair is followed
+            const StoppingCorrection edited = correction;
+            m_physics->sortCorrections();
+            selected = static_cast<int>(m_physics->corrections.indexOf(edited));
         }
         showCorrections(); // The symbol, and the files with the pair
-        m_correctionTable->selectRow(row);
+        m_correctionTable->selectRow(selected);
         if(valid) {
             finishEdit();
         }
