@@ -1,0 +1,11 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="jara_16.png">png/jara_16.png</file>
+        <file alias="jara_24.png">png/jara_24.png</file>
+        <file alias="jara_32.png">png/jara_32.png</file>
+        <file alias="jara_48.png">png/jara_48.png</file>
+        <file alias="jara_64.png">png/jara_64.png</file>
+        <file alias="jara_128.png">png/jara_128.png</file>
+        <file alias="jara_256.png">png/jara_256.png</file>
+    </qresource>
+</RCC>

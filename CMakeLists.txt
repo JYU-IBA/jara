@@ -111,6 +111,15 @@ add_custom_target(jara_version
 )
 add_dependencies(jara jara_version)
 
+# Application icon, made from icons/jara.svg by icons/make_icons.sh. The PNGs are the window icon on Linux.
+target_sources(jara PRIVATE icons/icons.qrc)
+if(APPLE)
+    target_sources(jara PRIVATE icons/jara.icns)
+    set_source_files_properties(icons/jara.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+elseif(WIN32)
+    target_sources(jara PRIVATE icons/jara.rc)
+endif()
+
 target_compile_definitions(jara PRIVATE JARA_VERSION="${PROJECT_VERSION}")
 target_include_directories(jara PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(jara PRIVATE Qt6::Widgets GSL::gsl jibal ZLIB::ZLIB)
@@ -122,5 +131,6 @@ set_target_properties(jara PROPERTIES
         MACOSX_BUNDLE_BUNDLE_NAME JaRA
         MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
         MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+        MACOSX_BUNDLE_ICON_FILE jara.icns
         WIN32_EXECUTABLE ON
 )
