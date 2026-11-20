@@ -267,12 +267,7 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     m_coincidenceLabel = new QLabel;
     m_coincidenceLabel->setWordWrap(true);
     auto *coincidenceButton = new QPushButton("Edit...");
-    // In a widget of its own, so that the wrapped summary gets its height
-    m_coincidenceRow = new QWidget;
-    auto *coincidenceLayout = new QHBoxLayout(m_coincidenceRow);
-    coincidenceLayout->setContentsMargins(0, 0, 0, 0);
-    coincidenceLayout->addWidget(m_coincidenceLabel, 1);
-    coincidenceLayout->addWidget(coincidenceButton);
+    m_coincidenceRow = buttonField(m_coincidenceLabel, coincidenceButton);
     m_foilLabel = new QLabel;
     auto *foilButton = new QPushButton("Edit...");
     QWidget *foilField = buttonField(m_foilLabel, foilButton);
@@ -289,11 +284,7 @@ DetectorSettingsEditor::DetectorSettingsEditor(QWidget *parent) : QWidget(parent
     m_angleCalibrationLabel->setWordWrap(true);
     m_angleCalibrateButton = new QPushButton("Angle Calibration...");
     m_angleCalibrateButton->setToolTip("Calibrate the timing coordinate of the events to the detection angle");
-    m_angleCalibrationRow = new QWidget;
-    auto *angleLayout = new QHBoxLayout(m_angleCalibrationRow);
-    angleLayout->setContentsMargins(0, 0, 0, 0);
-    angleLayout->addWidget(m_angleCalibrationLabel, 1);
-    angleLayout->addWidget(m_angleCalibrateButton);
+    m_angleCalibrationRow = buttonField(m_angleCalibrationLabel, m_angleCalibrateButton);
 
     // The detector as a whole, the time of flight, the angle and list-mode files, each in a group
     auto *generalGroup = new QGroupBox("General");

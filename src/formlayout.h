@@ -4,9 +4,10 @@
 #include <QFormLayout>
 #include <QList>
 
-// Form layouts look the same on all platforms: labels left-aligned, the form at the top left and the fields growing
-// to its width. The default of macOS (right-aligned labels, a centered form, fields at their natural widths) gives
-// ragged forms where rows with buttons and rows with spin boxes end at different places.
+// Form layouts look the same on all platforms: labels left-aligned, the form at the top left, spin boxes and combo
+// boxes at their natural widths and expanding fields (line edits, text with a button) growing to the width of the
+// form. The default of macOS right-aligns the labels and centres the form. Spin boxes get a common minimum width, set
+// when the form has been built (the rows are added after this), as do those in rows of their own layouts.
 QFormLayout *createFormLayout(QWidget *parent = nullptr);
 
 // A field of a text and a button at its right, e.g. a summary and Edit..., or of a button alone at the right (label
