@@ -35,6 +35,7 @@
 
 namespace {
 const QString ThinFilmText = QStringLiteral("10¹⁵ at/cm²");
+const QString ThinFilmValueText = QStringLiteral("e15 at/cm²"); // After a number, "20e15 at/cm²"
 constexpr double Nanometre = 1e-9;
 constexpr double GramPerCubicCentimetre = 1000; // kg/m³
 constexpr int CutIdRole = Qt::UserRole;
@@ -905,7 +906,12 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
     updateIntervalSpins();
     SpectrumPlotWidget::XAxis axis;
     axis.title = QString("Depth (%1)").arg(depthUnitText());
-    axis.unit = depthUnitText();
+    if(m_unit == DepthUnit::ThinFilm) {
+        axis.valueSuffix = QStringLiteral("e15"); // "20.0e15–40.0e15 at/cm²"
+        axis.unit = QStringLiteral("at/cm²");
+    } else {
+        axis.unit = depthUnitText();
+    }
     axis.decimals = m_unit == DepthUnit::ThinFilm ? 1 : 2;
     m_plot->setXAxis(axis);
     m_markerIntervals.clear();
@@ -1027,7 +1033,7 @@ void DepthProfileView::updateProfile(SpectrumPlotWidget::ViewChange viewChange) 
         }
     }
     m_plot->setLabels(labels);
-    m_plot->setInfoText(QString("Bin %1 %2").arg(m_profile->binWidth / Units::ThinFilmUnit, 0, 'g', 6).arg(ThinFilmText));
+    m_plot->setInfoText(QString("Bin %1%2").arg(m_profile->binWidth / Units::ThinFilmUnit, 0, 'g', 6).arg(ThinFilmValueText));
     updateAverages();
 }
 

@@ -833,8 +833,9 @@ void SpectrumPlotWidget::updateCursorInfo(const QPoint &pos) {
                                                                                  : QString::number(value, 'f', m_yAxis.decimals)));
     }
     const int decimals = m_xAxis.decimals;
-    emit cursorInfoChanged(QString("%1 %2–%3 %4   %5")
+    emit cursorInfoChanged(QString("%1 %2%3–%4%3 %5   %6")
                                    .arg(m_xAxis.title.section(' ', 0, 0))
-                                   .arg(binStart(index), 0, 'f', decimals).arg(binStart(index + 1), 0, 'f', decimals)
+                                   .arg(binStart(index), 0, 'f', decimals).arg(m_xAxis.valueSuffix)
+                                   .arg(binStart(index + 1), 0, 'f', decimals)
                                    .arg(m_xAxis.unit, values.join(QStringLiteral(", "))));
 }

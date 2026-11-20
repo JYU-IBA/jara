@@ -34,6 +34,7 @@ public:
     struct XAxis {
         QString title = QStringLiteral("E (MeV)");
         QString unit = QStringLiteral("MeV"); // In the cursor info
+        QString valueSuffix; // After each value in the cursor info, as "e15"
         int decimals = 4; // In the cursor info
         double origin = 0;
         double binWidthScale = 1000; // The bin width is shown multiplied by this, in the unit below

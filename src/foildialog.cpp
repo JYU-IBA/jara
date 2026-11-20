@@ -18,6 +18,7 @@ enum Unit { MassUnit, AtomUnit };
 const QString UnitKey = QStringLiteral("foilDialog/unit"); // The unit last used is remembered
 const QString MassUnitText = QStringLiteral("µg/cm²");
 const QString AtomUnitText = QStringLiteral("10¹⁵ at/cm²");
+const QString AtomValueText = QStringLiteral("e15 at/cm²"); // After a number, "20e15 at/cm²"
 }
 
 QString foilText(const Material &material, double thickness) {
@@ -104,7 +105,7 @@ void FoilDialog::updateState() {
     if(mass <= 0) {
         m_conversionLabel->clear();
     } else if(m_unitCombo->currentIndex() == MassUnit) {
-        m_conversionLabel->setText(QString("= %1 %2").arg(m_thickness / (Units::ThinFilmUnit * mass), 0, 'g', 5).arg(AtomUnitText));
+        m_conversionLabel->setText(QString("= %1%2").arg(m_thickness / (Units::ThinFilmUnit * mass), 0, 'g', 5).arg(AtomValueText));
     } else {
         m_conversionLabel->setText(QString("= %1 %2").arg(m_thickness / Units::MicrogramPerSquareCentimetre, 0, 'g', 5).arg(MassUnitText));
     }
