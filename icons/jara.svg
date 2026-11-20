@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- JaRA application icon. Heavy ions (pink) on parallel trajectories enter a thin film sample and knock out forward
+     recoils (teal and violet) at different depths, which leave towards the same detector angle, as in ToF-ERDA. The
+     deeper recoil has less energy left and travels a shorter distance. Master artwork on a 1024 px macOS grid
+     (tile 824 px). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>JaRA</title>
+  <defs>
+    <clipPath id="tile">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+    <filter id="softglow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+
+    <!-- Vacuum above the sample -->
+    <linearGradient id="sky" x1="0" y1="100" x2="0" y2="540" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#110c28"/>
+      <stop offset="0.65" stop-color="#26104a"/>
+      <stop offset="1" stop-color="#43145e"/>
+    </linearGradient>
+    <radialGradient id="horizon" cx="512" cy="540" r="430" gradientTransform="translate(0 324) scale(1 0.4)"
+                    gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff3ea5" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ff3ea5" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Thin films and substrate -->
+    <linearGradient id="film1" x1="0" y1="540" x2="0" y2="594" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5ff0f2"/>
+      <stop offset="1" stop-color="#139fb0"/>
+    </linearGradient>
+    <linearGradient id="film2" x1="0" y1="596" x2="0" y2="641" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff6cbc"/>
+      <stop offset="1" stop-color="#b8237a"/>
+    </linearGradient>
+    <linearGradient id="film3" x1="0" y1="643" x2="0" y2="673" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#b79aff"/>
+      <stop offset="1" stop-color="#6f4fd0"/>
+    </linearGradient>
+    <linearGradient id="substrate" x1="0" y1="540" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2b1452"/>
+      <stop offset="1" stop-color="#0c0820"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="100" y1="0" x2="924" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#000" stop-opacity="0.35"/>
+      <stop offset="0.5" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.35"/>
+    </linearGradient>
+
+    <!-- Tracks: incident ions from the upper left, recoils towards the upper right -->
+    <linearGradient id="incident1" x1="100" y1="353.5" x2="497" y2="552" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff3ea5" stop-opacity="0"/>
+      <stop offset="0.16" stop-color="#ff3ea5" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#ff3ea5"/>
+    </linearGradient>
+    <linearGradient id="incident1core" x1="100" y1="353.5" x2="497" y2="552" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe6f4" stop-opacity="0"/>
+      <stop offset="0.16" stop-color="#ffe6f4" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#fff"/>
+    </linearGradient>
+    <linearGradient id="incident2" x1="100" y1="444.5" x2="537" y2="663" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff3ea5" stop-opacity="0"/>
+      <stop offset="0.15" stop-color="#ff3ea5" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#ff3ea5"/>
+    </linearGradient>
+    <linearGradient id="incident2core" x1="100" y1="444.5" x2="537" y2="663" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe6f4" stop-opacity="0"/>
+      <stop offset="0.15" stop-color="#ffe6f4" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#fff"/>
+    </linearGradient>
+    <linearGradient id="onward1" x1="497" y1="552" x2="567" y2="587" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="onward2" x1="537" y1="663" x2="667" y2="728" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="recoil1" x1="497" y1="552" x2="760" y2="289" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2de2e6" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#2de2e6"/>
+    </linearGradient>
+    <linearGradient id="recoil1core" x1="497" y1="552" x2="760" y2="289" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e6ffff" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#fff"/>
+    </linearGradient>
+    <linearGradient id="recoil2" x1="537" y1="663" x2="767" y2="433" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#b48cff" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#b48cff"/>
+    </linearGradient>
+    <linearGradient id="recoil2core" x1="537" y1="663" x2="767" y2="433" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0e8ff" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#fff"/>
+    </linearGradient>
+    <radialGradient id="ion" cx="0.38" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset="0.35" stop-color="#ffa6d6"/>
+      <stop offset="1" stop-color="#d61f80"/>
+    </radialGradient>
+    <radialGradient id="atom1" cx="0.38" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset="0.35" stop-color="#9ff6f7"/>
+      <stop offset="1" stop-color="#14a9b8"/>
+    </radialGradient>
+    <radialGradient id="atom2" cx="0.38" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset="0.35" stop-color="#d9c6ff"/>
+      <stop offset="1" stop-color="#7d55e6"/>
+    </radialGradient>
+    <radialGradient id="hit">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.9"/>
+      <stop offset="0.3" stop-color="#ff9ed2" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#ff3ea5" stop-opacity="0"/>
+    </radialGradient>
+    <path id="star" d="M0 -30 Q3 -3 30 0 Q3 3 0 30 Q-3 3 -30 0 Q-3 -3 0 -30 Z" fill="#fff"/>
+
+    <!-- Wordmark -->
+    <linearGradient id="word" x1="290" y1="0" x2="740" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff5cb8"/>
+      <stop offset="0.5" stop-color="#f6ecff"/>
+      <stop offset="1" stop-color="#2de2e6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Drop shadow -->
+  <rect x="100" y="114" width="824" height="824" rx="185" fill="#000" opacity="0.35" filter="url(#shadow)"/>
+
+  <g clip-path="url(#tile)">
+    <!-- Vacuum with a glow over the sample surface -->
+    <rect x="100" y="100" width="824" height="440" fill="url(#sky)"/>
+    <rect x="100" y="340" width="824" height="200" fill="url(#horizon)"/>
+
+    <!-- Thin film stack on a substrate -->
+    <rect x="100" y="540" width="824" height="384" fill="url(#substrate)"/>
+    <rect x="100" y="540" width="824" height="54" fill="url(#film1)"/>
+    <rect x="100" y="596" width="824" height="45" fill="url(#film2)"/>
+    <rect x="100" y="643" width="824" height="30" fill="url(#film3)"/>
+    <rect x="100" y="540" width="824" height="133" fill="url(#sheen)"/>
+    <rect x="100" y="537" width="824" height="6" fill="#bffcff" filter="url(#softglow)"/>
+    <rect x="100" y="539" width="824" height="2" fill="#fff" opacity="0.9"/>
+
+    <!-- Incident ions, continuing deeper after the collisions -->
+    <line x1="100" y1="353.5" x2="497" y2="552" stroke="url(#incident1)" stroke-width="30" stroke-linecap="round"
+          filter="url(#glow)"/>
+    <line x1="100" y1="353.5" x2="497" y2="552" stroke="url(#incident1core)" stroke-width="9" stroke-linecap="round"/>
+    <line x1="497" y1="552" x2="567" y2="587" stroke="url(#onward1)" stroke-width="7" stroke-linecap="round"/>
+    <line x1="100" y1="444.5" x2="537" y2="663" stroke="url(#incident2)" stroke-width="30" stroke-linecap="round"
+          filter="url(#glow)"/>
+    <line x1="100" y1="444.5" x2="537" y2="663" stroke="url(#incident2core)" stroke-width="9" stroke-linecap="round"/>
+    <line x1="537" y1="663" x2="667" y2="728" stroke="url(#onward2)" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="165" cy="386" r="40" fill="#ff3ea5" opacity="0.6" filter="url(#glow)"/>
+    <circle cx="165" cy="386" r="23" fill="url(#ion)"/>
+    <circle cx="165" cy="477" r="40" fill="#ff3ea5" opacity="0.6" filter="url(#glow)"/>
+    <circle cx="165" cy="477" r="23" fill="url(#ion)"/>
+
+    <!-- Recoil from the top film -->
+    <line x1="497" y1="552" x2="760" y2="289" stroke="url(#recoil1)" stroke-width="30" stroke-linecap="round"
+          filter="url(#glow)"/>
+    <line x1="497" y1="552" x2="760" y2="289" stroke="url(#recoil1core)" stroke-width="9" stroke-linecap="round"/>
+    <circle cx="760" cy="289" r="44" fill="#2de2e6" opacity="0.6" filter="url(#glow)"/>
+    <circle cx="760" cy="289" r="27" fill="url(#atom1)"/>
+
+    <!-- Recoil from the deepest film -->
+    <line x1="537" y1="663" x2="767" y2="433" stroke="url(#recoil2)" stroke-width="26" stroke-linecap="round"
+          filter="url(#glow)"/>
+    <line x1="537" y1="663" x2="767" y2="433" stroke="url(#recoil2core)" stroke-width="8" stroke-linecap="round"/>
+    <circle cx="767" cy="433" r="30" fill="#b48cff" opacity="0.6" filter="url(#glow)"/>
+    <circle cx="767" cy="433" r="16" fill="url(#atom2)"/>
+
+    <!-- Collisions -->
+    <circle cx="497" cy="552" r="60" fill="url(#hit)"/>
+    <use href="#star" x="497" y="552"/>
+    <circle cx="537" cy="663" r="60" fill="url(#hit)"/>
+    <use href="#star" x="537" y="663"/>
+
+    <!-- Wordmark -->
+    <g transform="translate(20 18)" fill="none" stroke-width="17" stroke-linecap="round" stroke-linejoin="round">
+      <g stroke="url(#word)" opacity="0.6" filter="url(#glow)">
+        <path d="M345 730 V805 A30 30 0 0 1 285 805"/>
+        <circle cx="422" cy="803" r="37"/>
+        <path d="M459 766 V840"/>
+        <path d="M505 840 V730 H540 A30 30 0 0 1 540 790 H505 M537 790 L578 840"/>
+        <path d="M607 840 L655 730 L703 840 M624 801 H686"/>
+      </g>
+      <g stroke="url(#word)">
+        <path d="M345 730 V805 A30 30 0 0 1 285 805"/>
+        <circle cx="422" cy="803" r="37"/>
+        <path d="M459 766 V840"/>
+        <path d="M505 840 V730 H540 A30 30 0 0 1 540 790 H505 M537 790 L578 840"/>
+        <path d="M607 840 L655 730 L703 840 M624 801 H686"/>
+      </g>
+    </g>
+  </g>
+</svg>
