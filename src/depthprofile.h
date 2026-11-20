@@ -183,8 +183,8 @@ struct DepthProfileCurve {
     // The element when the isotope represents it, otherwise as cutLabel()
     QString label(bool superscript = true) const { return cutLabel(z, representsElement ? 0 : a, type, superscript); }
     std::vector<double> concentrations; // Atomic fractions
-    // Statistical, atomic fractions, including the normalization and the range weights. Without events, the 84 % upper
-    // limit of the concentration (1.84 events with the weight of the events nearby).
+    // Statistical, atomic fractions, including the normalization and the range weights. Without events, 0 as the
+    // concentration is exactly 0.
     std::vector<double> uncertainties;
     std::vector<size_t> counts; // Events
     size_t events = 0; // In the profile
@@ -205,7 +205,7 @@ struct DepthProfileResult {
     double averageMax = 0;
     struct Average {
         double concentration = 0; // Atomic fraction, as in the profile
-        double uncertainty = 0; // Statistical, as those of the curves, also the upper limit without events
+        double uncertainty = 0; // Statistical, as those of the curves, 0 without events
         double renormalized = 0; // Among the selections not left out, NaN when left out
         double renormalizedUncertainty = 0; // Statistical, NaN when left out
         size_t counts = 0;
@@ -224,8 +224,7 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
 
 // The 84 % upper limit of a value less than twice its uncertainty, NaN for a larger value. The value is taken as a sum
 // of n = (value / uncertainty)² events of equal weight, whose upper limit is n + 1 + √(n + 3/4) events (Gehrels 1986).
-// With n < 1 the weight is at most the uncertainty.
-// Without a value, the uncertainty already is the upper limit, see DepthProfileCurve::uncertainties.
+// With n < 1 the weight is at most the uncertainty. Without a value, the uncertainty is the limit.
 double upperLimit(double value, double uncertainty);
 // Rounded up to the decimals
 double roundedUp(double value, int decimals);
@@ -233,7 +232,7 @@ double roundedUp(double value, int decimals);
 // A concentration and its uncertainty in at.%. Rounded, the uncertainty to one significant digit, or two when they
 // are 15 or less, and the value to the same precision; an upper limit "< 0.07" in place of a value less than twice its
 // uncertainty, see upperLimit(), rounded up in the same way, with an empty uncertainty. Otherwise both to 0.01 at.%.
-// Without an uncertainty, the value to 0.01 at.% and an empty uncertainty; "—" for NaN.
+// Without an uncertainty, the value to 0.01 at.% and an empty uncertainty, "0" for an exact 0 (no events); "—" for NaN.
 struct PercentText {
     QString value;
     QString uncertainty;

@@ -27,8 +27,6 @@ constexpr double AutoDepthCutLevel = 0.8; // The bins are cut when fewer than th
 constexpr int MaxBinsAboveSurface = 100; // Events higher above the surface are left out of the profile
 constexpr int GridPoints = 250; // Of the energy grid of the exit energy tables, evenly spaced on a logarithmic scale
 constexpr double GridRange = 100; // Highest energy of the grid divided by the lowest
-// Events of the one-sided 84.13 % Poisson upper limit for no events (Gehrels 1986), the level of one standard deviation
-constexpr double EmptyUpperLimitEvents = 1.841;
 constexpr int MaxSteps = 50; // Of slowing down, particles losing more stop or nearly, the exact energy hardly matters
 constexpr int AutoNormalizationSmoothing = 2; // Bins on each side in the moving average of the total
 constexpr double AutoNormalizationTolerance = 0.1; // Relative difference of the total from its typical level allowed
@@ -806,28 +804,6 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     }
     std::vector<double> derivatives(selections.size());
 
-    // Without events, the uncertainty is the upper limit of EmptyUpperLimitEvents events with the mean weight of the
-    // curve's events in the nearest bins with events on either side
-    auto emptyUncertainty = [&result, &weights, bins](size_t c, size_t first, size_t last) {
-        const DepthProfileCurve &curve = result.curves[c];
-        double sum = 0;
-        int sides = 0;
-        for(size_t i = first; i-- > 0;) {
-            if(curve.counts[i] > 0) {
-                sum += weights[c][i] / static_cast<double>(curve.counts[i]);
-                sides++;
-                break;
-            }
-        }
-        for(size_t i = last + 1; i < bins; i++) {
-            if(curve.counts[i] > 0) {
-                sum += weights[c][i] / static_cast<double>(curve.counts[i]);
-                sides++;
-                break;
-            }
-        }
-        return sides > 0 ? EmptyUpperLimitEvents * sum / sides : 0.0;
-    };
     const auto normalizationCount = static_cast<double>(normalizationBins.size());
     std::vector<bool> inNormalization(bins, false);
     double normalizationVariance = 0; // Of the sum of the weights of all selections in the normalization bins
@@ -853,8 +829,7 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
             }
             variance += rangeVariance(derivatives);
             curve.concentrations[i] = concentration;
-            curve.uncertainties[i] = curve.counts[i] > 0 ? std::sqrt(std::max(0.0, variance)) / scale
-                                                         : emptyUncertainty(c, i, i) / scale;
+            curve.uncertainties[i] = curve.counts[i] > 0 ? std::sqrt(std::max(0.0, variance)) / scale : 0.0; // Exact 0
             result.totals[i] += concentration;
         }
     }
@@ -902,9 +877,7 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
                 derivatives[s] = (curveOf[s] == c ? selectionAverages[s] : 0) - average.concentration * selectionScales[s];
             }
             variance += rangeVariance(derivatives);
-            average.uncertainty = average.counts > 0 ? std::sqrt(std::max(0.0, variance)) / scale
-                                                     : emptyUncertainty(c, averageBins.front(), averageBins.back())
-                                                               / (averageCount * scale);
+            average.uncertainty = average.counts > 0 ? std::sqrt(std::max(0.0, variance)) / scale : 0.0; // Exact 0
         }
         result.averages.push_back(average);
     }
@@ -939,8 +912,7 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
         // Left out selections have no renormalized value
         const bool excluded = result.curves[c].allIn(profile.cutIdsExcludedFromAverage);
         average.renormalized = excluded ? NaN : renormalized;
-        const double uncertainty = average.counts > 0 ? std::sqrt(std::max(0.0, variance))
-                                                      : average.uncertainty * scale; // The upper limit, see above
+        const double uncertainty = average.counts > 0 ? std::sqrt(std::max(0.0, variance)) : 0.0; // Exact 0
         average.renormalizedUncertainty = excluded ? NaN : uncertainty / includedSum;
     }
     return result;
@@ -954,7 +926,7 @@ double upperLimit(double value, double uncertainty) {
         return uncertainty;
     }
     const double events = (value / uncertainty) * (value / uncertainty);
-    // Fewer than one event only when the uncertainty is not just counting statistics, e.g. of a sum with an upper limit
+    // Fewer than one event only when the uncertainty is not just counting statistics
     const double weight = std::min(uncertainty * uncertainty / value, uncertainty);
     return (events + 1 + std::sqrt(events + 0.75)) * weight;
 }
@@ -971,6 +943,9 @@ PercentText percentText(double fraction, double uncertainty, bool rounded) {
     }
     const double value = fraction * 100;
     const double deviation = uncertainty * 100;
+    if(value == 0 && deviation == 0) {
+        return {QStringLiteral("0"), QString()}; // Without events
+    }
     if(!std::isfinite(deviation) || deviation <= 0) {
         return {QString::number(value, 'f', 2), QString()};
     }

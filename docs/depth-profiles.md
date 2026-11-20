@@ -25,9 +25,8 @@ detector settings with a [ToF calibration](tof-calibration.md).
 - The profile bins the events again with the profile bin width. The concentrations are normalized so that the total
   is 100 % on average over the normalization interval. Uncertainties are statistical and include the normalization.
   The weights of a selection using its own part of the measurement (see below) come from the reference counts in
-  that part, whose binomial uncertainty is included as well. A bin or an average without events has 0 with the 84 %
-  upper limit as its uncertainty: 1.84 events (the Poisson upper limit for none) with the weight of the events in the
-  nearest bins.
+  that part, whose binomial uncertainty is included as well. A bin or an average without events is exactly 0, shown
+  as "0 at.%" without an uncertainty.
 - With **Round Concentrations** (see Averages and Plot), averages less than twice their uncertainty are shown as 84 % upper
   limits, e.g. "< 0.07 at.%". The average and its uncertainty are taken as n = (average / uncertainty)² events of
   equal weight, whose Poisson upper limit is n + 1 + √(n + ¾) events (Gehrels' approximation).
