@@ -1118,10 +1118,10 @@ QString depthProfileLog(const DepthProfileCalculation &calculation) {
         symbols.append(Elements::symbol(z));
     }
     lines << QString("Elements of the composition: %1").arg(symbols.join(", "));
-    lines << QString("Stopping bins: %1 of %2 1e15 at./cm², to %3 1e15 at./cm²")
+    lines << QString("Stopping bins: %1 of %2e15 at./cm², to %3e15 at./cm²")
                      .arg(calculation.composition().size())
-                     .arg(number(calculation.stoppingBinWidth() / tfu))
-                     .arg(number(calculation.maxDepth() / tfu));
+                     .arg(general(calculation.stoppingBinWidth() / tfu))
+                     .arg(general(calculation.maxDepth() / tfu));
     lines << QString("Stopping data of the beam: %1–%2 keV")
                      .arg(number(calculation.beamMinEnergy() / keV), number(calculation.beamMaxEnergy() / keV));
 
@@ -1200,7 +1200,7 @@ QString depthProfileLog(const DepthProfileCalculation &calculation) {
             lines << QString("  Detected energy: %1–%2 keV").arg(number(*minEnergy / keV), number(*maxEnergy / keV));
         }
         if(withDepth > 0) {
-            lines << QString("  Depth: %1–%2 1e15 at./cm²").arg(number(minDepth / tfu), number(maxDepth / tfu));
+            lines << QString("  Depth: %1e15–%2e15 at./cm²").arg(number(minDepth / tfu), number(maxDepth / tfu));
         }
         lines << QStringLiteral("  Weights");
         lines << QString("    User weight: %1").arg(selection.userWeight, 0, 'g', 6);
@@ -1301,7 +1301,7 @@ QString depthProfileLog(const DepthProfileCalculation &calculation) {
                               number(particle.table->maxEnergy() / keV));
     }
 
-    lines << QString("  Stopping bins: %1 1e15 at./cm², maximum depth %2 1e15 at./cm²%3")
+    lines << QString("  Stopping bins: %1e15 at./cm², maximum depth %2e15 at./cm²%3")
                      .arg(general(inputs.stoppingBinWidth / tfu), general(inputs.maxDepth / tfu),
                           inputs.autoMaxDepth ? QStringLiteral(" at the start, automatic") : QString());
     lines << QString("  Smoothing: %1 pseudo-events in each stopping bin").arg(inputs.minStoppingBinEvents);
