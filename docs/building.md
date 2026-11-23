@@ -68,7 +68,8 @@ downloaded once and checked against a known SHA-256. JaRA looks for the `jibal.c
 - Windows: `jibal.conf` next to `jara.exe`
 - Linux: `../share/jara/jibal.conf` from the program, e.g. `/usr/local/share/jara/jibal.conf`
 
-The data files are in `jibal_data` next to it. Without it, JIBAL's own configuration is used.
+The data files are in `jibal_data` next to it. Without it, JIBAL's own configuration is used. The stopping files in
+the data are listed in [Settings](settings.md#stopping-data-in-the-packages).
 
 `jara --check-installation` checks that JIBAL and its data are found, without opening a window. It prints the JIBAL
 configuration file and data files used and the stopping of 2 MeV ⁴He in Si, and exits with status 0 when the stopping

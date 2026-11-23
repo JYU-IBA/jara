@@ -21,12 +21,36 @@ detector settings with a [ToF calibration](tof-calibration.md).
   Rutherford cross sections (optionally with the Andersen screening correction) at the beam energy at that depth. An
   isotope that represents its element is also weighted by 1 / abundance, and the selection's additional weight
   multiplies its events. See [Selections](selections.md).
+- Stopping is only known within the energy range of the stopping files, e.g. 1 keV/u–10 MeV/u for SRIM-2013 (see
+  [Stopping](settings.md#stopping)). The profile is not calculated when the beam energy, or the kinematic factor ×
+  the beam energy of a detected particle, is above the range. Events whose particle has an energy outside the range
+  on its way out, at the sample surface or in the timing detector foil, are left out. Events from depths where the
+  beam has slowed down below the range get no depth and a weight of zero. With an automatic maximum depth, the
+  stopping bins are not extended beyond where the beam reaches the lowest energy of its stopping data.
 - The weights of each element in a stopping bin, relative to all of them, give the composition of the next iteration.
   Each bin also gets a number of pseudo-events with the composition of the bin before it (**Smoothing**), which keeps
   bins with few events from swinging and lets the iterations converge. The first iteration assumes the same composition
   at all depths.
 - The iterations continue until no concentration changes more than the tolerance of the preferences, or the maximum
   number of iterations is reached. **Iterate More** continues, **Recalculate** starts again.
+- **Log...** shows the calculation as text, updated while it iterates:
+  - the events in the measurement, in the profile's part of it and in the selections, and how many were included or
+    left out and why;
+  - the elements of the composition, the stopping bins and the energy range of the beam's stopping data;
+  - for each iteration, the largest change of a concentration, the number of stopping bins, the beam energy at the
+    end of them, and the events with a depth, beyond the maximum depth and from where the beam is below its stopping
+    data;
+  - for each selection, its events and how many were used or left out (no energy or efficiency below 10⁻⁶, energy
+    outside the stopping data), the detected energies and depths of the events, and the weights: the user weight, the
+    abundance weight, the range weight, the average 1 / efficiency, the average cross section and event weight, and
+    the selection's share of the weights of all events;
+  - the parameters: the beam, the angles, the ToF calibration, the foil, the efficiency curves, the kinematic
+    correction and angle calibration, the part of the measurement, the selections, the cross sections, the stopping
+    settings and the stopping file used for each particle in each element with the energy range of its data, the
+    stopping bins and the numerical parameters of the calculation;
+  - JIBAL: its version, configuration file, data files and all of its GSTO files.
+
+  The text can be selected and copied.
 - The profile bins the events again with the profile bin width. The concentrations are normalized so that the total
   is 100 % on average over the normalization interval. Uncertainties are statistical and include the normalization.
   The weights of a selection using its own part of the measurement (see below) come from the reference counts in

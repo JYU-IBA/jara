@@ -57,6 +57,8 @@ int checkInstallation() {
         const double stopping = table.stopping({1.0}, energy);
         std::printf("Stopping of 2 MeV 4He in Si: %g eV/(1e15 atoms/cm2)\n",
                     stopping / (C_EV / Units::ThinFilmUnit));
+        std::printf("Stopping data of 4He in Si: %g–%g keV\n", table.minEnergy() / Units::Kiloelectronvolt,
+                    table.maxEnergy() / Units::Kiloelectronvolt);
         if(std::isfinite(stopping) && stopping > 0) {
             result = 0;
         }

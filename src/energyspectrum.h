@@ -69,6 +69,9 @@ struct EnergyHistogram {
     std::vector<size_t> counts; // Bin i covers energies from i * binWidth to (i + 1) * binWidth
     size_t events = 0; // In the selection
     size_t rejectedEvents = 0; // ToF at or below zero, or energy above the highest bin, not in the counts
+    // Not in the counts, the energy in the timing detector foil is outside the stopping data of the foil (see
+    // FoilEnergyLoss::minEnergy() and maxEnergy())
+    size_t outsideStoppingEvents = 0;
 };
 
 struct EnergySpectrumResult {

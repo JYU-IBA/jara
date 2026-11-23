@@ -21,21 +21,13 @@
 
 extern "C" {
 #include <jibal.h>
-#include <jibal_stop.h>
 }
 
 namespace {
-constexpr double StoppingMinEnergy = 1 * Units::Kiloelectronvolt; // Of the stopping tables
-constexpr double StoppingMaxEnergy = 2000 * Units::Megaelectronvolt;
-constexpr int StoppingPoints = 1500;
 constexpr double MaxRelativeLossPerStep = 0.02; // In slowing down
 constexpr int FoilTablePoints = 400;
 constexpr double FoilTableMinEnergy = 1 * Units::Kiloelectronvolt;
 constexpr int MaxFoilTableExtensions = 50;
-
-double stoppingLogStep() {
-    return std::log(StoppingMaxEnergy / StoppingMinEnergy) / (StoppingPoints - 1);
-}
 
 // JIBAL's own choice of the electronic stopping file of a pair: an assignment from its configuration, otherwise the
 // first file with the pair. jibal_gsto_auto_assign() would keep a file chosen for the pair earlier instead.
@@ -101,6 +93,13 @@ bool assignStopping(int z1, int z2, const PhysicsSettings &physics, QString &err
 }
 }
 
+QString stoppingNumerics() {
+    return QString("Electronic stopping from the stopping files and universal nuclear stopping at the energies of the points "
+                   "of the files, interpolated between them as the physics settings say. Slowing down by fourth-order "
+                   "Runge-Kutta, losing at most %1 % of the energy in a step.")
+            .arg(MaxRelativeLossPerStep * 100);
+}
+
 QStringList stoppingFileNames() {
     QStringList names;
     if(const jibal *library = Elements::library()) {
@@ -130,55 +129,198 @@ QStringList stoppingFileNames(int z1, int z2) {
     return names;
 }
 
+namespace {
+// Coefficients of the cubic spline through the points, four for each interval: the cubic in u from 0 to 1 over the
+// interval. The spline has continuous first and second derivatives, and not-a-knot ends (the first two and the last
+// two intervals are each one cubic). It can reach above the highest point near a maximum that falls between points, as
+// the stopping does near its maximum. With fewer than four points it is the polynomial through them.
+std::vector<double> splineCoefficients(const std::vector<double> &x, const std::vector<double> &y) {
+    const size_t n = x.size();
+    std::vector<double> coefficients;
+    if(n < 2) {
+        return coefficients;
+    }
+    std::vector<double> h(n - 1), d(n - 1);
+    for(size_t k = 0; k + 1 < n; k++) {
+        h[k] = x[k + 1] - x[k];
+        d[k] = (y[k + 1] - y[k]) / h[k];
+    }
+    std::vector<double> m(n, 0); // Second derivatives at the points
+    if(n == 3) { // The parabola through the points
+        m[0] = m[1] = m[2] = 2 * (d[1] - d[0]) / (h[0] + h[1]);
+    } else if(n >= 4) {
+        // Equations of M1 ... M(n-2), with M0 and M(n-1) eliminated with the not-a-knot conditions
+        const size_t k = n - 2;
+        std::vector<double> lower(k), diagonal(k), upper(k), right(k);
+        for(size_t r = 0; r < k; r++) {
+            const size_t i = r + 1;
+            lower[r] = h[i - 1];
+            diagonal[r] = 2 * (h[i - 1] + h[i]);
+            upper[r] = h[i];
+            right[r] = 6 * (d[i] - d[i - 1]);
+        }
+        // M0 = ((h0 + h1) M1 - h0 M2) / h1
+        diagonal[0] += lower[0] * (h[0] + h[1]) / h[1];
+        upper[0] -= lower[0] * h[0] / h[1];
+        // M(n-1) = ((h(n-2) + h(n-3)) M(n-2) - h(n-2) M(n-3)) / h(n-3)
+        diagonal[k - 1] += upper[k - 1] * (h[n - 2] + h[n - 3]) / h[n - 3];
+        lower[k - 1] -= upper[k - 1] * h[n - 2] / h[n - 3];
+        // Tridiagonal elimination
+        for(size_t r = 1; r < k; r++) {
+            const double w = lower[r] / diagonal[r - 1];
+            diagonal[r] -= w * upper[r - 1];
+            right[r] -= w * right[r - 1];
+        }
+        m[k] = right[k - 1] / diagonal[k - 1];
+        for(size_t r = k - 1; r-- > 0;) {
+            m[r + 1] = (right[r] - upper[r] * m[r + 2]) / diagonal[r];
+        }
+        m[0] = ((h[0] + h[1]) * m[1] - h[0] * m[2]) / h[1];
+        m[n - 1] = ((h[n - 2] + h[n - 3]) * m[n - 2] - h[n - 2] * m[n - 3]) / h[n - 3];
+    }
+    for(size_t i = 0; i + 1 < n; i++) {
+        // Slopes at the ends of the interval, then the cubic as a Hermite polynomial in u
+        const double left = d[i] - h[i] * (2 * m[i] + m[i + 1]) / 6;
+        const double right = d[i] + h[i] * (m[i] + 2 * m[i + 1]) / 6;
+        coefficients.insert(coefficients.end(), {y[i], h[i] * left, 3 * (y[i + 1] - y[i]) - h[i] * (2 * left + right),
+                                                 2 * (y[i] - y[i + 1]) + h[i] * (left + right)});
+    }
+    return coefficients;
+}
+
+// The spacing of the points of a file in energy. A file evenly spaced on a logarithmic scale is so in energy whatever
+// its unit, a linear scale only when the unit is proportional to energy (not velocity). It is checked from the energies.
+bool evenlySpaced(const std::vector<double> &x) {
+    const double step = (x.back() - x.front()) / static_cast<double>(x.size() - 1);
+    for(size_t i = 0; i < x.size(); i++) {
+        if(std::abs(x[i] - (x.front() + static_cast<double>(i) * step)) > 1e-9 * std::abs(step)) {
+            return false;
+        }
+    }
+    return step > 0;
+}
+}
+
 StoppingTable::StoppingTable(int z, double mass, const QList<int> &elements, const PhysicsSettings &physics)
-    : m_elements(elements) {
+    : m_elements(elements), m_cubic(physics.interpolation == StoppingInterpolation::Cubic) {
     if(!Elements::library()) {
         m_errorMessage = QStringLiteral("JIBAL is not initialized.");
         return;
     }
     jibal_gsto *gsto = Elements::library()->gsto;
-    const double logStep = stoppingLogStep();
+    m_maxEnergy = std::numeric_limits<double>::infinity();
     for(const int element : elements) {
         if(!assignStopping(z, element, physics, m_errorMessage)) {
-            m_values.clear();
+            m_elementData.clear();
+            m_grids.clear();
             return;
+        }
+        // The data of the file, copied so that other assignments of files in JIBAL do not change it. The file is
+        // tabulated in energy per mass, in SI units.
+        const gsto_file_t *file = jibal_gsto_get_assigned_file(gsto, GSTO_STO_ELE, z, element);
+        auto grid = std::find_if(m_grids.begin(), m_grids.end(), [file](const Grid &g) { return g.file == file; });
+        if(grid == m_grids.end()) {
+            Grid &g = m_grids.emplace_back();
+            g.file = file;
+            for(size_t i = 0; i < file->xpoints; i++) {
+                g.energies.push_back(file->em[i] * mass);
+                g.logEnergies.push_back(std::log(g.energies.back()));
+            }
+            const size_t n = g.energies.size();
+            if(n >= 2 && file->xscale == GSTO_XSCALE_LOG10 && evenlySpaced(g.logEnergies)) {
+                g.spacing = Spacing::Logarithmic;
+                g.invStep = static_cast<double>(n - 1) / (g.logEnergies.back() - g.logEnergies.front());
+            } else if(n >= 2 && file->xscale == GSTO_XSCALE_LINEAR && file->xunit != GSTO_X_UNIT_M_S
+                      && evenlySpaced(g.energies)) {
+                g.spacing = Spacing::Linear;
+                g.invStep = static_cast<double>(n - 1) / (g.energies.back() - g.energies.front());
+            }
+            grid = m_grids.end() - 1;
         }
         const StoppingCorrection *correction = physics.correctionFor(z, element);
         const double electronicFactor = physics.electronicFactor * (correction ? correction->electronicFactor : 1);
-        const double nuclearFactor = physics.nuclearFactor * (correction ? correction->nuclearFactor : 1);
-        const double targetMass = Elements::mass(element, 0);
-        std::vector<double> &values = m_values.emplace_back(StoppingPoints);
-        for(int k = 0; k < StoppingPoints; k++) {
-            const double energy = StoppingMinEnergy * std::exp(k * logStep);
-            const double electronic = jibal_gsto_get_em(gsto, GSTO_STO_ELE, z, element, energy / mass);
-            const double nuclear = jibal_gsto_stop_nuclear_universal(energy, z, mass, element, targetMass);
-            values[static_cast<size_t>(k)] = electronicFactor * electronic + nuclearFactor * nuclear;
+        ElementStopping &data = m_elementData.emplace_back();
+        data.nuclearFactor = physics.nuclearFactor * (correction ? correction->nuclearFactor : 1);
+        data.nuclear = NuclearStopping(z, mass, element, physics.nuclearMass == NuclearStoppingMass::Isotopes);
+        const double *electronic = jibal_gsto_file_get_data(file, z, element);
+        const double unit = file->stounit == GSTO_STO_UNIT_EV15CM2 ? C_EV_TFU : 1;
+        for(size_t i = 0; i < grid->energies.size(); i++) {
+            data.values.push_back(electronicFactor * electronic[i] * unit
+                                  + data.nuclearFactor * data.nuclear.stopping(grid->energies[i]));
+        }
+        data.firstElectronic = electronicFactor * electronic[0] * unit;
+        data.lastElectronic = electronicFactor * electronic[grid->energies.size() - 1] * unit;
+        if(m_cubic) {
+            data.coefficients = splineCoefficients(grid->logEnergies, data.values);
+        }
+        grid->elements.push_back(m_elementData.size() - 1);
+        m_fileNames.append(QString::fromUtf8(file->name));
+        m_minEnergy = std::max(m_minEnergy, grid->energies.front());
+        if(grid->energies.back() < m_maxEnergy) {
+            m_maxEnergy = grid->energies.back();
+            m_maxEnergyElement = static_cast<qsizetype>(m_elementData.size()) - 1;
         }
     }
 }
 
-double StoppingTable::stopping(const std::vector<double> &fractions, double energy) const {
-    const double position = std::log(energy / StoppingMinEnergy) / stoppingLogStep();
-    size_t i = 0;
-    double t = 0;
-    double scale = 1;
-    if(position < 0) {
-        scale = std::sqrt(energy / StoppingMinEnergy);
-    } else if(position >= StoppingPoints - 1) {
-        i = StoppingPoints - 2;
-        t = 1;
-    } else {
-        i = static_cast<size_t>(position);
-        t = position - static_cast<double>(i);
+StoppingTable::Location StoppingTable::Grid::locate(double energy, bool cubic) const {
+    const size_t n = energies.size();
+    if(n < 2 || energy < energies.front()) {
+        return {-1, 0, 0, 0};
     }
+    if(energy > energies.back()) {
+        return {1, n - 2, 1, 1};
+    }
+    const double logEnergy = cubic || spacing == Spacing::Logarithmic ? std::log(energy) : 0;
+    size_t i;
+    if(spacing == Spacing::Arbitrary) {
+        i = static_cast<size_t>(std::upper_bound(energies.begin(), energies.end(), energy) - energies.begin());
+        i = i > 0 ? i - 1 : 0;
+    } else {
+        const double position = spacing == Spacing::Logarithmic ? (logEnergy - logEnergies.front()) * invStep
+                                                                : (energy - energies.front()) * invStep;
+        i = static_cast<size_t>(std::max(0.0, position));
+    }
+    // Calculated positions are corrected for rounding, so that energies[i] <= energy < energies[i + 1]
+    i = std::min(i, n - 2);
+    while(i > 0 && energies[i] > energy) {
+        i--;
+    }
+    while(i + 2 < n && energies[i + 1] <= energy) {
+        i++;
+    }
+    const double t = (energy - energies[i]) / (energies[i + 1] - energies[i]);
+    const double u = cubic ? (logEnergy - logEnergies[i]) / (logEnergies[i + 1] - logEnergies[i]) : 0;
+    return {0, i, t, u};
+}
+
+double StoppingTable::stopping(const std::vector<double> &fractions, double energy) const {
     double sum = 0;
-    for(size_t e = 0; e < fractions.size() && e < m_values.size(); e++) {
-        if(fractions[e] > 0) {
-            const std::vector<double> &values = m_values[e];
-            sum += fractions[e] * (values[i] + t * (values[i + 1] - values[i]));
+    for(const Grid &grid : m_grids) {
+        const Location at = grid.locate(energy, m_cubic);
+        for(const size_t e : grid.elements) {
+            if(e >= fractions.size() || !(fractions[e] > 0)) {
+                continue;
+            }
+            const ElementStopping &data = m_elementData[e];
+            double value;
+            if(at.region == 0) {
+                if(m_cubic) {
+                    const double *c = data.coefficients.data() + 4 * at.i;
+                    value = c[0] + at.u * (c[1] + at.u * (c[2] + at.u * c[3]));
+                } else {
+                    value = data.values[at.i] + at.t * (data.values[at.i + 1] - data.values[at.i]);
+                }
+            } else {
+                // Outside the data: electronic stopping proportional to the velocity below it, the last value above
+                const double electronic = at.region < 0 ? data.firstElectronic * std::sqrt(std::max(0.0, energy) / grid.energies.front())
+                                                        : data.lastElectronic;
+                value = electronic + data.nuclearFactor * data.nuclear.stopping(energy);
+            }
+            sum += fractions[e] * value;
         }
     }
-    return sum * scale;
+    return sum;
 }
 
 double slowDown(const StoppingTable &table, const std::vector<double> &fractions, double energy, double pathLength,
@@ -246,18 +388,29 @@ double FoilEnergyLoss::energyAfter(double energy) const {
 void FoilEnergyLoss::tabulate(double maxEnergyAfter) {
     m_before.clear();
     m_after.clear();
+    m_limited = false;
     if(!m_loss) {
         return;
     }
-    // The table reaches energies before the foil that give at least the highest energy after it
-    const double target = std::max(maxEnergyAfter, 2 * FoilTableMinEnergy) * 1.05;
+    // The table reaches energies before the foil that give at least the highest energy after it, but not beyond the
+    // stopping data
+    const double minEnergy = std::max(FoilTableMinEnergy, m_table.minEnergy());
+    const double target = std::max(maxEnergyAfter, 2 * minEnergy) * 1.05;
     double maxEnergy = 1.1 * target + 100 * Units::Kiloelectronvolt;
-    for(int i = 0; i < MaxFoilTableExtensions && energyAfter(maxEnergy) < target; i++) {
+    for(int i = 0; i < MaxFoilTableExtensions && maxEnergy < m_table.maxEnergy() && energyAfter(maxEnergy) < target; i++) {
         maxEnergy *= 1.5;
     }
+    if(maxEnergy >= m_table.maxEnergy()) {
+        maxEnergy = m_table.maxEnergy();
+        m_limited = energyAfter(maxEnergy) < target;
+    }
+    if(maxEnergy <= minEnergy) {
+        m_limited = true;
+        return; // No table, every energy gives NaN
+    }
     // Evenly spaced on a logarithmic scale
-    const double ratio = std::pow(maxEnergy / FoilTableMinEnergy, 1.0 / (FoilTablePoints - 1));
-    double energy = FoilTableMinEnergy;
+    const double ratio = std::pow(maxEnergy / minEnergy, 1.0 / (FoilTablePoints - 1));
+    double energy = minEnergy;
     for(int i = 0; i < FoilTablePoints; i++, energy *= ratio) {
         m_before.push_back(energy);
         // Never decreasing, so that the table can be searched
@@ -272,7 +425,10 @@ double FoilEnergyLoss::energyBefore(double energyAfter) const {
     if(m_after.empty()) {
         return std::numeric_limits<double>::quiet_NaN();
     }
-    if(energyAfter >= m_after.back()) {
+    if(energyAfter > m_after.back()) {
+        if(m_limited) {
+            return std::numeric_limits<double>::quiet_NaN(); // Before the foil above the stopping data
+        }
         return energyAfter + (m_before.back() - m_after.back());
     }
     // The last point at or below the energy, the next one is above it

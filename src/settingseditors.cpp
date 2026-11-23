@@ -535,6 +535,18 @@ PhysicsSettingsEditor::PhysicsSettingsEditor(QWidget *parent) : QWidget(parent) 
     m_electronicSpin->setToolTip("Electronic stopping of all elements is multiplied by this");
     m_nuclearSpin = factorSpinBox(MinNuclearFactor);
     m_nuclearSpin->setToolTip("Nuclear stopping of all elements is multiplied by this");
+    m_nuclearMassCombo = new QComboBox;
+    for(const NuclearStoppingMass mass : NuclearStoppingMasses) {
+        m_nuclearMassCombo->addItem(nuclearStoppingMassName(mass), static_cast<int>(mass));
+    }
+    m_nuclearMassCombo->setToolTip("Target mass of nuclear stopping: the average mass of each element, or each natural "
+                                   "isotope with its own mass, weighted by its abundance");
+    m_interpolationCombo = new QComboBox;
+    for(const StoppingInterpolation interpolation : StoppingInterpolations) {
+        m_interpolationCombo->addItem(stoppingInterpolationName(interpolation), static_cast<int>(interpolation));
+    }
+    m_interpolationCombo->setToolTip("Interpolation between the points of the stopping files: linear in energy, as JIBAL "
+                                     "does, or a cubic spline in the logarithm of the energy");
     m_stoppingFileCombo = new QComboBox;
     m_stoppingFileCombo->setToolTip("GSTO file of electronic stopping of all elements, or the one JIBAL chooses for each pair");
 
@@ -560,6 +572,8 @@ PhysicsSettingsEditor::PhysicsSettingsEditor(QWidget *parent) : QWidget(parent) 
     auto *stopping = createFormLayout(stoppingGroup);
     stopping->addRow("Electronic factor:", m_electronicSpin);
     stopping->addRow("Nuclear factor:", m_nuclearSpin);
+    stopping->addRow("Nuclear stopping mass:", m_nuclearMassCombo);
+    stopping->addRow("Interpolation:", m_interpolationCombo);
     stopping->addRow("Stopping file:", m_stoppingFileCombo);
     alignFormLabels({general, crossSections, stopping});
     auto *pairGroup = new QGroupBox("Stopping of element pairs");
@@ -585,6 +599,14 @@ PhysicsSettingsEditor::PhysicsSettingsEditor(QWidget *parent) : QWidget(parent) 
     });
     connect(m_screeningCombo, &QComboBox::activated, this, [this]() {
         m_physics->screening = static_cast<ScreeningModel>(m_screeningCombo->currentData().toInt());
+        finishEdit();
+    });
+    connect(m_nuclearMassCombo, &QComboBox::activated, this, [this]() {
+        m_physics->nuclearMass = static_cast<NuclearStoppingMass>(m_nuclearMassCombo->currentData().toInt());
+        finishEdit();
+    });
+    connect(m_interpolationCombo, &QComboBox::activated, this, [this]() {
+        m_physics->interpolation = static_cast<StoppingInterpolation>(m_interpolationCombo->currentData().toInt());
         finishEdit();
     });
     for(QDoubleSpinBox *spinBox : {m_electronicSpin, m_nuclearSpin}) {
@@ -629,6 +651,8 @@ void PhysicsSettingsEditor::setPhysics(PhysicsSettings *physics) {
     }
     m_nameEdit->setText(physics->name);
     m_screeningCombo->setCurrentIndex(m_screeningCombo->findData(static_cast<int>(physics->screening)));
+    m_nuclearMassCombo->setCurrentIndex(m_nuclearMassCombo->findData(static_cast<int>(physics->nuclearMass)));
+    m_interpolationCombo->setCurrentIndex(m_interpolationCombo->findData(static_cast<int>(physics->interpolation)));
     {
         const QSignalBlocker electronic(m_electronicSpin);
         const QSignalBlocker nuclear(m_nuclearSpin);

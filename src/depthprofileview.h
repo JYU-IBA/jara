@@ -34,6 +34,7 @@ class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
 class QMenu;
+class QPlainTextEdit;
 class QPushButton;
 class QSpinBox;
 class QTimer;
@@ -75,6 +76,8 @@ private slots:
     void iterationStep();
     void chooseSelections(); // In a dialog
     void showCutRanges(); // The non-modal dialog of the parts of the measurement of selections
+    void showLog(); // The non-modal dialog of the calculation as text, see depthProfileLog()
+    void updateLog();
     void averageItemChanged(QTreeWidgetItem *item, int column);
     void markerMoved(int index, double x);
     void labelMoved(int index, QPointF position); // Of the centre in the depth unit shown and at.%
@@ -126,6 +129,8 @@ private:
     MeasurementRangeWidget *m_rangeWidget = nullptr;
     QPushButton *m_cutRangesButton = nullptr;
     QDialog *m_cutRangesDialog = nullptr; // Created when first shown
+    QDialog *m_logDialog = nullptr; // Created when first shown
+    QPlainTextEdit *m_logText = nullptr;
     QGridLayout *m_cutRangesGrid = nullptr;
     QStringList m_cutRangesKey; // Selections in the dialog, it is rebuilt when they change
     QHash<int, QCheckBox *> m_cutRangeChecks; // By cut id

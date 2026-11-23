@@ -202,9 +202,23 @@ ExpectedTof expectedSurfaceTof(const ExperimentalSettings *settings, const Detec
         expected.errorMessage = foil.errorMessage();
         return expected;
     }
+    if(expected.energy > foil.maxEnergy()) {
+        expected.errorMessage = QString("The stopping in the timing detector foil is known up to %1 MeV, the particles "
+                                        "have %2 MeV.")
+                                        .arg(foil.maxEnergy() / Units::Megaelectronvolt, 0, 'g', 4)
+                                        .arg(expected.energy / Units::Megaelectronvolt, 0, 'g', 4);
+        return expected;
+    }
     const double energyAfterFoil = foil.energyAfter(expected.energy);
     if(energyAfterFoil <= 0) {
         expected.errorMessage = QStringLiteral("The particles stop in the timing detector foil.");
+        return expected;
+    }
+    if(energyAfterFoil < foil.minEnergy()) {
+        expected.errorMessage = QString("The stopping in the timing detector foil is known down to %1 keV, the particles "
+                                        "have %2 keV after it.")
+                                        .arg(foil.minEnergy() / Units::Kiloelectronvolt, 0, 'g', 4)
+                                        .arg(energyAfterFoil / Units::Kiloelectronvolt, 0, 'g', 4);
         return expected;
     }
     expected.foilLoss = expected.energy - energyAfterFoil;

@@ -82,6 +82,14 @@ void rangeFromJson(const QJsonObject &json, double &min, double &max) {
 QString screeningModelId(ScreeningModel model) { // In files
     return model == ScreeningModel::None ? QStringLiteral("none") : QStringLiteral("andersen");
 }
+
+QString nuclearStoppingMassId(NuclearStoppingMass mass) { // In files
+    return mass == NuclearStoppingMass::Isotopes ? QStringLiteral("isotopes") : QStringLiteral("average");
+}
+
+QString stoppingInterpolationId(StoppingInterpolation interpolation) { // In files
+    return interpolation == StoppingInterpolation::Cubic ? QStringLiteral("cubic") : QStringLiteral("linear");
+}
 // Only files of this version are read, older versions are not converted
 constexpr int FormatVersion = 4;
 
@@ -1059,6 +1067,14 @@ QString screeningModelName(ScreeningModel model) {
     return model == ScreeningModel::None ? QStringLiteral("None (Rutherford)") : QStringLiteral("Andersen");
 }
 
+QString nuclearStoppingMassName(NuclearStoppingMass mass) {
+    return mass == NuclearStoppingMass::Isotopes ? QStringLiteral("Isotopes") : QStringLiteral("Average mass");
+}
+
+QString stoppingInterpolationName(StoppingInterpolation interpolation) {
+    return interpolation == StoppingInterpolation::Cubic ? QStringLiteral("Cubic") : QStringLiteral("Linear");
+}
+
 const StoppingCorrection *PhysicsSettings::correction(int z1, int z2) const {
     for(const StoppingCorrection &c : corrections) {
         if(c.z1 == z1 && c.z2 == z2) {
@@ -1092,6 +1108,8 @@ QJsonObject physicsToJson(const PhysicsSettings &physics) {
             {"screening", screeningModelId(physics.screening)},
             {"electronicFactor", physics.electronicFactor},
             {"nuclearFactor", physics.nuclearFactor},
+            {"nuclearMass", nuclearStoppingMassId(physics.nuclearMass)},
+            {"interpolation", stoppingInterpolationId(physics.interpolation)},
             {"stoppingFile", physics.stoppingFile},
             {"corrections", corrections}};
 }
@@ -1103,6 +1121,14 @@ PhysicsSettings physicsFromJson(const QJsonObject &json) {
                                                                                                : ScreeningModel::Andersen;
     physics.electronicFactor = std::max(0.0, json["electronicFactor"].toDouble(1));
     physics.nuclearFactor = std::max(0.0, json["nuclearFactor"].toDouble(1));
+    // The average mass when the key is missing
+    physics.nuclearMass = json["nuclearMass"].toString() == nuclearStoppingMassId(NuclearStoppingMass::Isotopes)
+                                  ? NuclearStoppingMass::Isotopes
+                                  : NuclearStoppingMass::Average;
+    // Linear when the key is missing
+    physics.interpolation = json["interpolation"].toString() == stoppingInterpolationId(StoppingInterpolation::Cubic)
+                                    ? StoppingInterpolation::Cubic
+                                    : StoppingInterpolation::Linear;
     physics.stoppingFile = json["stoppingFile"].toString();
     for(const auto &value : json["corrections"].toArray()) {
         const QJsonObject object = value.toObject();

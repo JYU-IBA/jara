@@ -151,14 +151,25 @@ EnergySpectrumResult calculateEnergySpectrum(const std::vector<ToFEEvent> &event
                 histogram.rejectedEvents++;
                 return;
             }
+            if(energy < foil.minEnergy()) {
+                histogram.outsideStoppingEvents++;
+                return;
+            }
             cutEnergies.push_back(energy);
             maxCutEnergy = std::max(maxCutEnergy, energy);
         });
         foil.tabulate(maxCutEnergy);
-        for(double &energy : cutEnergies) {
-            energy = foil.energyBefore(energy);
+        size_t kept = 0;
+        for(const double energyAfterFoil : cutEnergies) {
+            const double energy = foil.energyBefore(energyAfterFoil);
+            if(std::isnan(energy)) { // Above the stopping data of the foil
+                histogram.outsideStoppingEvents++;
+                continue;
+            }
+            cutEnergies[kept++] = energy;
             maxEnergy = std::max(maxEnergy, energy);
         }
+        cutEnergies.resize(kept);
         result.histograms.push_back(std::move(histogram));
     }
 

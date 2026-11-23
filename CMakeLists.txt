@@ -71,6 +71,8 @@ add_executable(jara
         src/anglecalibrationwindow.h
         src/calibrationplotwidget.cpp
         src/calibrationplotwidget.h
+        src/nuclearstopping.cpp
+        src/nuclearstopping.h
         src/stopping.cpp
         src/stopping.h
         src/materialeditor.cpp

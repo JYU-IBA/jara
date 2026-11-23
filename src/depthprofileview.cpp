@@ -38,7 +38,9 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
+#include <QFontDatabase>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSpinBox>
@@ -310,6 +312,8 @@ QWidget *DepthProfileView::createToolBar() {
     connect(m_iterateButton, &QPushButton::clicked, this, &DepthProfileView::iterateOrStop);
     toolBar->addAction("Recalculate", this, &DepthProfileView::recalculate)->setToolTip("Iterate from the beginning");
     toolBar->addAction("Export...", this, &DepthProfileView::exportProfile);
+    toolBar->addAction("Log...", this, &DepthProfileView::showLog)
+            ->setToolTip("The iterations, the events used and left out and the weights of the selections");
     m_iterationLabel = new QLabel; // Shown in the status row, wide enough for its longest text
     m_iterationLabel->setMinimumWidth(m_iterationLabel->fontMetrics().horizontalAdvance(
             QStringLiteral("Iteration 9999, depth range changed, not converged")));
@@ -591,6 +595,34 @@ void DepthProfileView::showCutRanges() {
     updateCutRanges();
     m_cutRangesDialog->raise();
     m_cutRangesDialog->activateWindow();
+}
+
+void DepthProfileView::showLog() {
+    if(!m_logDialog) {
+        m_logDialog = new QDialog(this); // Not modal, it follows the iterations
+        m_logDialog->setWindowTitle(QString("Log of %1").arg(m_profile->name));
+        auto *layout = new QVBoxLayout(m_logDialog);
+        m_logText = new QPlainTextEdit;
+        m_logText->setReadOnly(true);
+        m_logText->setLineWrapMode(QPlainTextEdit::NoWrap);
+        m_logText->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+        layout->addWidget(m_logText);
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+        connect(buttons, &QDialogButtonBox::rejected, m_logDialog, &QDialog::close);
+        layout->addWidget(buttons);
+        m_logDialog->resize(900, 600);
+    }
+    m_logDialog->show(); // Before updating, which skips a hidden dialog
+    updateLog();
+    m_logDialog->raise();
+    m_logDialog->activateWindow();
+}
+
+void DepthProfileView::updateLog() {
+    if(!m_logDialog || !m_logDialog->isVisible()) {
+        return;
+    }
+    m_logText->setPlainText(m_calculation ? depthProfileLog(*m_calculation) : QStringLiteral("Not calculated."));
 }
 
 void DepthProfileView::updateCutRanges() {
@@ -911,6 +943,7 @@ void DepthProfileView::iterationStep() {
 }
 
 void DepthProfileView::updateIterationStatus() {
+    updateLog();
     if(!m_calculation || !m_calculation->isValid() || m_calculation->iterations() == 0) {
         m_iterationLabel->setText(m_iterating ? QStringLiteral("Iterating...") : QString());
         return;

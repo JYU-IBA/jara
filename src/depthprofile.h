@@ -59,6 +59,12 @@
 // hydrogen only from the beginning of the measurement before it is lost. Its events are then weighted by the reference
 // counts in the profile's range / in its part, so that it stands for the same fluence as the others.
 //
+// The stopping is only known within the energy range of the stopping files (StoppingTable::minEnergy() and
+// maxEnergy()). The calculation is refused when the beam energy, or the kinematic fraction of it of a detected
+// particle, is above the range. Events whose particle would have an energy outside the range on its way out, at the
+// sample surface or after the foil, are left out. Events from depths where the beam has slowed down below the range get
+// no depth and a weight of zero.
+//
 // With an automatic maximum depth, the stopping bins are extended when events come from deeper, and cut when the
 // events end well before the maximum depth.
 
@@ -126,6 +132,8 @@ public:
         int a = 0;
         CutType type = CutType::Recoil;
         bool representsElement = false;
+        double userWeight = 1; // Additional weight of the selection set by the user
+        double abundanceWeight = 1; // 1 / natural abundance when the isotope represents its element, otherwise 1
         double rangeWeight = 1; // Reference counts in the profile's range / in the selection's part of it
         // Relative covariances of the range weight with those of each selection. The fraction of the reference counts
         // in a part is a binomial estimate of its fraction of the fluence. A selection using the whole range has none.
@@ -139,6 +147,24 @@ public:
         size_t events = 0; // In the selection
         size_t lowEfficiencyEvents = 0; // Left out, the efficiency is below 1e-6
         size_t tooDeepEvents = 0; // Beyond the maximum depth in the latest iteration
+        // Left out, the energy of the particle is outside the stopping data in the sample or in the timing detector foil
+        size_t outsideStoppingEvents = 0;
+        // From depths where the beam is below its stopping data in the latest iteration, without a depth and weight
+        size_t lowBeamEnergyEvents = 0;
+        double minEnergy = 0; // J, range of the particle's stopping data in the sample
+        double maxEnergy = 0;
+        double foilMinEnergy = 0; // J, the same in the timing detector foil, zero and infinity without a foil
+        double foilMaxEnergy = 0;
+    };
+
+    // What happened in one iteration
+    struct IterationStatistics {
+        double change; // Largest change of an atomic fraction in a stopping bin, NaN when the stopping bins changed
+        size_t stoppingBins; // Used in the iteration
+        double beamEnergyAtMaxDepth; // J, at the end of the stopping bins
+        size_t events; // With a depth and a weight
+        size_t tooDeepEvents;
+        size_t lowBeamEnergyEvents;
     };
 
     DepthProfileCalculation(const std::vector<ToFEEvent> &events, const DepthProfileInputs &inputs);
@@ -151,6 +177,20 @@ public:
     // when the maximum depth was changed
     double lastChange() const { return m_lastChange; }
     double maxDepth() const { return m_binWidth * static_cast<double>(m_bins); }
+    const std::vector<IterationStatistics> &history() const { return m_history; } // Of each iteration
+    double beamMinEnergy() const { return m_beam.stopping.minEnergy(); } // J, range of the beam's stopping data
+    double beamMaxEnergy() const { return m_beam.stopping.maxEnergy(); }
+    const DepthProfileInputs &inputs() const { return m_inputs; }
+    size_t measurementEvents() const { return m_measurementEvents; } // All events of the measurement
+    size_t rangeEvents() const { return m_rangeEvents; } // In the profile's part of the measurement
+    // Stopping of the beam and of each particle detected, in the elements of the composition
+    struct ParticleStopping {
+        int z;
+        double mass; // kg
+        bool beam;
+        const StoppingTable *table;
+    };
+    std::vector<ParticleStopping> particleStopping() const;
 
     const std::vector<Selection> &selections() const { return m_selections; }
     const QList<int> &elements() const { return m_elements; } // Atomic numbers of the composition
@@ -180,6 +220,7 @@ private:
     void calculateBeamEnergies();
     void calculateExitEnergies(Particle &particle);
     void initialComposition();
+    void recordIteration(size_t bins); // After the events have their depths
     bool adjustMaxDepth(); // True when the stopping bins were changed
 
     QString m_errorMessage;
@@ -196,7 +237,14 @@ private:
     std::vector<Selection> m_selections;
     int m_iterations = 0;
     double m_lastChange;
+    std::vector<IterationStatistics> m_history;
+    size_t m_measurementEvents = 0;
+    size_t m_rangeEvents = 0;
 };
+
+// The calculation as text: the composition, the stopping data, the statistics of each iteration and of the events and
+// weights of each selection
+QString depthProfileLog(const DepthProfileCalculation &calculation);
 
 // The profile of a selection in depth bins. Unless the profile separates isotopes, the selections of an element with
 // the same type are summed into one curve of the element.

@@ -10,6 +10,8 @@ measurement → **Add Energy Spectrum**.
 - The mass is that of the selected isotope, or the average mass of the natural element when no isotope is selected.
   For scattered ions it is the mass of the incident ion.
 - The energy lost in the timing detector foil is added back, so the spectra show the energies before the foil.
+  Events whose energy in the foil is outside the energy range of the foil's stopping data are left out, as the loss in
+  the foil is not known for them (see [Stopping](settings.md#stopping)).
 - ToF channels are integers, so each event is spread evenly within its channel before the conversion. Otherwise the
   discrete energies of the channels would show up as spikes in narrow bins. The spreading uses a fixed seed, so the
   same inputs always give the same spectrum.

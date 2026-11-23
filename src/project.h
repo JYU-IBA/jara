@@ -239,6 +239,18 @@ enum class ScreeningModel { None, Andersen };
 constexpr ScreeningModel ScreeningModels[] = {ScreeningModel::None, ScreeningModel::Andersen};
 QString screeningModelName(ScreeningModel model); // As shown to the user
 
+// Target mass of nuclear stopping: the average mass of the element, or each natural isotope with its own mass,
+// weighted by its abundance
+enum class NuclearStoppingMass { Average, Isotopes };
+constexpr NuclearStoppingMass NuclearStoppingMasses[] = {NuclearStoppingMass::Average, NuclearStoppingMass::Isotopes};
+QString nuclearStoppingMassName(NuclearStoppingMass mass); // As shown to the user
+
+// How stopping is interpolated between the points of the stopping files: linearly in energy, as JIBAL does, or with a
+// cubic spline in the logarithm of the energy
+enum class StoppingInterpolation { Linear, Cubic };
+constexpr StoppingInterpolation StoppingInterpolations[] = {StoppingInterpolation::Linear, StoppingInterpolation::Cubic};
+QString stoppingInterpolationName(StoppingInterpolation interpolation); // As shown to the user
+
 constexpr int AnyElement = -1; // As the target of a stopping correction, any element. The same as JIBAL_ANY_Z.
 
 // Stopping of incident ions of one element (Z1) in atoms of another (Z2), or of any element, different from that of
@@ -259,6 +271,8 @@ struct PhysicsSettings {
     ScreeningModel screening = ScreeningModel::Andersen;
     double electronicFactor = 1; // Electronic stopping of all elements is multiplied by this
     double nuclearFactor = 1; // Same for nuclear stopping
+    NuclearStoppingMass nuclearMass = NuclearStoppingMass::Average;
+    StoppingInterpolation interpolation = StoppingInterpolation::Linear;
     QString stoppingFile; // Name of the GSTO file of electronic stopping of all elements, empty for JIBAL's choice
     QList<StoppingCorrection> corrections; // At most one for each Z1, Z2 pair
     bool operator==(const PhysicsSettings &) const = default;

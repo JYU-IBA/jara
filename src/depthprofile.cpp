@@ -14,6 +14,7 @@
 
 #include "depthprofile.h"
 #include "anglecalibration.h"
+#include "defaults.h"
 #include "elements.h"
 #include "energyspectrum.h"
 #include "split.h"
@@ -28,6 +29,7 @@
 #include <QStringList>
 
 extern "C" {
+#include <jibal.h>
 #include <jibal_cross_section.h>
 }
 
@@ -136,8 +138,20 @@ QString elementOverlapWarning(const DepthProfileInputs &inputs) {
     return warnings.join(QLatin1Char(' '));
 }
 
+namespace {
+// Why the stopping of a particle is not known at an energy above the range of its stopping data
+QString stoppingRangeError(const StoppingTable &table, int z, double energy, const char *what) {
+    const qsizetype element = table.maxEnergyElement();
+    return QString("The stopping of the %1 %2 in %3 is known up to %4 MeV (%5), but energies up to %6 MeV are needed.")
+            .arg(QString::fromLatin1(what), Elements::symbol(z), Elements::symbol(table.elements().at(element)))
+            .arg(table.maxEnergy() / Units::Megaelectronvolt, 0, 'g', 4)
+            .arg(table.fileNames().at(element))
+            .arg(energy / Units::Megaelectronvolt, 0, 'g', 4);
+}
+}
+
 DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &events, const DepthProfileInputs &inputs)
-    : m_inputs(inputs), m_lastChange(NaN) {
+    : m_inputs(inputs), m_lastChange(NaN), m_measurementEvents(events.size()) {
     if(!inputs.hasSettings || inputs.beamZ <= 0 || inputs.beamEnergy <= 0) {
         m_errorMessage = QStringLiteral("The experimental settings of the measurement with the incident ion and the beam "
                                         "energy are needed.");
@@ -215,6 +229,10 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         m_errorMessage = m_beam.stopping.errorMessage();
         return;
     }
+    if(inputs.beamEnergy > m_beam.stopping.maxEnergy()) {
+        m_errorMessage = stoppingRangeError(m_beam.stopping, m_beam.z, inputs.beamEnergy, "beam");
+        return;
+    }
     for(Particle &particle : m_particles) {
         particle.stopping = StoppingTable(particle.z, particle.mass, m_elements, inputs.physics);
         if(!particle.stopping.isValid()) {
@@ -231,8 +249,12 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
                 maxEnergy = std::max(maxEnergy, m_physics[s].kinematicFactor * inputs.beamEnergy);
             }
         }
-        maxEnergy *= 1.01;
         Particle &particle = m_particles[i];
+        if(maxEnergy > particle.stopping.maxEnergy()) {
+            m_errorMessage = stoppingRangeError(particle.stopping, particle.z, maxEnergy, "detected");
+            return;
+        }
+        maxEnergy *= 1.01;
         const double ratio = std::pow(GridRange, 1.0 / (GridPoints - 1));
         double energy = maxEnergy / GridRange;
         for(int k = 0; k < GridPoints; k++, energy *= ratio) {
@@ -243,6 +265,7 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
     // Detected energies and efficiencies of the events. The time of flight is spread within its channel, as in energy
     // spectra.
     const EventDivision division(events, inputs.referencePolygon);
+    m_rangeEvents = division.range(inputs.rangeMin, inputs.rangeMax).size();
     const size_t referenceCounts = division.referenceCountsIn(inputs.rangeMin, inputs.rangeMax);
     for(qsizetype s = 0; s < inputs.cuts.size(); s++) {
         const auto &cut = inputs.cuts[s];
@@ -253,6 +276,8 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         selection.a = cut.a;
         selection.type = cut.type;
         selection.representsElement = cut.representsElement;
+        selection.userWeight = cut.weight;
+        selection.abundanceWeight = cut.abundanceCorrection;
         // An isotope representing its element stands for all of its isotopes
         if(!std::isfinite(cut.abundanceCorrection) || cut.abundanceCorrection <= 0) {
             m_errorMessage = QString("%1 does not occur naturally, it cannot represent the element.")
@@ -309,8 +334,22 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
             return;
         }
         foil.tabulate(maxEnergy);
+        selection.minEnergy = particle.stopping.minEnergy();
+        selection.maxEnergy = particle.stopping.maxEnergy();
+        selection.foilMinEnergy = foil.minEnergy();
+        selection.foilMaxEnergy = foil.maxEnergy();
         for(size_t i = 0; i < energies.size(); i++) {
+            // The particle has its lowest energies after the foil and, in the sample, at the surface. The foil
+            // correction is NaN above the stopping data of the foil.
+            if(energies[i] < foil.minEnergy()) {
+                selection.outsideStoppingEvents++;
+                continue;
+            }
             const double energy = foil.energyBefore(energies[i]);
+            if(std::isnan(energy) || energy < particle.stopping.minEnergy() || energy > particle.stopping.maxEnergy()) {
+                selection.outsideStoppingEvents++;
+                continue;
+            }
             const double eff = curve ? efficiency(*curve, energy) : 1;
             if(eff < MinEfficiency) {
                 selection.lowEfficiencyEvents++;
@@ -450,6 +489,7 @@ void DepthProfileCalculation::iterate() {
     for(Particle &particle : m_particles) {
         calculateExitEnergies(particle);
     }
+    const size_t bins = m_bins;
 
     // Depths and weights of the events. Each event is shared between the two stopping bins with the nearest centres,
     // in proportion to its distance from them, so that the composition changes smoothly when events move.
@@ -471,6 +511,7 @@ void DepthProfileCalculation::iterate() {
         }
         const auto element = static_cast<size_t>(m_elements.indexOf(selection.z));
         selection.tooDeepEvents = 0;
+        selection.lowBeamEnergyEvents = 0;
         for(size_t i = 0; i < selection.energies.size(); i++) {
             const double energy = selection.energies[i];
             double depth;
@@ -491,7 +532,14 @@ void DepthProfileCalculation::iterate() {
                 const double drop = detected[j] - detected[j + 1];
                 depth = (static_cast<double>(j) + (drop > 0 ? (detected[j] - energy) / drop : 0)) * m_binWidth;
             }
-            const double sigma = crossSection(selection, beamEnergyAt(depth));
+            const double beamEnergy = beamEnergyAt(depth);
+            if(beamEnergy < m_beam.stopping.minEnergy()) {
+                selection.depths[i] = NaN;
+                selection.weights[i] = 0;
+                selection.lowBeamEnergyEvents++;
+                continue;
+            }
+            const double sigma = crossSection(selection, beamEnergy);
             const double weight = sigma > 0 ? selection.efficiencyWeights[i] / sigma : 0;
             selection.depths[i] = depth;
             selection.weights[i] = weight;
@@ -517,6 +565,7 @@ void DepthProfileCalculation::iterate() {
     }
     if(allTotal <= 0) {
         m_lastChange = 0; // No events at any depth, the composition stays
+        recordIteration(bins);
         m_iterations++;
         return;
     }
@@ -544,7 +593,28 @@ void DepthProfileCalculation::iterate() {
     if(m_inputs.autoMaxDepth && adjustMaxDepth()) {
         m_lastChange = NaN; // Not converged, the next iteration uses other bins
     }
+    recordIteration(bins);
     m_iterations++;
+}
+
+std::vector<DepthProfileCalculation::ParticleStopping> DepthProfileCalculation::particleStopping() const {
+    std::vector<ParticleStopping> result{{m_beam.z, m_beam.mass, true, &m_beam.stopping}};
+    for(const Particle &particle : m_particles) {
+        result.push_back({particle.z, particle.mass, false, &particle.stopping});
+    }
+    return result;
+}
+
+void DepthProfileCalculation::recordIteration(size_t bins) {
+    IterationStatistics statistics{m_lastChange, bins, m_beamEnergies.back(), 0, 0, 0};
+    for(const Selection &selection : m_selections) {
+        for(const double depth : selection.depths) {
+            statistics.events += std::isnan(depth) ? 0 : 1;
+        }
+        statistics.tooDeepEvents += selection.tooDeepEvents;
+        statistics.lowBeamEnergyEvents += selection.lowBeamEnergyEvents;
+    }
+    m_history.push_back(statistics);
 }
 
 bool DepthProfileCalculation::adjustMaxDepth() {
@@ -559,8 +629,8 @@ bool DepthProfileCalculation::adjustMaxDepth() {
         }
     }
     size_t bins = m_bins;
-    if(tooDeep > 0 && m_beamEnergies.back() > 0) {
-        // Events come from deeper, as far as the beam reaches
+    if(tooDeep > 0 && m_beamEnergies.back() > m_beam.stopping.minEnergy()) {
+        // Events come from deeper, as far as the beam reaches with known stopping
         bins = std::min(MaxStoppingBins, m_bins + std::max<size_t>(1, m_bins / 2));
     } else if(tooDeep == 0) {
         // Some room after the deepest events, the bins are cut when much more is left
@@ -999,4 +1069,274 @@ QString percentWithUncertainty(double fraction, double uncertainty, bool rounded
     const PercentText text = percentText(fraction, uncertainty, rounded);
     const QString suffix = unit && !std::isnan(fraction) ? QStringLiteral(" at.%") : QString();
     return (text.uncertainty.isEmpty() ? text.value : QString("%1 ± %2").arg(text.value, text.uncertainty)) + suffix;
+}
+
+QString depthProfileLog(const DepthProfileCalculation &calculation) {
+    if(!calculation.isValid()) {
+        return calculation.errorMessage();
+    }
+    constexpr double Barn = 1e-28; // m²
+    const double tfu = Units::ThinFilmUnit;
+    const double keV = Units::Kiloelectronvolt;
+    auto number = [](double value, int decimals = 1) { return QString::number(value, 'f', decimals); };
+    auto general = [](double value) { return QString::number(value, 'g', 6); };
+    const DepthProfileInputs &inputs = calculation.inputs();
+    QStringList lines;
+
+    // Events in total
+    size_t inSelections = 0;
+    size_t used = 0;
+    size_t noEnergy = 0;
+    size_t outside = 0;
+    size_t withDepth = 0;
+    size_t tooDeep = 0;
+    size_t lowBeam = 0;
+    for(const auto &selection : calculation.selections()) {
+        inSelections += selection.events;
+        used += selection.energies.size();
+        noEnergy += selection.lowEfficiencyEvents;
+        outside += selection.outsideStoppingEvents;
+        tooDeep += selection.tooDeepEvents;
+        lowBeam += selection.lowBeamEnergyEvents;
+        withDepth += static_cast<size_t>(std::count_if(selection.depths.begin(), selection.depths.end(),
+                                                       [](double depth) { return !std::isnan(depth); }));
+    }
+    lines << QStringLiteral("Events");
+    lines << QString("  In the measurement: %1").arg(calculation.measurementEvents());
+    lines << QString("  In the profile's part of the measurement: %1").arg(calculation.rangeEvents());
+    lines << QString("  In the selections: %1 (an event in several selections is counted in each)").arg(inSelections);
+    lines << QString("  Included: %1").arg(withDepth);
+    lines << QString("  Left out: %1").arg(inSelections - withDepth);
+    lines << QString("    No energy or efficiency below 1e-6: %1").arg(noEnergy);
+    lines << QString("    Energy outside the stopping data: %1").arg(outside);
+    lines << QString("    Beyond the maximum depth: %1").arg(tooDeep);
+    lines << QString("    From where the beam is below its stopping data: %1").arg(lowBeam);
+    lines << QString();
+
+    QStringList symbols;
+    for(const int z : calculation.elements()) {
+        symbols.append(Elements::symbol(z));
+    }
+    lines << QString("Elements of the composition: %1").arg(symbols.join(", "));
+    lines << QString("Stopping bins: %1 of %2 1e15 at./cm², to %3 1e15 at./cm²")
+                     .arg(calculation.composition().size())
+                     .arg(number(calculation.stoppingBinWidth() / tfu))
+                     .arg(number(calculation.maxDepth() / tfu));
+    lines << QString("Stopping data of the beam: %1–%2 keV")
+                     .arg(number(calculation.beamMinEnergy() / keV), number(calculation.beamMaxEnergy() / keV));
+
+    lines << QString() << QStringLiteral("Iterations");
+    lines << QStringLiteral("  Iteration  Change (at.%)  Stopping bins  Beam energy at the end (keV)  Events with a depth"
+                            "  Too deep  Beam below its stopping data");
+    const auto &history = calculation.history();
+    for(size_t i = 0; i < history.size(); i++) {
+        const auto &h = history[i];
+        lines << QString("  %1  %2  %3  %4  %5  %6  %7")
+                         .arg(i + 1, 9)
+                         .arg(std::isnan(h.change) ? QStringLiteral("bins changed") : number(h.change * 100, 4), 13)
+                         .arg(h.stoppingBins, 13)
+                         .arg(number(h.beamEnergyAtMaxDepth / keV), 28)
+                         .arg(h.events, 19)
+                         .arg(h.tooDeepEvents, 8)
+                         .arg(h.lowBeamEnergyEvents, 28);
+    }
+    if(history.empty()) {
+        lines << QStringLiteral("  None yet");
+    }
+
+    double allWeights = 0;
+    for(const auto &selection : calculation.selections()) {
+        allWeights += std::accumulate(selection.weights.begin(), selection.weights.end(), 0.0);
+    }
+    lines << QString() << QStringLiteral("Selections");
+    for(const auto &selection : calculation.selections()) {
+        size_t withDepth = 0;
+        size_t aboveSurface = 0;
+        double minDepth = std::numeric_limits<double>::infinity();
+        double maxDepth = -std::numeric_limits<double>::infinity();
+        double weightSum = 0;
+        double crossSectionSum = 0;
+        size_t weighted = 0;
+        for(size_t i = 0; i < selection.depths.size(); i++) {
+            const double depth = selection.depths[i];
+            if(std::isnan(depth)) {
+                continue;
+            }
+            withDepth++;
+            aboveSurface += depth < 0 ? 1 : 0;
+            minDepth = std::min(minDepth, depth);
+            maxDepth = std::max(maxDepth, depth);
+            if(selection.weights[i] > 0) {
+                weighted++;
+                weightSum += selection.weights[i];
+                crossSectionSum += selection.efficiencyWeights[i] / selection.weights[i];
+            }
+        }
+        const auto [minEnergy, maxEnergy] = std::minmax_element(selection.energies.begin(), selection.energies.end());
+        const double otherWeights = selection.userWeight * selection.abundanceWeight * selection.rangeWeight;
+        const double efficiencyWeightSum = std::accumulate(selection.efficiencyWeights.begin(),
+                                                           selection.efficiencyWeights.end(), 0.0);
+
+        QString name = cutLabel(selection.z, selection.a, selection.type, false);
+        if(selection.representsElement) {
+            name += QString(", represents %1").arg(Elements::symbol(selection.z));
+        }
+        lines << QString() << QString("%1").arg(name);
+        lines << QString("  Events in the selection: %1").arg(selection.events);
+        lines << QString("  Left out, no energy or efficiency below 1e-6: %1").arg(selection.lowEfficiencyEvents);
+        QString outsideText = QString("  Left out, energy outside the stopping data: %1 (data %2–%3 keV in the sample")
+                                      .arg(selection.outsideStoppingEvents)
+                                      .arg(number(selection.minEnergy / keV), number(selection.maxEnergy / keV));
+        if(std::isfinite(selection.foilMaxEnergy)) {
+            outsideText += QString(", %1–%2 keV in the foil")
+                                   .arg(number(selection.foilMinEnergy / keV), number(selection.foilMaxEnergy / keV));
+        }
+        lines << outsideText + QStringLiteral(")");
+        lines << QString("  Used: %1").arg(selection.energies.size());
+        lines << QString("    With a depth: %1, of which above the surface: %2").arg(withDepth).arg(aboveSurface);
+        lines << QString("    Beyond the maximum depth: %1").arg(selection.tooDeepEvents);
+        lines << QString("    From where the beam is below its stopping data: %1").arg(selection.lowBeamEnergyEvents);
+        if(!selection.energies.empty()) {
+            lines << QString("  Detected energy: %1–%2 keV").arg(number(*minEnergy / keV), number(*maxEnergy / keV));
+        }
+        if(withDepth > 0) {
+            lines << QString("  Depth: %1–%2 1e15 at./cm²").arg(number(minDepth / tfu), number(maxDepth / tfu));
+        }
+        lines << QStringLiteral("  Weights");
+        lines << QString("    User weight: %1").arg(selection.userWeight, 0, 'g', 6);
+        lines << QString("    Abundance weight (1 / natural abundance): %1").arg(selection.abundanceWeight, 0, 'g', 6);
+        lines << QString("    Range weight (reference counts of the profile / of the selection): %1")
+                         .arg(selection.rangeWeight, 0, 'g', 6);
+        if(!selection.efficiencyWeights.empty() && otherWeights > 0) {
+            lines << QString("    Average 1 / efficiency: %1")
+                             .arg(efficiencyWeightSum / static_cast<double>(selection.efficiencyWeights.size()) / otherWeights, 0, 'g', 6);
+        }
+        if(weighted > 0) {
+            lines << QString("    Average cross section at the depths of the events: %1 b/sr")
+                             .arg(crossSectionSum / static_cast<double>(weighted) / Barn, 0, 'g', 6);
+            lines << QString("    Average weight of an event (all of the above): %1 sr/b")
+                             .arg(weightSum / static_cast<double>(weighted) * Barn, 0, 'g', 6);
+        }
+        if(allWeights > 0) {
+            lines << QString("    Share of the weights of all events: %1 %").arg(number(weightSum / allWeights * 100, 2));
+        }
+    }
+
+    lines << QString() << QStringLiteral("Parameters");
+    lines << QString("  Beam: %1, %2 keV, incident angle %3° from the surface")
+                     .arg(Elements::label(inputs.beamZ, inputs.beamA), general(inputs.beamEnergy / keV),
+                          general(inputs.incidentAngle / Units::Degree));
+    lines << QString("  Scattering/recoil angle: %1°").arg(general(inputs.scatteringAngle / Units::Degree));
+    lines << QString("  ToF calibration: length %1 mm, slope %2 ns/ch, offset %3 ns")
+                     .arg(general(inputs.tofLength / Units::Millimetre), general(inputs.tofSlope / Units::Nanosecond),
+                          general(inputs.tofOffset / Units::Nanosecond));
+    lines << QString("  Timing detector foil: %1, %2 µg/cm²")
+                     .arg(inputs.foilMaterial.elements.isEmpty() ? QStringLiteral("none") : materialText(inputs.foilMaterial),
+                          general(inputs.foilThickness / Units::MicrogramPerSquareCentimetre));
+    if(inputs.efficiencies.isEmpty()) {
+        lines << QStringLiteral("  Efficiencies: none, all events have an efficiency of 1");
+    } else {
+        lines << QStringLiteral("  Efficiencies:");
+        for(const EfficiencyCurve &curve : inputs.efficiencies) {
+            QString range;
+            if(!curve.points.isEmpty()) {
+                range = QString(", %1–%2 keV").arg(general(curve.points.front().x() / keV), general(curve.points.back().x() / keV));
+            }
+            lines << QString("    %1: %2 points%3").arg(Elements::label(curve.z, curve.a)).arg(curve.points.size()).arg(range);
+        }
+    }
+    if(inputs.kinematicCorrection) {
+        const AngleCalibration &a = inputs.angleCalibration;
+        lines << QString("  Kinematic correction: on, detector distance %1 mm, window width %2 mm")
+                         .arg(general(inputs.detectorDistance / Units::Millimetre), general(inputs.windowWidth / Units::Millimetre));
+        lines << QString("  Angle calibration: centre %1 ticks + %2 ticks/ch × ToF, half width %3 ticks, sigma %4 ticks, "
+                         "%5, timing smoothing ±%6 ticks")
+                         .arg(general(a.centre), general(a.centreSlope), general(a.halfWidth), general(a.sigma),
+                              a.reversed ? QStringLiteral("reversed") : QStringLiteral("not reversed"), general(a.timingSmoothing));
+    } else {
+        lines << QStringLiteral("  Kinematic correction: off");
+    }
+    lines << QString("  Part of the measurement: %1–%2 of the reference counts%3")
+                     .arg(general(inputs.rangeMin), general(inputs.rangeMax),
+                          inputs.referencePolygon.isEmpty() ? QStringLiteral(" (no reference selection, all events)") : QString());
+    lines << QStringLiteral("  Selections:");
+    for(const auto &cut : inputs.cuts) {
+        lines << QString("    %1: %2 polygon points, weight %3, abundance correction %4, part %5–%6")
+                         .arg(cutLabel(cut.z, cut.a, cut.type, false))
+                         .arg(cut.polygon.size())
+                         .arg(general(cut.weight), general(cut.abundanceCorrection), general(cut.rangeMin), general(cut.rangeMax));
+    }
+
+    const PhysicsSettings &physics = inputs.physics;
+    lines << QString("  Cross sections: Rutherford, screening %1").arg(screeningModelName(physics.screening));
+    lines << QString("  Stopping of all elements: electronic factor %1, nuclear factor %2, stopping file %3")
+                     .arg(general(physics.electronicFactor), general(physics.nuclearFactor),
+                          physics.stoppingFile.isEmpty() ? QStringLiteral("automatic (JIBAL)") : physics.stoppingFile);
+    lines << QString("  Nuclear stopping: universal, target mass: %1").arg(nuclearStoppingMassName(physics.nuclearMass).toLower());
+    lines << QString("  Stopping interpolation between the points of the files: %1")
+                     .arg(physics.interpolation == StoppingInterpolation::Cubic
+                                  ? QStringLiteral("cubic spline in the logarithm of energy")
+                                  : QStringLiteral("linear in energy"));
+    if(physics.corrections.isEmpty()) {
+        lines << QStringLiteral("  Stopping of element pairs: none");
+    } else {
+        lines << QStringLiteral("  Stopping of element pairs:");
+        for(const StoppingCorrection &c : physics.corrections) {
+            lines << QString("    %1 in %2: electronic factor %3, nuclear factor %4, stopping file %5")
+                             .arg(Elements::symbol(c.z1), c.z2 == AnyElement ? QStringLiteral("any element") : Elements::symbol(c.z2),
+                                  general(c.electronicFactor), general(c.nuclearFactor),
+                                  c.stoppingFile.isEmpty() ? QStringLiteral("same as all") : c.stoppingFile);
+        }
+    }
+    lines << QStringLiteral("  Electronic stopping files used:");
+    for(const auto &particle : calculation.particleStopping()) {
+        QStringList files;
+        const QStringList &names = particle.table->fileNames();
+        for(qsizetype e = 0; e < names.size() && e < calculation.elements().size(); e++) {
+            files.append(QString("%1: %2").arg(Elements::symbol(calculation.elements()[e]), names[e]));
+        }
+        lines << QString("    %1 %2 (%3 u) in %4; data %5–%6 keV")
+                         .arg(particle.beam ? QStringLiteral("Beam") : QStringLiteral("Detected"), Elements::symbol(particle.z),
+                              general(particle.mass / C_U), files.join(", "), number(particle.table->minEnergy() / keV),
+                              number(particle.table->maxEnergy() / keV));
+    }
+
+    lines << QString("  Stopping bins: %1 1e15 at./cm², maximum depth %2 1e15 at./cm²%3")
+                     .arg(general(inputs.stoppingBinWidth / tfu), general(inputs.maxDepth / tfu),
+                          inputs.autoMaxDepth ? QStringLiteral(" at the start, automatic") : QString());
+    lines << QString("  Smoothing: %1 pseudo-events in each stopping bin").arg(inputs.minStoppingBinEvents);
+    const DepthProfilePreferences preferences = Defaults::depthProfilePreferences();
+    lines << QString("  Convergence: no concentration changes more than %1 at.%, at most %2 iterations in a run "
+                     "(preferences)").arg(general(preferences.tolerance * 100)).arg(preferences.maxIterations);
+    lines << QString("  Exit energy tables: %1 energies over a factor of %2, evenly on a logarithmic scale; at most %3 "
+                     "steps in slowing down through a stopping bin; at most %4 stopping bins")
+                     .arg(GridPoints).arg(general(GridRange)).arg(MaxSteps).arg(MaxStoppingBins);
+    lines << QString("  %1").arg(stoppingNumerics());
+
+    const jibal *library = Elements::library();
+    lines << QString() << QStringLiteral("JIBAL");
+    lines << QString("  Version: %1").arg(jibal_version());
+    if(library) {
+        const char *configFile = jibal_config_filename(library);
+        lines << QString("  Configuration file: %1").arg(configFile ? QString::fromUtf8(configFile) : QStringLiteral("none"));
+        lines << QString("  Data directory: %1").arg(library->config->datadir ? QString::fromUtf8(library->config->datadir) : QString());
+        lines << QString("  Masses: %1").arg(library->config->masses_file ? QString::fromUtf8(library->config->masses_file) : QString());
+        lines << QString("  Abundances: %1").arg(library->config->abundances_file ? QString::fromUtf8(library->config->abundances_file) : QString());
+        lines << QStringLiteral("  GSTO files:");
+        for(size_t i = 0; i < library->gsto->n_files; i++) {
+            const gsto_file_t &file = library->gsto->files[i];
+            const QString type = file.type == GSTO_STO_ELE ? QStringLiteral("electronic stopping")
+                                 : file.type == GSTO_STO_STRAGG ? QStringLiteral("straggling")
+                                                                : QStringLiteral("other");
+            auto zRange = [](int min, int max) {
+                return min == JIBAL_ANY_Z ? QStringLiteral("any") : min == max ? QString::number(min) : QString("%1–%2").arg(min).arg(max);
+            };
+            lines << QString("    %1 (%2, %3): Z1 %4, Z2 %5, %6")
+                             .arg(QString::fromUtf8(file.name), type,
+                                  file.source ? QString::fromUtf8(file.source) : QStringLiteral("no source"),
+                                  zRange(file.Z1_min, file.Z1_max), zRange(file.Z2_min, file.Z2_max),
+                                  file.filename ? QString::fromUtf8(file.filename) : QString());
+        }
+    }
+    return lines.join('\n');
 }

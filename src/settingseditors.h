@@ -165,6 +165,8 @@ private:
     bool m_edited = false; // Since editingFinished() was emitted
     QLineEdit *m_nameEdit;
     QComboBox *m_screeningCombo;
+    QComboBox *m_nuclearMassCombo;
+    QComboBox *m_interpolationCombo;
     QDoubleSpinBox *m_electronicSpin;
     QDoubleSpinBox *m_nuclearSpin;
     QComboBox *m_stoppingFileCombo;
