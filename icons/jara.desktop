@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=JaRA
+Comment=Analysis of ToF-ERDA data
+Exec=jara %f
+Icon=jara
+Terminal=false
+Categories=Science;Physics;Education;

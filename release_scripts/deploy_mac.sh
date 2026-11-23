@@ -6,63 +6,32 @@
 set -e
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 builddir="build_deploy"
-jibal_data_url="https://users.jyu.fi/~jaakjuli/jibal/data/data.tar.gz"
-jibal_data_sha256="799a74a37cfd3d003a8b4914e6ff2c554c1b78eacbba84e3a6a414f982ce0bce"
 
-for tool in cmake ninja macdeployqt6 qtpaths6 jibaltool hdiutil codesign otool curl; do
+for tool in cmake ninja macdeployqt6 qtpaths6 jibaltool hdiutil codesign otool install_name_tool; do
     if ! command -v "$tool" > /dev/null; then
         echo "$tool not found!"
         exit 1
     fi
 done
-jibal_datadir="$(jibaltool config 2>&1 | grep "^datadir = " | sed "s/^datadir = //")"
 jibal_libdir="$(dirname "$(dirname "$(command -v jibaltool)")")/lib"
-if [ ! -f "$jibal_datadir/masses.dat" ] || [ ! -f "$jibal_datadir/abundances.dat" ]; then
-    echo "JIBAL masses.dat and abundances.dat are not in \"$jibal_datadir\"!"
-    exit 1
-fi
-echo "JIBAL data (masses, abundances) from $jibal_datadir, library from $jibal_libdir"
+echo "JIBAL library from $jibal_libdir"
 
 version=$(tr -d '[:space:]' < version.txt)
 arch=$(uname -m)
 output="JaRA $version macOS $arch.dmg"
 
-# A build of its own, so that a debug build or one with uncommitted changes in another directory is never shipped
-rm -rf "$builddir/jara.app"
-cmake -S . -B "$builddir" -G Ninja -DCMAKE_BUILD_TYPE=Release
+# A build of its own, so that a debug build or one with uncommitted changes in another directory is never shipped.
+# The JIBAL configuration and data files (masses, abundances, stopping) are installed in the bundle's Resources, see
+# JARA_BUNDLE_JIBAL_DATA in CMakeLists.txt.
+cmake -S . -B "$builddir" -G Ninja -DCMAKE_BUILD_TYPE=Release -DJARA_BUNDLE_JIBAL_DATA=ON
 cmake --build "$builddir"
-
-jibal_data_file="$builddir/jibal_data.tar.gz"
-if [ ! -f "$jibal_data_file" ]; then
-    echo "Downloading JIBAL data files"
-    curl -fL "$jibal_data_url" -o "$jibal_data_file"
-fi
-if ! echo "$jibal_data_sha256  $jibal_data_file" | shasum -a 256 --check --status; then
-    echo "$jibal_data_file does not pass the SHA-256 check!"
-    shasum -a 256 "$jibal_data_file"
-    exit 1
-fi
-jibal_data_dir="$builddir/jibal_data"
-rm -rf "$jibal_data_dir"
-mkdir -p "$jibal_data_dir"
-tar zxf "$jibal_data_file" -C "$jibal_data_dir"
 
 staging="$builddir/dmg"
 app="$staging/JaRA.app"
 resources="$app/Contents/Resources"
 rm -rf "$staging"
-mkdir -p "$staging"
-cp -R "$builddir/jara.app" "$app"
-# Paths in jibal.conf are relative to the directory it is in. JaRA looks for it in Resources (src/elements.cpp).
-cat > "$resources/jibal.conf" << EOF
-datadir = .
-masses_file = masses.dat
-abundances_file = abundances.dat
-files_file = files.txt
-assignments_file = assignments.txt
-EOF
-cp "$jibal_datadir/masses.dat" "$jibal_datadir/abundances.dat" "$resources"
-cp "$jibal_data_dir"/*.ele "$jibal_data_dir"/*.stg "$jibal_data_dir/files.txt" "$jibal_data_dir/assignments.txt" "$resources"
+cmake --install "$builddir" --prefix "$staging"
+mv "$staging/jara.app" "$app"
 
 # macdeployqt would copy every plugin of the Qt installation it finds, which with Homebrew includes the virtual keyboard
 # (and with it QtQuick and QML) and plugins of Qt modules that are not deployed (PDF, SVG). Only these are needed.
@@ -85,6 +54,18 @@ done
 
 echo "Running macdeployqt6"
 macdeployqt6 "$app" -no-plugins "${executables[@]}" -libpath="$jibal_libdir" -no-strip
+
+# The build and install rpaths point to Homebrew and the JIBAL installation, which would be searched before the
+# bundle. Only rpaths relative to the bundle are kept.
+for rpath in $(otool -l "$app/Contents/MacOS/jara" | awk '$1 == "cmd" && $2 == "LC_RPATH" {getline; getline; print $2}'); do
+    case "$rpath" in
+        @*) ;;
+        *) install_name_tool -delete_rpath "$rpath" "$app/Contents/MacOS/jara" ;;
+    esac
+done
+if ! otool -l "$app/Contents/MacOS/jara" | grep -q "path @executable_path/../Frameworks "; then
+    install_name_tool -add_rpath "@executable_path/../Frameworks" "$app/Contents/MacOS/jara"
+fi
 
 # The signing is done here and not by macdeployqt -codesign, which leaves some of the frameworks it copies with their
 # original (ad hoc, no team) signature. With the hardened runtime dyld then refuses to load them ("different Team IDs").
@@ -150,6 +131,7 @@ if [ -n "$missing" ]; then
     exit 1
 fi
 codesign --verify --deep --strict "$app"
+"$app/Contents/MacOS/jara" --check-installation
 
 ln -s /Applications "$staging/Applications"
 rm -f "$output"

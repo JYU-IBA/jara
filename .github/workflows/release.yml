@@ -1,0 +1,46 @@
+# Makes a draft release of a version tag from the packages of a successful Build run of the tagged commit, with their
+# SHA-256 sums. Check the packages of the run first. The draft is published by hand, after e.g. replacing the ad hoc
+# signed DMG with one signed locally (gh release upload --clobber).
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag, e.g. v0.1.5'
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Find the Build run of the tag
+        run: |
+          sha=$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)
+          run=$(gh run list --workflow build.yml --commit "$sha" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$run" ]; then
+              echo "No successful Build run of $TAG ($sha)"
+              exit 1
+          fi
+          echo "Build run $run of $TAG ($sha)"
+          echo "RUN=$run" >> "$GITHUB_ENV"
+      - name: Download the packages
+        run: |
+          gh run download "$RUN" --dir artifacts
+          mkdir release
+          find artifacts -type f -exec mv {} release/ \;
+          cat release/build-info-*.txt > release/build-info.txt
+          rm release/build-info-*.txt
+          cd release
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Make the draft release
+        run: gh release create "$TAG" --draft --verify-tag --generate-notes --title "JaRA ${TAG#v}" release/*

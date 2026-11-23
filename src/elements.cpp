@@ -1,3 +1,17 @@
+/*
+
+    JaRA, a program for time-of-flight elastic recoil detection analysis
+    Copyright (C) 2026 Jaakko Julin
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    See LICENSE.txt for the full license.
+
+ */
+
 #include "elements.h"
 
 #include <algorithm>
@@ -22,14 +36,20 @@ const jibal_element *element(int z) {
 }
 
 bool Elements::init(QString &errorMessage) {
-    QString configFile;
-#ifdef Q_OS_MACOS
-    // The app bundle made by release_scripts/deploy_mac.sh has its own JIBAL configuration and data files
-    const QString bundledConfigFile = QCoreApplication::applicationDirPath() + QStringLiteral("/../Resources/jibal.conf");
-    if(QFile::exists(bundledConfigFile)) {
-        configFile = bundledConfigFile;
-    }
+    // Packages have their own JIBAL configuration and data files (release_scripts/deploy_mac.sh, and on other
+    // platforms the install rules with JARA_BUNDLE_JIBAL_DATA in CMakeLists.txt). Without them the user's JIBAL
+    // configuration is used.
+#if defined(Q_OS_MACOS)
+    const QString bundledConfigFile = QStringLiteral("/../Resources/jibal.conf");
+#elif defined(Q_OS_WIN)
+    const QString bundledConfigFile = QStringLiteral("/jibal.conf");
+#else
+    const QString bundledConfigFile = QStringLiteral("/../share/jara/jibal.conf");
 #endif
+    QString configFile = QCoreApplication::applicationDirPath() + bundledConfigFile;
+    if(!QFile::exists(configFile)) {
+        configFile.clear();
+    }
     jibalInstance = jibal_init(configFile.isEmpty() ? nullptr : qPrintable(configFile));
     if(!jibalInstance) {
         errorMessage = QStringLiteral("JIBAL could not be initialized.");

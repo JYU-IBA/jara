@@ -1,12 +1,77 @@
+/*
+
+    JaRA, a program for time-of-flight elastic recoil detection analysis
+    Copyright (C) 2026 Jaakko Julin
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    See LICENSE.txt for the full license.
+
+ */
+
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+
 #include <QApplication>
+#include <QCoreApplication>
 #include <QIcon>
 #include <QMessageBox>
 
+extern "C" {
+#include <jibal.h>
+}
+
 #include "elements.h"
 #include "mainwindow.h"
+#include "stopping.h"
+#include "units.h"
 #include "version.h"
 
+namespace {
+// Checks that JIBAL and its data files are found, e.g. in a package made for a release. Prints what was used and
+// returns the exit status: 0 when the stopping of He in Si could be calculated, 1 otherwise.
+int checkInstallation() {
+    std::printf("JaRA %s\n", qPrintable(Version::version()));
+    QString errorMessage;
+    if(!Elements::init(errorMessage)) {
+        std::printf("JIBAL could not be initialized: %s\n", qPrintable(errorMessage));
+        return 1;
+    }
+    const jibal *library = Elements::library();
+    const char *configFile = jibal_config_filename(library);
+    std::printf("JIBAL %s\nConfiguration file: %s\nData directory: %s\nMasses file: %s\nStopping files: %zu\n",
+                jibal_version(), configFile ? configFile : "(none)",
+                library->config->datadir ? library->config->datadir : "(none)",
+                library->config->masses_file ? library->config->masses_file : "(none)", library->gsto->n_files);
+    const int z = 2;
+    const double energy = 2 * Units::Megaelectronvolt;
+    const StoppingTable table(z, Elements::mass(z, 4), {14}, PhysicsSettings());
+    int result = 1;
+    if(!table.isValid()) {
+        std::printf("Stopping of He in Si could not be calculated: %s\n", qPrintable(table.errorMessage()));
+    } else {
+        const double stopping = table.stopping({1.0}, energy);
+        std::printf("Stopping of 2 MeV 4He in Si: %g eV/(1e15 atoms/cm2)\n",
+                    stopping / (C_EV / Units::ThinFilmUnit));
+        if(std::isfinite(stopping) && stopping > 0) {
+            result = 0;
+        }
+    }
+    Elements::cleanup();
+    std::printf("%s\n", result == 0 ? "OK" : "FAILED");
+    return result;
+}
+}
+
 int main(int argc, char *argv[]) {
+    if(argc == 2 && std::strcmp(argv[1], "--check-installation") == 0) { // Without a GUI, also works without a display
+        QCoreApplication app(argc, argv);
+        return checkInstallation();
+    }
     QApplication app(argc, argv);
     QApplication::setApplicationName("JaRA");
     QApplication::setOrganizationName("JYU");

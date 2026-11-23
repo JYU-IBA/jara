@@ -21,8 +21,7 @@ are in clock ticks.
   minus the trigger's is inside the window (both ends included). All signals in the window are considered, the search
   is not limited to the next few lines.
 - **Reorder span**: signals are put in time order in a buffer this long. A signal that comes in the file later than
-  this after newer signals is dropped and counted as out of order. Files from the data acquisition so far are in time
-  order.
+  this after newer signals is dropped and counted as out of order.
 - **Pairing**: when a trigger has several signals in its window, or a signal is in the window of several triggers:
   - **One-to-one, closest to the window centre** (default): each signal is used at most once. The pairs closest to
     the centre of the window are taken first.

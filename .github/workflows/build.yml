@@ -1,0 +1,200 @@
+# Builds JaRA with JIBAL (main) and makes the packages: an AppImage, a zip and an MSI for Windows and an ad hoc signed
+# DMG for macOS. Each package is checked by running the packaged program with --check-installation, which loads the
+# bundled JIBAL data. The packages are uploaded as artifacts of the run; release.yml makes a draft release of them.
+# The Linux check builds with the Ubuntu packages, following docs/building.md.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  QT_VERSION: '6.12.*'
+
+jobs:
+  linux-check:
+    name: Ubuntu packages
+    runs-on: ubuntu-latest
+    container: ubuntu:26.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install the packages of docs/building.md
+        run: |
+          apt-get update
+          apt-get install -y build-essential git cmake qt6-base-dev libgsl-dev zlib1g-dev
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: jara
+      - uses: actions/checkout@v4
+        with:
+          repository: JYU-IBA/jibal
+          path: jibal
+      - name: Build and install JIBAL
+        run: |
+          cmake -S jibal -B build_jibal -DCMAKE_BUILD_TYPE=Release
+          cmake --build build_jibal --parallel
+          cmake --install build_jibal
+          ldconfig
+      - name: Build and install JaRA
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/jara"
+          cmake -S jara -B build -DCMAKE_BUILD_TYPE=Release -DJARA_BUNDLE_JIBAL_DATA=ON
+          cmake --build build --parallel
+          cmake --install build
+      - name: Check # The stopping files are not installed with JIBAL, they come with JaRA
+        run: /usr/local/bin/jara --check-installation
+
+  appimage:
+    name: Linux AppImage
+    runs-on: ubuntu-24.04
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: 1 # linuxdeploy and the AppImage itself without FUSE
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Tags for the version
+          path: jara
+      - uses: actions/checkout@v4
+        with:
+          repository: JYU-IBA/jibal
+          path: jibal
+      - uses: lukka/get-cmake@latest
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          cache: true
+      - name: Install libraries
+        run: sudo apt-get update && sudo apt-get install -y libgsl-dev zlib1g-dev libxcb-cursor0
+      - name: Build and install JIBAL
+        run: |
+          cmake -S jibal -B build_jibal -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build_jibal
+          cmake --install build_jibal --prefix "$GITHUB_WORKSPACE/jibal_install"
+      - name: Build and install JaRA
+        run: |
+          cmake -S jara -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DJARA_BUNDLE_JIBAL_DATA=ON \
+              -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/jibal_install" -DCMAKE_INSTALL_PREFIX=/usr
+          cmake --build build
+          DESTDIR="$GITHUB_WORKSPACE/AppDir" cmake --install build
+      - name: Make the AppImage
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy*.AppImage
+          export QMAKE="$QT_ROOT_DIR/bin/qmake"
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/jibal_install/lib:$LD_LIBRARY_PATH"
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage \
+              --desktop-file AppDir/usr/share/applications/jara.desktop \
+              --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/jara.png
+          version=$(grep "^CMAKE_PROJECT_VERSION:" build/CMakeCache.txt | cut -d= -f2)
+          mkdir dist
+          mv JaRA*.AppImage "dist/JaRA $version Linux x86_64.AppImage"
+          echo "JIBAL $(git -C jibal rev-parse HEAD)" > dist/build-info-linux.txt
+      - name: Check
+        run: dist/*.AppImage --check-installation
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jara-linux
+          path: dist/
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: jara
+      - uses: actions/checkout@v4
+        with:
+          repository: JYU-IBA/jibal
+          path: jibal
+      - uses: lukka/get-cmake@latest
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          cache: true
+      - name: Install libraries with vcpkg
+        uses: johnwason/vcpkg-action@v6
+        id: vcpkg
+        with:
+          pkgs: gsl zlib getopt
+          triplet: x64-windows-release
+          token: ${{ github.token }}
+          github-binarycache: true
+      - name: Install WiX
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2
+          wix extension add -g WixToolset.Util.wixext/5.0.2
+      - name: Build and install JIBAL
+        run: |
+          cmake ${{ steps.vcpkg.outputs.vcpkg-cmake-config }} -S jibal -B build_jibal
+          cmake --build build_jibal --config Release
+          cmake --install build_jibal --config Release --prefix "${{ github.workspace }}/jibal_install"
+      - name: Build JaRA
+        run: |
+          cmake ${{ steps.vcpkg.outputs.vcpkg-cmake-config }} -S jara -B build -DJARA_BUNDLE_JIBAL_DATA=ON -DCMAKE_PREFIX_PATH="${{ github.workspace }}/jibal_install"
+          cmake --build build --config Release
+      - name: Make the zip and the MSI
+        working-directory: build
+        run: cpack -C Release -G "ZIP;WIX"
+      - name: Collect the packages
+        shell: bash
+        run: |
+          mkdir dist
+          mv build/JaRA*.zip build/JaRA*.msi dist/
+          echo "JIBAL $(git -C jibal rev-parse HEAD)" > dist/build-info-windows.txt
+      - name: Check
+        run: |
+          Expand-Archive -Path (Get-ChildItem dist/*.zip).FullName -DestinationPath check
+          $exe = (Get-ChildItem -Recurse check -Filter jara.exe | Select-Object -First 1).FullName
+          # jara.exe is a GUI program, so it is waited for and its output is read from a file
+          $p = Start-Process -FilePath $exe -ArgumentList "--check-installation" -Wait -PassThru -NoNewWindow -RedirectStandardOutput check.txt
+          Get-Content check.txt
+          exit $p.ExitCode
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jara-windows
+          path: dist/
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: jara
+      - uses: actions/checkout@v4
+        with:
+          repository: JYU-IBA/jibal
+          path: jibal
+      - name: Install Qt and libraries with Homebrew
+        run: brew install qt gsl ninja cmake
+      - name: Build and install JIBAL
+        run: |
+          cmake -S jibal -B build_jibal -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build_jibal
+          sudo cmake --install build_jibal
+      - name: Make the disk image (signed ad hoc)
+        run: |
+          jara/release_scripts/deploy_mac.sh
+          mkdir dist
+          mv jara/*.dmg dist/
+          echo "JIBAL $(git -C jibal rev-parse HEAD)" > dist/build-info-macos.txt
+      - name: Check
+        run: |
+          mountpoint=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$mountpoint" dist/*.dmg
+          "$mountpoint/JaRA.app/Contents/MacOS/jara" --check-installation
+          hdiutil detach "$mountpoint"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jara-macos
+          path: dist/

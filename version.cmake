@@ -1,5 +1,5 @@
-# Version information from git. Releases are tagged as vX.Y.Z, like in JaBS. version.txt holds the same number for
-# builds without git (e.g. from a source archive), release_scripts/bump_version.sh keeps the two in sync.
+# Version information from git. Releases are tagged as vX.Y.Z. version.txt holds the same number for builds without
+# git (e.g. from a source archive), release_scripts/bump_version.sh keeps the two in sync.
 #
 # When included from CMakeLists.txt this sets JARA_VERSION_TAG to the numeric version of the latest release tag, or
 # to the version in version.txt when there is no tag.

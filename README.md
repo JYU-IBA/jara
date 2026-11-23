@@ -52,7 +52,23 @@ spectra and depth profiles. Stopping, masses and isotopes come from [JIBAL](http
 - [Split analysis](docs/split-analysis.md)
 - [Reports](docs/reports.md)
 
+## License
+
+Copyright (C) 2026 Jaakko Julin
+
+JaRA is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as
+published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version. See
+[LICENSE.txt](LICENSE.txt). JaRA uses JIBAL, which is distributed under the same license.
+
+## How JaRA is made
+
+The code of JaRA has been written primarily, but not entirely, by Claude, an AI model by Anthropic, using Claude Opus
+5.5 in Claude Code, under the direction of the author, who designs the program, decides what is done and how, and
+reviews and tests the changes.
+
 ## Versions
 
 Releases are tagged `vX.Y.Z` and the same number is kept in `version.txt` for builds without git.
-`release_scripts/bump_version.sh` changes the version, commits it and tags the commit.
+`release_scripts/bump_version.sh` changes the version, commits it and tags the commit. Packages for Linux (AppImage),
+Windows (zip, MSI) and macOS (disk image) are on the [releases page](https://github.com/JYU-IBA/jara/releases), see
+[Packages and releases](docs/building.md#packages-and-releases-on-github).
