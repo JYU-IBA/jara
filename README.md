@@ -1,8 +1,9 @@
 # JaRA
 
 JaRA is a desktop program for analysing time-of-flight elastic recoil detection analysis (ToF-ERDA) data. It reads
-list-mode ToF-E event files, lets you select particles from the ToF-E histogram, and turns the selections into energy
-spectra and depth profiles. Stopping, masses and isotopes come from [JIBAL](https://github.com/JYU-IBA/jibal).
+list-mode ToF-E event files, lets you select the events of each element by drawing polygons on the ToF-E histogram,
+and turns the selections into energy spectra and depth profiles. Stopping, masses and isotopes come from
+[JIBAL](https://github.com/JYU-IBA/jibal).
 
 ## Features
 
@@ -33,7 +34,7 @@ spectra and depth profiles. Stopping, masses and isotopes come from [JIBAL](http
 1. Build JaRA, see [Building](docs/building.md).
 2. Create a project (File → New), add a sample and its measurement files (`*.asc`).
 3. Add experimental and detector settings and assign them to the measurements.
-4. Open the ToF-E histogram of a measurement and draw selections around the particles.
+4. Open the ToF-E histogram of a measurement and draw a selection around the events of each element.
 5. Calibrate the ToF with a few selections, then add energy spectra or depth profiles to the measurement.
 
 [Getting started](docs/getting-started.md) goes through these steps in more detail.
