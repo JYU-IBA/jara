@@ -3,3 +3,5 @@ cmake-build-*/
 .idea/
 .DS_Store
 testdata/
+build_deploy/
+*.dmg

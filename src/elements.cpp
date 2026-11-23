@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include <QCoreApplication>
+#include <QFile>
 #include <QRegularExpression>
 
 extern "C" {
@@ -20,7 +22,15 @@ const jibal_element *element(int z) {
 }
 
 bool Elements::init(QString &errorMessage) {
-    jibalInstance = jibal_init(nullptr);
+    QString configFile;
+#ifdef Q_OS_MACOS
+    // The app bundle made by release_scripts/deploy_mac.sh has its own JIBAL configuration and data files
+    const QString bundledConfigFile = QCoreApplication::applicationDirPath() + QStringLiteral("/../Resources/jibal.conf");
+    if(QFile::exists(bundledConfigFile)) {
+        configFile = bundledConfigFile;
+    }
+#endif
+    jibalInstance = jibal_init(configFile.isEmpty() ? nullptr : qPrintable(configFile));
     if(!jibalInstance) {
         errorMessage = QStringLiteral("JIBAL could not be initialized.");
         return false;

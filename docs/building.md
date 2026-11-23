@@ -37,3 +37,14 @@ If CMake does not find Qt or JIBAL, add their installation prefixes to `CMAKE_PR
 The version is taken from the latest `vX.Y.Z` tag, or from `version.txt` when there is no git. Every build records
 the git state, so the About dialog tells which commit the program was built from and whether it had uncommitted
 changes.
+
+## macOS disk image
+
+`release_scripts/deploy_mac.sh` builds JaRA in Release mode in `build_deploy/` and makes `JaRA <version> macOS
+<arch>.dmg`. The app in it has Qt, GSL and JIBAL inside, and the JIBAL masses, abundances and stopping files in
+`Contents/Resources` with a `jibal.conf` that JaRA uses instead of the user's own JIBAL configuration. The stopping
+files are downloaded once and checked against a known SHA-256. macdeployqt6 (from Qt) and jibaltool must be in `PATH`.
+The app is signed ad hoc, or with the identity in `JARA_SIGN_IDENTITY` if it is set. Only with a "Developer ID
+Application" identity is the hardened runtime (needed for notarization) used, because with a self-signed certificate
+it would not load the bundled libraries. The disk image only runs on the
+architecture and macOS version that Qt and the other libraries were built for.
