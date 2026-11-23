@@ -3,21 +3,40 @@
 ## Requirements
 
 - A C++20 compiler (Clang, GCC or MSVC)
-- [CMake](https://cmake.org/) 4.3 or newer
-- [Qt](https://www.qt.io/) 6.12 or newer (Widgets)
+- [CMake](https://cmake.org/) 4.2 or newer
+- [Qt](https://www.qt.io/) 6.9 or newer (Widgets)
 - [JIBAL](https://github.com/JYU-IBA/jibal), installed so that CMake finds it (`find_package(Jibal)`), with its
   data files
 - [GSL](https://www.gnu.org/software/gsl/)
 - zlib
 - git (optional, for the version information)
 
-On macOS the dependencies other than JIBAL are available from Homebrew:
+JaRA is developed and tested on macOS. It should build on Linux and Windows too, but is not regularly tested there.
+
+JIBAL is built and installed from its sources as described in its README, on every platform. It needs GSL, so
+install the other dependencies first.
+
+### macOS
+
+The dependencies other than JIBAL are available from Homebrew:
 
 ```sh
 brew install cmake qt gsl
 ```
 
-JIBAL is built and installed from its sources as described in its README.
+### Ubuntu
+
+The compiler, CMake, GSL, zlib and Qt come from the Ubuntu packages:
+
+```sh
+sudo apt install build-essential git cmake qt6-base-dev libgsl-dev zlib1g-dev
+```
+
+Only Qt Widgets is needed, which is in `qt6-base-dev`. Qt applications on X11 also need `libxcb-cursor0` to start; if
+JaRA exits with an error about the "xcb" platform plugin, install it.
+
+JIBAL is installed to `/usr/local` by default. Run `sudo ldconfig` after installing it, so that its shared library is
+found when JaRA runs.
 
 ## Compiling
 
