@@ -114,18 +114,25 @@ jobs:
           repository: JYU-IBA/jibal
           path: jibal
       - uses: lukka/get-cmake@latest
-      # Qt with aqtinstall run directly, so that its output and the architectures it offers are in the log
+      # Qt with aqtinstall run directly, so that its output and the architectures it offers are in the log.
+      # aqtinstall 3.3 cannot list the architectures of Qt 6.12 on Windows, an older Qt is used here.
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install Qt
+        env:
+          QT_VERSION: '6.9.*'
         run: |
           python -m pip install "aqtinstall==3.3.*"
-          $version = python -m aqt list-qt windows desktop --spec "$env:QT_VERSION" --latest-version
-          $arches = (python -m aqt list-qt windows desktop --arch $version) -split '\s+'
-          Write-Output "Qt $version, architectures: $($arches -join ', ')"
-          $arch = $arches | Where-Object { $_ -match '^win64_msvc\d+_64$' } | Select-Object -Last 1
-          if(-not $arch) { throw "No 64-bit MSVC architecture of Qt $version" }
+          $versionOutput = python -m aqt list-qt windows desktop --spec "$env:QT_VERSION" --latest-version 2>&1 | Out-String
+          Write-Output "aqt list-qt --latest-version:" $versionOutput
+          $version = ([regex]::Matches($versionOutput, '\b\d+\.\d+\.\d+\b') | Select-Object -Last 1).Value
+          if(-not $version) { throw "No Qt version matching $env:QT_VERSION" }
+          $archOutput = python -m aqt list-qt windows desktop --arch $version 2>&1 | Out-String
+          Write-Output "aqt list-qt --arch ${version}:" $archOutput
+          $arch = $archOutput -split '\s+' | Where-Object { $_ -match '^win64_msvc\d+_64$' } | Select-Object -Last 1
+          if(-not $arch) { throw "aqt did not list a 64-bit MSVC architecture of Qt $version, see its output above" }
+          Write-Output "Installing Qt $version $arch"
           python -m aqt install-qt windows desktop $version $arch --outputdir "$env:RUNNER_TEMP\Qt"
           if($LASTEXITCODE -ne 0) { throw "aqt install-qt failed" }
           $qtDir = (Get-ChildItem "$env:RUNNER_TEMP\Qt\$version" -Directory | Select-Object -First 1).FullName
