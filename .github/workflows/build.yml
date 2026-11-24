@@ -114,40 +114,31 @@ jobs:
           repository: JYU-IBA/jibal
           path: jibal
       - uses: lukka/get-cmake@latest
-      # Qt with aqtinstall run directly, so that its output and the architectures it offers are in the log.
-      # aqtinstall 3.3 cannot list the architectures of Qt 6.12 on Windows, an older Qt is used here.
-      - uses: actions/setup-python@v5
+      # Qt 6.9, the oldest supported version: the aqtinstall used by install-qt-action cannot install Qt 6.12 on Windows
+      - uses: jurplel/install-qt-action@v4
         with:
-          python-version: '3.12'
-      - name: Install Qt
-        env:
-          QT_VERSION: '6.9.*'
-        run: |
-          python -m pip install "aqtinstall==3.3.*"
-          $versionOutput = python -m aqt list-qt windows desktop --spec "$env:QT_VERSION" --latest-version 2>&1 | Out-String
-          Write-Output "aqt list-qt --latest-version:" $versionOutput
-          $version = ([regex]::Matches($versionOutput, '\b\d+\.\d+\.\d+\b') | Select-Object -Last 1).Value
-          if(-not $version) { throw "No Qt version matching $env:QT_VERSION" }
-          $archOutput = python -m aqt list-qt windows desktop --arch $version 2>&1 | Out-String
-          Write-Output "aqt list-qt --arch ${version}:" $archOutput
-          $arch = $archOutput -split '\s+' | Where-Object { $_ -match '^win64_msvc\d+_64$' } | Select-Object -Last 1
-          if(-not $arch) { throw "aqt did not list a 64-bit MSVC architecture of Qt $version, see its output above" }
-          Write-Output "Installing Qt $version $arch"
-          python -m aqt install-qt windows desktop $version $arch --outputdir "$env:RUNNER_TEMP\Qt"
-          if($LASTEXITCODE -ne 0) { throw "aqt install-qt failed" }
-          $qtDir = (Get-ChildItem "$env:RUNNER_TEMP\Qt\$version" -Directory | Select-Object -First 1).FullName
-          Write-Output "Qt in $qtDir"
-          "QT_ROOT_DIR=$qtDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "CMAKE_PREFIX_PATH=$qtDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "$qtDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-      - name: Install libraries with vcpkg
-        uses: johnwason/vcpkg-action@v6
+          version: '6.9.*'
+          arch: win64_msvc2022_64
+          cache: true
+      # The vcpkg of the runner image, with its built packages cached between runs
+      - name: Find vcpkg
         id: vcpkg
+        run: |
+          if(-not $env:VCPKG_INSTALLATION_ROOT) { throw "The runner image has no vcpkg (VCPKG_INSTALLATION_ROOT is not set)" }
+          "commit=$(git -C $env:VCPKG_INSTALLATION_ROOT rev-parse HEAD)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "VCPKG_BINARY_SOURCES=clear;files,$env:RUNNER_TEMP\vcpkg-cache,readwrite" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - uses: actions/cache@v4
         with:
-          pkgs: gsl zlib getopt
-          triplet: x64-windows-release
-          token: ${{ github.token }}
-          github-binarycache: true
+          path: ${{ runner.temp }}/vcpkg-cache
+          key: vcpkg-${{ steps.vcpkg.outputs.commit }}-x64-windows-release-gsl-zlib-getopt
+          restore-keys: vcpkg-
+      - name: Install libraries with vcpkg
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\vcpkg-cache" | Out-Null
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install gsl zlib getopt --triplet x64-windows-release
+          if($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
+          $toolchain = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -replace '\\', '/'
+          "VCPKG_TOOLCHAIN=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install WiX
         run: |
           dotnet tool install --global wix --version 5.0.2
@@ -155,12 +146,12 @@ jobs:
           wix extension add -g WixToolset.Util.wixext/5.0.2
       - name: Build and install JIBAL
         run: |
-          cmake ${{ steps.vcpkg.outputs.vcpkg-cmake-config }} -S jibal -B build_jibal
+          cmake -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_TOOLCHAIN" -DVCPKG_TARGET_TRIPLET=x64-windows-release -S jibal -B build_jibal
           cmake --build build_jibal --config Release
           cmake --install build_jibal --config Release --prefix "${{ github.workspace }}/jibal_install"
       - name: Build JaRA
         run: |
-          cmake ${{ steps.vcpkg.outputs.vcpkg-cmake-config }} -S jara -B build -DJARA_BUNDLE_JIBAL_DATA=ON -DCMAKE_PREFIX_PATH="${{ github.workspace }}/jibal_install"
+          cmake -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_TOOLCHAIN" -DVCPKG_TARGET_TRIPLET=x64-windows-release -S jara -B build -DJARA_BUNDLE_JIBAL_DATA=ON -DCMAKE_PREFIX_PATH="${{ github.workspace }}/jibal_install"
           cmake --build build --config Release
       - name: Make the zip and the MSI
         working-directory: build
