@@ -36,14 +36,14 @@ jobs:
       - name: Build and install JIBAL
         run: |
           cmake -S jibal -B build_jibal -DCMAKE_BUILD_TYPE=Release
-          cmake --build build_jibal --parallel
+          cmake --build build_jibal --parallel "$(nproc)"
           cmake --install build_jibal
           ldconfig
       - name: Build and install JaRA
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE/jara"
           cmake -S jara -B build -DCMAKE_BUILD_TYPE=Release -DJARA_BUNDLE_JIBAL_DATA=ON
-          cmake --build build --parallel
+          cmake --build build --parallel "$(nproc)" # Without a number, make runs every job at once and runs out of memory
           cmake --install build
       - name: Check # The stopping files are not installed with JIBAL, they come with JaRA
         run: /usr/local/bin/jara --check-installation
@@ -117,7 +117,6 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
-          arch: win64_msvc2022_64
           cache: true
       - name: Install libraries with vcpkg
         uses: johnwason/vcpkg-action@v6
