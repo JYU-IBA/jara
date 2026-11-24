@@ -164,6 +164,8 @@ install(TARGETS jara
 )
 if(WIN32)
     qt_generate_deploy_app_script(TARGET jara OUTPUT_SCRIPT jara_deploy_script NO_TRANSLATIONS)
+    # Qt's deploy script takes its binary directory from when Qt was found (bin), so it is given here
+    install(CODE "set(QT_DEPLOY_BIN_DIR \"${CMAKE_INSTALL_BINDIR}\")")
     install(SCRIPT ${jara_deploy_script})
     # GSL, zlib and JIBAL. Qt is deployed above, system DLLs are not copied. JARA_RUNTIME_DIRS has the directories of
     # the DLLs, by default next to the GSL headers (as in vcpkg) and the JIBAL library.

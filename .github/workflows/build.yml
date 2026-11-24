@@ -164,7 +164,9 @@ jobs:
         run: |
           Expand-Archive -Path (Get-ChildItem dist/*.zip).FullName -DestinationPath check
           $exe = (Get-ChildItem -Recurse check -Filter jara.exe | Select-Object -First 1).FullName
-          # jara.exe is a GUI program, so it is waited for and its output is read from a file
+          # jara.exe is a GUI program, so it is waited for and its output is read from a file. Only the system
+          # directories are in PATH, so that the DLLs must come from the package, not from Qt or vcpkg of the runner.
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
           $p = Start-Process -FilePath $exe -ArgumentList "--check-installation" -Wait -PassThru -NoNewWindow -RedirectStandardOutput check.txt
           Get-Content check.txt
           exit $p.ExitCode
