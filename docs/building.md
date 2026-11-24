@@ -87,7 +87,8 @@ macOS version that Qt and the other libraries were built for.
 
 ## Packages and releases on GitHub
 
-The Build workflow (`.github/workflows/build.yml`) runs for pushes to main, for version tags and by hand. It builds
+The Build workflow (`.github/workflows/build.yml`) is only run by hand, for a branch or a tag (Actions → Build → Run
+workflow, or `gh workflow run build.yml --ref <tag>`). It builds
 JIBAL from its main branch and makes these packages:
 
 - a Linux AppImage, made with linuxdeploy on Ubuntu 24.04 with Qt from the Qt installer;
@@ -101,7 +102,7 @@ with the Ubuntu 26.04 packages as described above, to check these instructions. 
 To make a release:
 
 1. Run `release_scripts/bump_version.sh` and push the commit and the tag.
-2. Check the packages of the Build run of the tag.
+2. Run the Build workflow for the tag and check its packages.
 3. Run the Release workflow (`.github/workflows/release.yml`) by hand with the tag. It makes a draft release with the
    packages of that run and their SHA-256 sums.
 4. Optionally replace the ad hoc signed disk image with one signed locally (`gh release upload <tag> <dmg> --clobber`,

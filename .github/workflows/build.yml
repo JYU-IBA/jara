@@ -1,13 +1,11 @@
 # Builds JaRA with JIBAL (main) and makes the packages: an AppImage, a zip and an MSI for Windows and an ad hoc signed
 # DMG for macOS. Each package is checked by running the packaged program with --check-installation, which loads the
 # bundled JIBAL data. The packages are uploaded as artifacts of the run; release.yml makes a draft release of them.
-# The Linux check builds with the Ubuntu packages, following docs/building.md.
+# The Linux check builds with the Ubuntu packages, following docs/building.md. The workflow is only run by hand, for a
+# branch or a tag.
 name: Build
 
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
   workflow_dispatch:
 
 env:
