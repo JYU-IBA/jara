@@ -147,6 +147,10 @@ QString settingsText(const QString &item, const Measurement &measurement, const 
         if(!physics.corrections.isEmpty()) {
             text += QString(", %1 element pair corrections").arg(physics.corrections.size());
         }
+        if(physics.slowingDown != SlowingDownMethod::Midpoint) {
+            text += physics.slowingDown == SlowingDownMethod::Euler ? QStringLiteral(", first-order slowing down")
+                                                                    : QStringLiteral(", Runge-Kutta slowing down");
+        }
         return text;
     }
     // Profile parameters, depths in 1e15 at./cm²

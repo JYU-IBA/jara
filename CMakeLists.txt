@@ -13,6 +13,7 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 find_package(GSL REQUIRED)
 find_package(Jibal REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(Threads REQUIRED)
 
 add_executable(jara
         src/main.cpp
@@ -80,6 +81,7 @@ add_executable(jara
         src/matrix.h
         src/crosssection.cpp
         src/crosssection.h
+        src/parallel.h
         src/foildialog.cpp
         src/formlayout.cpp
         src/formlayout.h
@@ -139,7 +141,7 @@ endif()
 
 target_compile_definitions(jara PRIVATE JARA_VERSION="${PROJECT_VERSION}")
 target_include_directories(jara PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(jara PRIVATE Qt6::Widgets GSL::gsl jibal ZLIB::ZLIB)
+target_link_libraries(jara PRIVATE Qt6::Widgets GSL::gsl jibal ZLIB::ZLIB Threads::Threads)
 
 # macOS refuses to show native file dialogs for an app bundle without an identifier
 set_target_properties(jara PROPERTIES

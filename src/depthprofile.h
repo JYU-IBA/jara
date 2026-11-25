@@ -30,15 +30,19 @@
 // Depth profiles from single scattering (slab analysis). Each event is assumed to come from one recoil or scattering
 // event at some depth, without multiple scattering. Depths are areal densities in atoms/m².
 //
-// The detected energy of a selection's particles is a decreasing function of the depth they come from: the beam slows
-// down on the way in, the particle gets the kinematic fraction of the beam energy and slows down on the way out. Both
-// depend on the composition, which is tabulated in stopping bins and calculated with Bragg's rule. Each event gets the
-// depth where this function gives its energy, and a weight of 1 / (efficiency * cross section) with Rutherford cross
-// sections with the Andersen screening correction at the beam energy at that depth. The weights of each element in a
-// stopping bin, relative to all of them, give the composition of the next iteration. Events are shared between the two
-// nearest bins, and each bin gets a number of pseudo-events with the composition of the bin before it, which keeps
-// bins with few events from swinging and lets the iterations converge. The first iteration assumes the same
-// composition at all depths, from the weights of all events with cross sections at the beam energy.
+// The detected energy of a particle is a decreasing function of the depth it comes from: the beam slows down on the
+// way in, the particle gets the kinematic fraction of the beam energy and slows down on the way out. Both depend on the
+// composition, which is tabulated in stopping bins and calculated with Bragg's rule. Each event is treated on its own,
+// as in erd_depth: from its detected energy, the energy it had before crossing each stopping bin on its way out is
+// calculated bin by bin from the surface, until it reaches the kinematic fraction of the beam energy at that depth. The
+// depth where they meet is interpolated linearly within the bin. The event gets a weight of 1 / (efficiency * cross
+// section) with Rutherford cross sections, optionally with the Andersen screening correction, at the beam energy at
+// that depth. The events are independent, so they are calculated on several threads; the results do not depend on
+// their number. The weights of each element in a stopping bin, relative to all of them, give the composition of the
+// next iteration. Events are shared between the two nearest bins, and each bin gets a number of pseudo-events with the
+// composition of the bin before it, which keeps bins with few events from swinging and lets the iterations converge.
+// The first iteration assumes the same composition at all depths, from the weights of all events with cross sections
+// at the beam energy.
 //
 // A selection of an isotope can represent its natural element: its events are weighted by 1 / natural abundance as well.
 // The natural abundance is from JIBAL unless the user has set another one. The events of a selection can also be given
@@ -49,12 +53,13 @@
 // efficiency is that of the selection's isotope, the incident ion for scattered ions, or of the most abundant isotope
 // when the selection is an element.
 //
-// With the kinematic correction of the profile and an angle calibration of the detector, each event is detected at its own angle, from the timing coordinate,
-// see anglecalibration.h. Its detected energy is multiplied by K(scattering angle) / K(angle of the event), K being the
-// kinematic factor, as if it was detected at the scattering/recoil angle of the detector. The timing of each event is
-// spread uniformly over the timing smoothing of the calibration first, with a fixed seed for each selection. The
-// efficiency is that of the energy before the correction, which the particle had. Events at an angle no particles
-// reach are not corrected.
+// With the kinematic correction of the profile and an angle calibration of the detector, each event is detected at its
+// own angle, from the timing coordinate, see anglecalibration.h. The timing of each event is spread uniformly over the
+// timing smoothing of the calibration first, with a fixed seed for each selection. The event then has its own kinematic
+// factor, exit angle and cross section. The window is assumed to be in the scattering plane, so an event detected at
+// the scattering angle + Δθ leaves the sample at the exit angle + Δθ. Events at an angle no particles reach, or where
+// they would not leave the sample, are calculated at the scattering/recoil angle. Without the correction, all events
+// are at the scattering/recoil angle of the detector.
 //
 // Only the events in the range of the profile are used, see split.h. A selection can use a narrower part of it, e.g.
 // hydrogen only from the beginning of the measurement before it is lost. Its events are then weighted by the reference
@@ -62,9 +67,16 @@
 //
 // The stopping is only known within the energy range of the stopping files (StoppingTable::minEnergy() and
 // maxEnergy()). The calculation is refused when the beam energy, or the kinematic fraction of it of a detected
-// particle, is above the range. Events whose particle would have an energy outside the range on its way out, at the
-// sample surface or after the foil, are left out. Events from depths where the beam has slowed down below the range get
+// particle at the angle of any of its events, is above the range. Events whose particle would have an energy outside
+// the range on its way out, at the sample surface or after the foil, are left out. Going in from the surface, the
+// energy of an event grows up to the kinematic fraction of the beam energy, so it stays in the range; only within the
+// stopping bin where they meet can it exceed it, by at most the energy lost in the bin, and the last value of the
+// stopping file is used there (see stopping.h). Events from depths where the beam has slowed down below the range get
 // no depth and a weight of zero.
+//
+// The composition is constant within a stopping bin in an iteration, so the stopping of the beam and of each particle
+// in each bin is combined in advance (StoppingTable::Mixture): the values of the elements summed on the stopping
+// files' own points, which gives the same stopping up to rounding.
 //
 // With an automatic maximum depth, the stopping bins are extended when events come from deeper, and cut when the
 // events end well before the maximum depth.
@@ -140,6 +152,9 @@ public:
         // in a part is a binomial estimate of its fraction of the fluence. A selection using the whole range has none.
         std::vector<double> rangeCovariances;
         std::vector<double> energies; // J, detected, of the events used
+        std::vector<double> angles; // rad, scattering/recoil angles of the events used, see above
+        std::vector<double> kinematicFactors; // At the angles of the events used
+        std::vector<double> exitPaths; // 1 / sin(exit angle) of the events used, path length / depth on the way out
         // 1 / efficiency of the events used, also / natural abundance when the isotope represents its element and times
         // the additional weight of the selection and its range weight
         std::vector<double> efficiencyWeights;
@@ -205,21 +220,27 @@ private:
         int z = 0;
         double mass = 0; // kg
         StoppingTable stopping; // In the elements of the composition
-        std::vector<std::vector<double>> exitEnergies; // [boundary][energy grid point], see iterate()
-        std::vector<double> grid; // Energies, J
+        std::vector<StoppingTable::Mixture> binStopping; // In each stopping bin with its composition, see iterate()
     };
     struct SelectionPhysics {
         size_t particle; // Index in m_particles
-        double kinematicFactor;
+        double kinematicFactor; // At the scattering/recoil angle
         double targetMass; // kg
+    };
+    enum class EventStatus : unsigned char { Ok, TooDeep, LowBeamEnergy };
+    struct EventResult {
+        double depth; // NaN unless Ok
+        double weight; // Zero unless Ok
+        EventStatus status;
     };
 
     double traverse(const Particle &particle, size_t bin, double energy, double pathLength) const;
-    double exitEnergy(const Particle &particle, size_t boundary, double energy) const; // Interpolated in the table
-    double crossSection(const Selection &selection, double beamEnergy) const; // m²/sr
+    double crossSection(const Selection &selection, double beamEnergy, double angle) const; // m²/sr
     double beamEnergyAt(double depth) const;
+    void combineStopping(); // The binStopping of the beam and the particles from the current composition
     void calculateBeamEnergies();
-    void calculateExitEnergies(Particle &particle);
+    // Depth and weight of event i of the selection with the current composition, safe to call from several threads
+    EventResult eventDepth(const Selection &selection, size_t i) const;
     void initialComposition();
     void recordIteration(size_t bins); // After the events have their depths
     bool adjustMaxDepth(); // True when the stopping bins were changed

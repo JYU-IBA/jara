@@ -167,6 +167,7 @@ private:
     QComboBox *m_screeningCombo;
     QComboBox *m_nuclearMassCombo;
     QComboBox *m_interpolationCombo;
+    QComboBox *m_slowingDownCombo;
     QDoubleSpinBox *m_electronicSpin;
     QDoubleSpinBox *m_nuclearSpin;
     QComboBox *m_stoppingFileCombo;

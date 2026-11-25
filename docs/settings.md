@@ -55,8 +55,8 @@ Used by depth profiles and the foil correction. Measurements without physics set
 
 - **Cross sections**: the **screening** of the Rutherford cross sections, none or Andersen
 - **Stopping of all elements**: **electronic and nuclear factors** that multiply the stopping, the **nuclear stopping
-  mass**, the **interpolation** of stopping, and the **stopping file**, the GSTO file of electronic stopping or JIBAL's
-  choice
+  mass**, the **interpolation** of stopping, the **slowing down** method and the **stopping file**, the GSTO file of
+  electronic stopping or JIBAL's choice
 - **Stopping of element pairs**: corrections for an incident element in a target element, or in any target, with their
   own factors and stopping file
 
@@ -97,6 +97,18 @@ spline also oscillates slightly for a few points on each side. Elsewhere the int
 Each is multiplied by its factor: **Electronic factor** and **Nuclear factor**. A factor of 1.05 makes the stopping
 5 % larger.
 
+**Slowing down** sets how the energy of a particle is followed along a path, e.g. through a stopping bin of a depth
+profile or the timing detector foil. The path is divided into steps where the particle loses at most 2 % of its
+energy. In each step:
+
+- **Runge-Kutta (fourth order)**: the stopping at four energies within the step.
+- **Midpoint (second order)** (the default): the stopping at the energy halfway through the step, estimated from the
+  stopping at its start. Depth profiles are about twice as fast as with Runge-Kutta, and with the default stopping bins within 0.001 at.% of
+  Runge-Kutta.
+- **Euler (first order)**: the stopping at the energy at the start of the step, about three times faster than
+  Runge-Kutta. The error of a step grows with the square of its energy loss; with the default stopping bins
+  concentrations differ from Runge-Kutta by up to a few tenths of an at.%.
+
 **Stopping of element pairs** changes the stopping of single combinations. Pairs are added and removed from the context
 menu of the table (**Add Pair**, **Remove**, **Remove All**). Each row has:
 
@@ -116,7 +128,7 @@ Stopping is only known within the energy range of the file, e.g. 1 keV/u–10 Me
 energy spectra do not use stopping outside it:
 
 - A depth profile is not calculated when the beam energy, or the energy a detected particle gets from the beam (the
-  kinematic factor × the beam energy), is above the range. The error names the particle, the element and the file.
+  kinematic factor × the beam energy, at the angle of any of its events), is above the range. The error names the particle, the element and the file.
 - Events whose energy is outside the range in the sample or in the timing detector foil are left out, and events from
   depths where the beam has slowed down below the range get a weight of zero. See
   [Depth profiles](depth-profiles.md#calculation) and [Energy spectra](energy-spectra.md).

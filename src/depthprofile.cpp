@@ -17,6 +17,7 @@
 #include "crosssection.h"
 #include "defaults.h"
 #include "elements.h"
+#include "parallel.h"
 #include "energyspectrum.h"
 #include "split.h"
 #include "stopping.h"
@@ -43,8 +44,6 @@ constexpr double AutoDepthMargin = 0.1; // Of the deepest event, left after it w
 constexpr int AutoDepthMarginBins = 5; // Stopping bins also left after it
 constexpr double AutoDepthCutLevel = 0.8; // The bins are cut when fewer than this fraction of them are needed
 constexpr int MaxBinsAboveSurface = 100; // Events higher above the surface are left out of the profile
-constexpr int GridPoints = 250; // Of the energy grid of the exit energy tables, evenly spaced on a logarithmic scale
-constexpr double GridRange = 100; // Highest energy of the grid divided by the lowest
 constexpr int MaxSteps = 50; // Of slowing down, particles losing more stop or nearly, the exact energy hardly matters
 constexpr int AutoNormalizationSmoothing = 2; // Bins on each side in the moving average of the total
 constexpr double AutoNormalizationTolerance = 0.1; // Relative difference of the total from its typical level allowed
@@ -235,27 +234,6 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         }
     }
 
-    // Energy grids of the exit energy tables, up to the highest energy the particles can get
-    for(size_t i = 0; i < m_particles.size(); i++) {
-        double maxEnergy = 0;
-        for(size_t s = 0; s < m_physics.size(); s++) {
-            if(m_physics[s].particle == i) {
-                maxEnergy = std::max(maxEnergy, m_physics[s].kinematicFactor * inputs.beamEnergy);
-            }
-        }
-        Particle &particle = m_particles[i];
-        if(maxEnergy > particle.stopping.maxEnergy()) {
-            m_errorMessage = stoppingRangeError(particle.stopping, particle.z, maxEnergy, "detected");
-            return;
-        }
-        maxEnergy *= 1.01;
-        const double ratio = std::pow(GridRange, 1.0 / (GridPoints - 1));
-        double energy = maxEnergy / GridRange;
-        for(int k = 0; k < GridPoints; k++, energy *= ratio) {
-            particle.grid.push_back(energy);
-        }
-    }
-
     // Detected energies and efficiencies of the events. The time of flight is spread within its channel, as in energy
     // spectra.
     const EventDivision division(events, inputs.referencePolygon);
@@ -295,7 +273,10 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
         const double smoothing = inputs.angleCalibration.timingSmoothing;
         std::uniform_real_distribution<double> timingSpread(-smoothing, smoothing);
         std::vector<double> energies;
-        std::vector<double> corrections; // Of the energies, with the kinematic correction
+        // The scattering/recoil angle, kinematic factor and exit path of each event, see Selection
+        std::vector<double> eventAngles;
+        std::vector<double> eventKinematicFactors;
+        std::vector<double> eventExitPaths;
         double maxEnergy = 0;
         const SelectionPhysics &selectionPhysics = m_physics[static_cast<size_t>(s)];
         forEachEventIn(range, cut.polygon, [&](const ToFEEvent &event) {
@@ -308,15 +289,26 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
             }
             energies.push_back(energy);
             maxEnergy = std::max(maxEnergy, energy);
+            double eventAngle = angle;
+            double k = selectionPhysics.kinematicFactor;
+            double exit = exitAngle;
             if(inputs.kinematicCorrection) {
                 ToFEEvent smoothed = event;
                 if(smoothing > 0) {
                     smoothed.timing += timingSpread(timingRandom);
                 }
                 const double offset = angleOffset(inputs.angleCalibration, inputs.detectorDistance, inputs.windowWidth, smoothed);
-                const double k = kinematicFactor(cut.type, m_beamMass, selectionPhysics.targetMass, angle + offset);
-                corrections.push_back(k > 0 ? selectionPhysics.kinematicFactor / k : 1);
+                const double ownK = kinematicFactor(cut.type, m_beamMass, selectionPhysics.targetMass, angle + offset);
+                // At the scattering/recoil angle when no particles reach the event's own angle or leave the sample there
+                if(ownK > 0 && exitAngle + offset > 0) {
+                    eventAngle = angle + offset;
+                    k = ownK;
+                    exit = exitAngle + offset;
+                }
             }
+            eventAngles.push_back(eventAngle);
+            eventKinematicFactors.push_back(k);
+            eventExitPaths.push_back(1 / std::sin(exit));
         });
         const bool scattered = cut.type == CutType::Scattered;
         const EfficiencyCurve *curve = findEfficiency(inputs.efficiencies, scattered ? inputs.beamZ : cut.z,
@@ -349,7 +341,10 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
                 selection.lowEfficiencyEvents++;
                 continue;
             }
-            selection.energies.push_back(corrections.empty() ? energy : energy * corrections[i]);
+            selection.energies.push_back(energy);
+            selection.angles.push_back(eventAngles[i]);
+            selection.kinematicFactors.push_back(eventKinematicFactors[i]);
+            selection.exitPaths.push_back(eventExitPaths[i]);
             selection.efficiencyWeights.push_back(cut.weight * selection.rangeWeight * cut.abundanceCorrection / eff);
         }
         selection.depths.assign(selection.energies.size(), 0);
@@ -371,13 +366,33 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
                                                                             - 1 / static_cast<double>(referenceCounts));
         }
     }
+    // The particles get at most the kinematic fraction of the beam energy at their angle, which needs stopping data
+    for(size_t s = 0; s < m_selections.size(); s++) {
+        const Selection &selection = m_selections[s];
+        const auto highest = std::max_element(selection.kinematicFactors.begin(), selection.kinematicFactors.end());
+        if(highest == selection.kinematicFactors.end()) {
+            continue; // No events
+        }
+        const Particle &particle = m_particles[m_physics[s].particle];
+        const double maxEnergy = *highest * inputs.beamEnergy;
+        if(maxEnergy > particle.stopping.maxEnergy()) {
+            m_errorMessage = stoppingRangeError(particle.stopping, particle.z, maxEnergy, "detected");
+            const double eventAngle = selection.angles[static_cast<size_t>(highest - selection.kinematicFactors.begin())];
+            if(eventAngle != inputs.scatteringAngle) {
+                m_errorMessage += QString(" The highest is that of an event of %1 detected at %2° with the kinematic "
+                                          "correction.")
+                                          .arg(cutLabel(selection.z, selection.a, selection.type, false))
+                                          .arg(eventAngle / Units::Degree, 0, 'g', 4);
+            }
+            return;
+        }
+    }
     initialComposition();
 }
 
-double DepthProfileCalculation::crossSection(const Selection &selection, double beamEnergy) const {
+double DepthProfileCalculation::crossSection(const Selection &selection, double beamEnergy, double angle) const {
     const SelectionPhysics &physics = m_physics[static_cast<size_t>(&selection - m_selections.data())];
     const bool andersen = m_inputs.physics.screening == ScreeningModel::Andersen;
-    const double angle = m_inputs.scatteringAngle;
     if(selection.type == CutType::Scattered) {
         return rbsCrossSection(m_inputs.beamZ, m_beamMass, selection.z, physics.targetMass, angle, beamEnergy, andersen);
     }
@@ -388,12 +403,18 @@ void DepthProfileCalculation::initialComposition() {
     // The same at all depths, from the weights of all events with cross sections at the beam energy
     std::vector<double> weights(static_cast<size_t>(m_elements.size()), 0);
     for(const Selection &selection : m_selections) {
-        const double sigma = crossSection(selection, m_inputs.beamEnergy);
+        std::vector<double> eventWeights(selection.efficiencyWeights.size());
+        parallelFor(eventWeights.size(), [this, &selection, &eventWeights](size_t begin, size_t end) {
+            for(size_t i = begin; i < end; i++) {
+                const double sigma = crossSection(selection, m_inputs.beamEnergy, selection.angles[i]);
+                eventWeights[i] = sigma > 0 ? selection.efficiencyWeights[i] / sigma : 0;
+            }
+        });
         double sum = 0;
-        for(const double weight : selection.efficiencyWeights) {
-            sum += weight;
+        for(const double weight : eventWeights) {
+            sum += weight; // In order, the same with any number of threads
         }
-        weights[static_cast<size_t>(m_elements.indexOf(selection.z))] += sum / sigma;
+        weights[static_cast<size_t>(m_elements.indexOf(selection.z))] += sum;
     }
     double total = 0;
     for(const double weight : weights) {
@@ -413,30 +434,24 @@ void DepthProfileCalculation::initialComposition() {
 }
 
 double DepthProfileCalculation::traverse(const Particle &particle, size_t bin, double energy, double pathLength) const {
-    return slowDown(particle.stopping, m_composition.row(bin), energy, pathLength, MaxSteps);
+    return slowDown(particle.stopping, particle.binStopping[bin], energy, pathLength, MaxSteps);
 }
 
-double DepthProfileCalculation::exitEnergy(const Particle &particle, size_t boundary, double energy) const {
-    // Cubic interpolation in the logarithm of the energy, the grid is evenly spaced in it
-    const std::vector<double> &grid = particle.grid;
-    const std::vector<double> &table = particle.exitEnergies[boundary];
-    if(!(energy > 0)) {
-        return 0;
+void DepthProfileCalculation::combineStopping() {
+    // The beam and each particle in each stopping bin, all independent
+    const size_t tables = m_particles.size() + 1;
+    m_beam.binStopping.resize(m_bins);
+    for(Particle &particle : m_particles) {
+        particle.binStopping.resize(m_bins);
     }
-    if(energy <= grid.front()) {
-        return table.front() * energy / grid.front(); // Slow particles, hardly matters
-    }
-    const double position = std::log(energy / grid.front()) / std::log(grid[1] / grid.front());
-    const auto last = static_cast<int>(grid.size()) - 1;
-    if(position >= last) {
-        return table.back() + (energy - grid.back()) * (table[last] - table[last - 1]) / (grid[last] - grid[last - 1]);
-    }
-    const int i = std::clamp(static_cast<int>(std::floor(position)) - 1, 0, last - 3);
-    const double t = position - i;
-    // Lagrange polynomial through the points i ... i + 3, t from 0 to 3
-    const double y0 = table[i], y1 = table[i + 1], y2 = table[i + 2], y3 = table[i + 3];
-    return y0 * (t - 1) * (t - 2) * (t - 3) / -6 + y1 * t * (t - 2) * (t - 3) / 2 + y2 * t * (t - 1) * (t - 3) / -2
-           + y3 * t * (t - 1) * (t - 2) / 6;
+    parallelFor(tables * m_bins, [this](size_t begin, size_t end) {
+        for(size_t n = begin; n < end; n++) {
+            const size_t t = n / m_bins;
+            const size_t bin = n % m_bins;
+            Particle &particle = t == 0 ? m_beam : m_particles[t - 1];
+            particle.binStopping[bin] = particle.stopping.mixture(m_composition.row(bin));
+        }
+    }, 16);
 }
 
 void DepthProfileCalculation::calculateBeamEnergies() {
@@ -448,19 +463,42 @@ void DepthProfileCalculation::calculateBeamEnergies() {
     }
 }
 
-void DepthProfileCalculation::calculateExitEnergies(Particle &particle) {
-    // Energy at the surface of a particle that starts from a boundary with a grid energy. From the boundary j + 1 the
-    // particle crosses the bin j to the boundary j, then continues from there as tabulated for it.
-    const double path = m_binWidth / std::sin(m_inputs.scatteringAngle - m_inputs.incidentAngle);
-    particle.exitEnergies.assign(m_bins + 1, {});
-    particle.exitEnergies[0] = particle.grid;
-    for(size_t j = 0; j < m_bins; j++) {
-        std::vector<double> &next = particle.exitEnergies[j + 1];
-        next.resize(particle.grid.size());
-        for(size_t k = 0; k < particle.grid.size(); k++) {
-            next[k] = exitEnergy(particle, j, traverse(particle, j, particle.grid[k], path));
+DepthProfileCalculation::EventResult DepthProfileCalculation::eventDepth(const Selection &selection, size_t i) const {
+    // Back from the surface, bin by bin, the energy the particle had before crossing each stopping bin on its way out,
+    // until it reaches the kinematic fraction of the beam energy at the boundary. The difference between the two
+    // grows with depth, its zero is found by linear interpolation within the bin.
+    const Particle &particle = m_particles[m_physics[static_cast<size_t>(&selection - m_selections.data())].particle];
+    const double k = selection.kinematicFactors[i];
+    const double path = m_binWidth * selection.exitPaths[i];
+    double energy = selection.energies[i];
+    double difference = energy - k * m_beamEnergies[0];
+    double depth = NaN;
+    if(difference >= 0) {
+        // Above the surface, from the depth resolution. The slope of the first bin is extended.
+        const double before = speedUp(particle.stopping, particle.binStopping[0], energy, path, MaxSteps);
+        const double slope = before - k * m_beamEnergies[1] - difference;
+        depth = slope > 0 ? -difference / slope * m_binWidth : 0;
+    } else {
+        for(size_t j = 0; j < m_bins; j++) {
+            const double before = speedUp(particle.stopping, particle.binStopping[j], energy, path, MaxSteps);
+            const double next = before - k * m_beamEnergies[j + 1];
+            if(next >= 0) {
+                depth = (static_cast<double>(j) + difference / (difference - next)) * m_binWidth;
+                break;
+            }
+            energy = before;
+            difference = next;
+        }
+        if(std::isnan(depth)) {
+            return {NaN, 0, EventStatus::TooDeep};
         }
     }
+    const double beamEnergy = beamEnergyAt(depth);
+    if(beamEnergy < m_beam.stopping.minEnergy()) {
+        return {NaN, 0, EventStatus::LowBeamEnergy};
+    }
+    const double sigma = crossSection(selection, beamEnergy, selection.angles[i]);
+    return {depth, sigma > 0 ? selection.efficiencyWeights[i] / sigma : 0, EventStatus::Ok};
 }
 
 double DepthProfileCalculation::beamEnergyAt(double depth) const {
@@ -480,10 +518,8 @@ void DepthProfileCalculation::iterate() {
     if(!isValid()) {
         return;
     }
+    combineStopping();
     calculateBeamEnergies();
-    for(Particle &particle : m_particles) {
-        calculateExitEnergies(particle);
-    }
     const size_t bins = m_bins;
 
     // Depths and weights of the events. Each event is shared between the two stopping bins with the nearest centres,
@@ -494,50 +530,31 @@ void DepthProfileCalculation::iterate() {
     std::vector<double> allWeights(elementCount, 0);
     for(size_t s = 0; s < m_selections.size(); s++) {
         Selection &selection = m_selections[s];
-        const SelectionPhysics &physics = m_physics[s];
-        const Particle &particle = m_particles[physics.particle];
-        // Detected energy of particles from each boundary, decreasing with depth
-        std::vector<double> detected(m_bins + 1);
-        for(size_t j = 0; j <= m_bins; j++) {
-            detected[j] = exitEnergy(particle, j, physics.kinematicFactor * m_beamEnergies[j]);
-            if(j > 0) {
-                detected[j] = std::min(detected[j], detected[j - 1]);
+        // The events are independent of each other, each thread writes only those of its own indices
+        std::vector<EventStatus> status(selection.energies.size());
+        parallelFor(status.size(), [this, &selection, &status](size_t begin, size_t end) {
+            for(size_t i = begin; i < end; i++) {
+                const EventResult result = eventDepth(selection, i);
+                selection.depths[i] = result.depth;
+                selection.weights[i] = result.weight;
+                status[i] = result.status;
             }
-        }
+        });
+        // Summed in order, the same with any number of threads
         const auto element = static_cast<size_t>(m_elements.indexOf(selection.z));
         selection.tooDeepEvents = 0;
         selection.lowBeamEnergyEvents = 0;
-        for(size_t i = 0; i < selection.energies.size(); i++) {
-            const double energy = selection.energies[i];
-            double depth;
-            if(energy <= detected[m_bins] || detected[0] <= 0) {
-                selection.depths[i] = NaN;
-                selection.weights[i] = 0;
+        for(size_t i = 0; i < status.size(); i++) {
+            if(status[i] == EventStatus::TooDeep) {
                 selection.tooDeepEvents++;
                 continue;
             }
-            if(energy >= detected[0]) {
-                // Above the surface, from the depth resolution. The slope of the first bin is extended.
-                const double slope = (detected[0] - detected[1]) / m_binWidth;
-                depth = slope > 0 ? -(energy - detected[0]) / slope : 0;
-            } else {
-                // The first boundary below the energy, the one before it is above or at it
-                const auto below = std::upper_bound(detected.begin(), detected.end(), energy, std::greater<>());
-                const auto j = static_cast<size_t>(below - detected.begin()) - 1;
-                const double drop = detected[j] - detected[j + 1];
-                depth = (static_cast<double>(j) + (drop > 0 ? (detected[j] - energy) / drop : 0)) * m_binWidth;
-            }
-            const double beamEnergy = beamEnergyAt(depth);
-            if(beamEnergy < m_beam.stopping.minEnergy()) {
-                selection.depths[i] = NaN;
-                selection.weights[i] = 0;
+            if(status[i] == EventStatus::LowBeamEnergy) {
                 selection.lowBeamEnergyEvents++;
                 continue;
             }
-            const double sigma = crossSection(selection, beamEnergy);
-            const double weight = sigma > 0 ? selection.efficiencyWeights[i] / sigma : 0;
-            selection.depths[i] = depth;
-            selection.weights[i] = weight;
+            const double depth = selection.depths[i];
+            const double weight = selection.weights[i];
             const double centres = std::clamp(depth / m_binWidth - 0.5, 0.0, static_cast<double>(m_bins - 1));
             const auto lower = static_cast<size_t>(centres);
             const double upperShare = centres - static_cast<double>(lower);
@@ -1251,6 +1268,15 @@ QString depthProfileLog(const DepthProfileCalculation &calculation) {
         const AngleCalibration &a = inputs.angleCalibration;
         lines << QString("  Kinematic correction: on, detector distance %1 mm, window width %2 mm")
                          .arg(general(inputs.detectorDistance / Units::Millimetre), general(inputs.windowWidth / Units::Millimetre));
+        const double halfAngle = inputs.detectorDistance > 0 && inputs.windowWidth > 0
+                                         ? std::atan(inputs.windowWidth / 2 / inputs.detectorDistance)
+                                         : 0;
+        const double exitAngle = inputs.scatteringAngle - inputs.incidentAngle;
+        lines << QString("  Each event at its own angle: kinematic factor, exit angle and cross section; scattering/recoil "
+                         "angles %1–%2°, exit angles %3–%4° (window in the scattering plane)")
+                         .arg(general((inputs.scatteringAngle - halfAngle) / Units::Degree),
+                              general((inputs.scatteringAngle + halfAngle) / Units::Degree))
+                         .arg(general((exitAngle - halfAngle) / Units::Degree), general((exitAngle + halfAngle) / Units::Degree));
         lines << QString("  Angle calibration: centre %1 ticks + %2 ticks/ch × ToF, half width %3 ticks, sigma %4 ticks, "
                          "%5, timing smoothing ±%6 ticks")
                          .arg(general(a.centre), general(a.centreSlope), general(a.halfWidth), general(a.sigma),
@@ -1310,10 +1336,11 @@ QString depthProfileLog(const DepthProfileCalculation &calculation) {
     const DepthProfilePreferences preferences = Defaults::depthProfilePreferences();
     lines << QString("  Convergence: no concentration changes more than %1 at.%, at most %2 iterations in a run "
                      "(preferences)").arg(general(preferences.tolerance * 100)).arg(preferences.maxIterations);
-    lines << QString("  Exit energy tables: %1 energies over a factor of %2, evenly on a logarithmic scale; at most %3 "
-                     "steps in slowing down through a stopping bin; at most %4 stopping bins")
-                     .arg(GridPoints).arg(general(GridRange)).arg(MaxSteps).arg(MaxStoppingBins);
-    lines << QString("  %1").arg(stoppingNumerics());
+    lines << QString("  Depths of the events: from the detected energy back through the stopping bins on the way out "
+                     "until the energy reaches the kinematic fraction of the beam energy, linear within a bin; at most "
+                     "%1 Runge-Kutta steps through a stopping bin; at most %2 stopping bins; %3 threads")
+                     .arg(MaxSteps).arg(MaxStoppingBins).arg(parallelThreads());
+    lines << QString("  %1").arg(stoppingNumerics(physics.slowingDown));
 
     const jibal *library = Elements::library();
     lines << QString() << QStringLiteral("JIBAL");

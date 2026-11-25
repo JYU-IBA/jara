@@ -87,6 +87,17 @@ QString nuclearStoppingMassId(NuclearStoppingMass mass) { // In files
     return mass == NuclearStoppingMass::Isotopes ? QStringLiteral("isotopes") : QStringLiteral("average");
 }
 
+QString slowingDownMethodId(SlowingDownMethod method) { // In files
+    switch(method) {
+        case SlowingDownMethod::Midpoint:
+            return QStringLiteral("midpoint");
+        case SlowingDownMethod::Euler:
+            return QStringLiteral("euler");
+        default:
+            return QStringLiteral("rungeKutta");
+    }
+}
+
 QString stoppingInterpolationId(StoppingInterpolation interpolation) { // In files
     return interpolation == StoppingInterpolation::Cubic ? QStringLiteral("cubic") : QStringLiteral("linear");
 }
@@ -1071,6 +1082,17 @@ QString nuclearStoppingMassName(NuclearStoppingMass mass) {
     return mass == NuclearStoppingMass::Isotopes ? QStringLiteral("Isotopes") : QStringLiteral("Average mass");
 }
 
+QString slowingDownMethodName(SlowingDownMethod method) {
+    switch(method) {
+        case SlowingDownMethod::Midpoint:
+            return QStringLiteral("Midpoint (second order)");
+        case SlowingDownMethod::Euler:
+            return QStringLiteral("Euler (first order)");
+        default:
+            return QStringLiteral("Runge-Kutta (fourth order)");
+    }
+}
+
 QString stoppingInterpolationName(StoppingInterpolation interpolation) {
     return interpolation == StoppingInterpolation::Cubic ? QStringLiteral("Cubic") : QStringLiteral("Linear");
 }
@@ -1110,6 +1132,7 @@ QJsonObject physicsToJson(const PhysicsSettings &physics) {
             {"nuclearFactor", physics.nuclearFactor},
             {"nuclearMass", nuclearStoppingMassId(physics.nuclearMass)},
             {"interpolation", stoppingInterpolationId(physics.interpolation)},
+            {"slowingDown", slowingDownMethodId(physics.slowingDown)},
             {"stoppingFile", physics.stoppingFile},
             {"corrections", corrections}};
 }
@@ -1129,6 +1152,12 @@ PhysicsSettings physicsFromJson(const QJsonObject &json) {
     physics.interpolation = json["interpolation"].toString() == stoppingInterpolationId(StoppingInterpolation::Cubic)
                                     ? StoppingInterpolation::Cubic
                                     : StoppingInterpolation::Linear;
+    physics.slowingDown = SlowingDownMethod::Midpoint; // Also when the key is missing
+    for(const SlowingDownMethod method : SlowingDownMethods) {
+        if(json["slowingDown"].toString() == slowingDownMethodId(method)) {
+            physics.slowingDown = method;
+        }
+    }
     physics.stoppingFile = json["stoppingFile"].toString();
     for(const auto &value : json["corrections"].toArray()) {
         const QJsonObject object = value.toObject();

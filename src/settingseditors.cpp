@@ -547,6 +547,13 @@ PhysicsSettingsEditor::PhysicsSettingsEditor(QWidget *parent) : QWidget(parent) 
     }
     m_interpolationCombo->setToolTip("Interpolation between the points of the stopping files: linear in energy, as JIBAL "
                                      "does, or a cubic spline in the logarithm of the energy");
+    m_slowingDownCombo = new QComboBox;
+    for(const SlowingDownMethod method : SlowingDownMethods) {
+        m_slowingDownCombo->addItem(slowingDownMethodName(method), static_cast<int>(method));
+    }
+    m_slowingDownCombo->setToolTip("How the energy is followed through the sample and the foil in each step: fourth-order "
+                                   "Runge-Kutta, the stopping halfway through the step (midpoint), or at its start "
+                                   "(Euler). The simpler ones are faster and closer to Runge-Kutta in thin stopping bins.");
     m_stoppingFileCombo = new QComboBox;
     m_stoppingFileCombo->setToolTip("GSTO file of electronic stopping of all elements, or the one JIBAL chooses for each pair");
 
@@ -574,6 +581,7 @@ PhysicsSettingsEditor::PhysicsSettingsEditor(QWidget *parent) : QWidget(parent) 
     stopping->addRow("Nuclear factor:", m_nuclearSpin);
     stopping->addRow("Nuclear stopping mass:", m_nuclearMassCombo);
     stopping->addRow("Interpolation:", m_interpolationCombo);
+    stopping->addRow("Slowing down:", m_slowingDownCombo);
     stopping->addRow("Stopping file:", m_stoppingFileCombo);
     alignFormLabels({general, crossSections, stopping});
     auto *pairGroup = new QGroupBox("Stopping of element pairs");
@@ -603,6 +611,10 @@ PhysicsSettingsEditor::PhysicsSettingsEditor(QWidget *parent) : QWidget(parent) 
     });
     connect(m_nuclearMassCombo, &QComboBox::activated, this, [this]() {
         m_physics->nuclearMass = static_cast<NuclearStoppingMass>(m_nuclearMassCombo->currentData().toInt());
+        finishEdit();
+    });
+    connect(m_slowingDownCombo, &QComboBox::activated, this, [this]() {
+        m_physics->slowingDown = static_cast<SlowingDownMethod>(m_slowingDownCombo->currentData().toInt());
         finishEdit();
     });
     connect(m_interpolationCombo, &QComboBox::activated, this, [this]() {
@@ -653,6 +665,7 @@ void PhysicsSettingsEditor::setPhysics(PhysicsSettings *physics) {
     m_screeningCombo->setCurrentIndex(m_screeningCombo->findData(static_cast<int>(physics->screening)));
     m_nuclearMassCombo->setCurrentIndex(m_nuclearMassCombo->findData(static_cast<int>(physics->nuclearMass)));
     m_interpolationCombo->setCurrentIndex(m_interpolationCombo->findData(static_cast<int>(physics->interpolation)));
+    m_slowingDownCombo->setCurrentIndex(m_slowingDownCombo->findData(static_cast<int>(physics->slowingDown)));
     {
         const QSignalBlocker electronic(m_electronicSpin);
         const QSignalBlocker nuclear(m_nuclearSpin);

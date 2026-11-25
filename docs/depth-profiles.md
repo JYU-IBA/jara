@@ -10,21 +10,30 @@ detector settings with a [ToF calibration](tof-calibration.md).
   added back. Events where the detection efficiency is below 10⁻⁶, which includes energies outside the efficiency
   curve, are left out.
 - With **Kinematic correction** and an [angle calibration](angle-calibration.md) of the detector, each event has its
-  own detection angle. Its detected energy is multiplied by K(θ) / K(θ + Δθ), K being
-  the kinematic factor, θ the scattering/recoil angle of the detector and Δθ the event's offset from it, as if it was
-  detected at θ. The timing of each event is spread with the timing smoothing of the calibration first. The efficiency is that of the energy before the correction. Events at an angle no particles reach
-  are not corrected.
-- The detected energy of a selection's particles decreases with the depth they come from: the beam slows down on the
-  way in, the particle gets the kinematic fraction of the beam energy and slows down on the way out. Both depend on the
+  own detection angle θ + Δθ, θ being the scattering/recoil angle of the detector and Δθ the event's offset from it.
+  The timing of each event is spread with the timing smoothing of the calibration first. The event then has its own
+  kinematic factor, exit angle and cross section. The window is assumed to be in the scattering plane, so an event at
+  θ + Δθ leaves the sample at the exit angle + Δθ. Events at an angle no particles reach, or where they would not
+  leave the sample, are calculated at θ. Without the correction, all events are at θ.
+- The detected energy of a particle decreases with the depth it comes from: the beam slows down on the way in, the
+  particle gets the kinematic fraction of the beam energy and slows down on the way out. Both depend on the
   composition, which is tabulated in stopping bins and calculated with Bragg's rule.
-- Each event gets the depth where this gives its energy, and a weight of 1 / (efficiency × cross section), with
-  Rutherford cross sections (optionally with the Andersen screening correction) at the beam energy at that depth. An
-  isotope that represents its element is also weighted by 1 / abundance, and the selection's additional weight
-  multiplies its events. See [Selections](selections.md).
+- Each event is calculated on its own: starting from its detected energy at the surface, the energy it had before
+  crossing each stopping bin on its way out is calculated bin by bin, until it reaches the kinematic fraction of the
+  beam energy at that depth. The depth where they meet is interpolated within the bin. An event with more energy than
+  particles from the surface gets a depth above the surface, from the slope of the first bin. The events are
+  calculated in parallel, on all processor cores.
+- Each event gets a weight of 1 / (efficiency × cross section), with Rutherford cross sections (optionally with the
+  Andersen screening correction) at the beam energy at its depth. An isotope that represents its element is also
+  weighted by 1 / abundance, and the selection's additional weight multiplies its events. See
+  [Selections](selections.md).
 - Stopping is only known within the energy range of the stopping files, e.g. 1 keV/u–10 MeV/u for SRIM-2013 (see
   [Stopping](settings.md#stopping)). The profile is not calculated when the beam energy, or the kinematic factor ×
-  the beam energy of a detected particle, is above the range. Events whose particle has an energy outside the range
-  on its way out, at the sample surface or in the timing detector foil, are left out. Events from depths where the
+  the beam energy of a detected particle at the angle of any of its events, is above the range. Events whose
+  particle has an energy outside the range on its way out, at the sample surface or in the timing detector foil, are
+  left out. Going in from the surface, the energy of an event stays below the kinematic factor × the beam energy, so
+  within the range, except within the stopping bin where they meet, by at most the energy lost in the bin; the last
+  value of the stopping file is used there. Events from depths where the
   beam has slowed down below the range get no depth and a weight of zero. With an automatic maximum depth, the
   stopping bins are not extended beyond where the beam reaches the lowest energy of its stopping data.
 - The weights of each element in a stopping bin, relative to all of them, give the composition of the next iteration.

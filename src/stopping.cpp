@@ -93,10 +93,13 @@ bool assignStopping(int z1, int z2, const PhysicsSettings &physics, QString &err
 }
 }
 
-QString stoppingNumerics() {
+QString stoppingNumerics(SlowingDownMethod slowingDown) {
     return QString("Electronic stopping from the stopping files and universal nuclear stopping at the energies of the points "
-                   "of the files, interpolated between them as the physics settings say. Slowing down by fourth-order "
-                   "Runge-Kutta, losing at most %1 % of the energy in a step.")
+                   "of the files, interpolated between them as the physics settings say. Slowing down by %1, losing at "
+                   "most %2 % of the energy in a step.")
+            .arg(slowingDown == SlowingDownMethod::Euler      ? QStringLiteral("first-order steps (the stopping at the start of each)")
+                 : slowingDown == SlowingDownMethod::Midpoint ? QStringLiteral("second-order steps (the stopping halfway through each)")
+                                                              : QStringLiteral("fourth-order Runge-Kutta"))
             .arg(MaxRelativeLossPerStep * 100);
 }
 
@@ -202,7 +205,8 @@ bool evenlySpaced(const std::vector<double> &x) {
 }
 
 StoppingTable::StoppingTable(int z, double mass, const QList<int> &elements, const PhysicsSettings &physics)
-    : m_elements(elements), m_cubic(physics.interpolation == StoppingInterpolation::Cubic) {
+    : m_elements(elements), m_cubic(physics.interpolation == StoppingInterpolation::Cubic),
+      m_slowingDown(physics.slowingDown) {
     if(!Elements::library()) {
         m_errorMessage = QStringLiteral("JIBAL is not initialized.");
         return;
@@ -323,39 +327,171 @@ double StoppingTable::stopping(std::span<const double> fractions, double energy)
     return sum;
 }
 
-double slowDown(const StoppingTable &table, std::span<const double> fractions, double energy, double pathLength,
-                int maxSteps) {
-    // Runge-Kutta, with steps short enough that the particle loses at most a few per cent of its energy in each
+StoppingTable::Mixture StoppingTable::mixture(std::span<const double> fractions) const {
+    Mixture mixture;
+    for(size_t g = 0; g < m_grids.size(); g++) {
+        const Grid &grid = m_grids[g];
+        Mixture::Part part;
+        part.grid = g;
+        for(const size_t e : grid.elements) {
+            if(e >= fractions.size() || !(fractions[e] > 0)) {
+                continue;
+            }
+            const double f = fractions[e];
+            const ElementStopping &data = m_elementData[e];
+            // The same points for all elements of the file
+            std::vector<double> &sum = m_cubic ? part.coefficients : part.values;
+            const std::vector<double> &own = m_cubic ? data.coefficients : data.values;
+            sum.resize(own.size(), 0);
+            for(size_t i = 0; i < own.size(); i++) {
+                sum[i] += f * own[i];
+            }
+            part.firstElectronic += f * data.firstElectronic;
+            part.lastElectronic += f * data.lastElectronic;
+            part.nuclear.emplace_back(f * data.nuclearFactor, e);
+        }
+        if(!part.nuclear.empty()) {
+            mixture.parts.push_back(std::move(part));
+        }
+    }
+    return mixture;
+}
+
+double StoppingTable::stopping(const Mixture &mixture, double energy) const {
+    // As stopping(fractions, energy), with the elements of each file summed in advance
+    double sum = 0;
+    for(const Mixture::Part &part : mixture.parts) {
+        const Grid &grid = m_grids[part.grid];
+        const Location at = grid.locate(energy, m_cubic);
+        if(at.region == 0) {
+            if(m_cubic) {
+                const double *c = part.coefficients.data() + 4 * at.i;
+                sum += c[0] + at.u * (c[1] + at.u * (c[2] + at.u * c[3]));
+            } else {
+                sum += part.values[at.i] + at.t * (part.values[at.i + 1] - part.values[at.i]);
+            }
+        } else {
+            sum += at.region < 0 ? part.firstElectronic * std::sqrt(std::max(0.0, energy) / grid.energies.front())
+                                 : part.lastElectronic;
+            for(const auto &[weight, e] : part.nuclear) {
+                sum += weight * m_elementData[e].nuclear.stopping(energy);
+            }
+        }
+    }
+    return sum;
+}
+
+namespace {
+// Runge-Kutta, midpoint or first order, with steps short enough that the particle loses at most a few per cent of its energy in
+// each. The stopping is a function of the energy.
+template<typename S>
+double slowDownWith(const S &stopping, SlowingDownMethod method, double energy, double pathLength, int maxSteps) {
     if(!(energy > 0)) {
         return 0;
     }
-    const double initialLoss = table.stopping(fractions, energy) * pathLength;
+    const double initialLoss = stopping(energy) * pathLength;
     const int steps = std::clamp(static_cast<int>(std::ceil(initialLoss / (MaxRelativeLossPerStep * energy))), 1, maxSteps);
     const double h = pathLength / steps;
     double e = energy;
+    if(method == SlowingDownMethod::Euler) {
+        for(int i = 0; i < steps; i++) {
+            e -= h * (i == 0 ? initialLoss / pathLength : stopping(e));
+            if(!(e > 0)) {
+                return 0;
+            }
+        }
+        return e;
+    }
+    if(method == SlowingDownMethod::Midpoint) {
+        for(int i = 0; i < steps; i++) {
+            const double half = e - h / 2 * (i == 0 ? initialLoss / pathLength : stopping(e));
+            if(!(half > 0)) {
+                return 0;
+            }
+            e -= h * stopping(half);
+            if(!(e > 0)) {
+                return 0;
+            }
+        }
+        return e;
+    }
     for(int i = 0; i < steps; i++) {
-        const double k1 = -table.stopping(fractions, e);
+        const double k1 = -stopping(e);
         const double e2 = e + h / 2 * k1;
         if(!(e2 > 0)) {
             return 0;
         }
-        const double k2 = -table.stopping(fractions, e2);
+        const double k2 = -stopping(e2);
         const double e3 = e + h / 2 * k2;
         if(!(e3 > 0)) {
             return 0;
         }
-        const double k3 = -table.stopping(fractions, e3);
+        const double k3 = -stopping(e3);
         const double e4 = e + h * k3;
         if(!(e4 > 0)) {
             return 0;
         }
-        const double k4 = -table.stopping(fractions, e4);
+        const double k4 = -stopping(e4);
         e += h / 6 * (k1 + 2 * k2 + 2 * k3 + k4);
         if(!(e > 0)) {
             return 0;
         }
     }
     return e;
+}
+
+// The same backwards along the path, the energy grows
+template<typename S>
+double speedUpWith(const S &stopping, SlowingDownMethod method, double energy, double pathLength, int maxSteps) {
+    if(!(energy > 0)) {
+        return 0;
+    }
+    const double initialGain = stopping(energy) * pathLength;
+    const int steps = std::clamp(static_cast<int>(std::ceil(initialGain / (MaxRelativeLossPerStep * energy))), 1, maxSteps);
+    const double h = pathLength / steps;
+    double e = energy;
+    if(method == SlowingDownMethod::Euler) {
+        for(int i = 0; i < steps; i++) {
+            e += h * (i == 0 ? initialGain / pathLength : stopping(e));
+        }
+        return e;
+    }
+    if(method == SlowingDownMethod::Midpoint) {
+        for(int i = 0; i < steps; i++) {
+            const double half = e + h / 2 * (i == 0 ? initialGain / pathLength : stopping(e));
+            e += h * stopping(half);
+        }
+        return e;
+    }
+    for(int i = 0; i < steps; i++) {
+        const double k1 = stopping(e);
+        const double k2 = stopping(e + h / 2 * k1);
+        const double k3 = stopping(e + h / 2 * k2);
+        const double k4 = stopping(e + h * k3);
+        e += h / 6 * (k1 + 2 * k2 + 2 * k3 + k4);
+    }
+    return e;
+}
+}
+
+double slowDown(const StoppingTable &table, std::span<const double> fractions, double energy, double pathLength,
+                int maxSteps) {
+    return slowDownWith([&](double e) { return table.stopping(fractions, e); }, table.slowingDown(), energy, pathLength, maxSteps);
+}
+
+double speedUp(const StoppingTable &table, std::span<const double> fractions, double energy, double pathLength,
+               int maxSteps) {
+    return speedUpWith([&](double e) { return table.stopping(fractions, e); }, table.slowingDown(), energy, pathLength, maxSteps);
+}
+
+double slowDown(const StoppingTable &table, const StoppingTable::Mixture &mixture, double energy, double pathLength,
+                int maxSteps) {
+    return slowDownWith([&](double e) { return table.stopping(mixture, e); }, table.slowingDown(), energy, pathLength, maxSteps);
+}
+
+double speedUp(const StoppingTable &table, const StoppingTable::Mixture &mixture, double energy, double pathLength,
+               int maxSteps) {
+    return speedUpWith([&](double e) { return table.stopping(mixture, e); }, table.slowingDown(), energy, pathLength, maxSteps);
 }
 
 FoilEnergyLoss::FoilEnergyLoss(int z, double mass, const Material &material, double thickness,

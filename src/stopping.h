@@ -17,6 +17,7 @@
 
 #include <limits>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include <QList>
@@ -59,8 +60,27 @@ public:
     qsizetype maxEnergyElement() const { return m_maxEnergyElement; }
     // Name of the electronic stopping file used for each element, in the order of elements()
     const QStringList &fileNames() const { return m_fileNames; }
+    SlowingDownMethod slowingDown() const { return m_slowingDown; } // From the physics settings, see slowDown()
     // Stopping cross section in J m² in a mixture of the elements, atomic fractions in the order of elements()
     double stopping(std::span<const double> fractions, double energy) const;
+
+    // A mixture of the elements with its stopping combined in advance: for each stopping file, the values (or cubic
+    // coefficients) of its elements at the file's own points, weighted by their fractions and summed. Interpolating the
+    // sum gives the same stopping as stopping(fractions, energy) up to rounding, with one interpolation per file
+    // instead of one per element. Only meaningful with the table that made it.
+    struct Mixture {
+        struct Part { // Of one stopping file
+            size_t grid; // Index of the file's grid in the table
+            std::vector<double> values; // Linear interpolation, at the grid energies
+            std::vector<double> coefficients; // Cubic interpolation, four for each interval
+            double firstElectronic = 0; // Outside the data, see stopping()
+            double lastElectronic = 0;
+            std::vector<std::pair<double, size_t>> nuclear; // Fraction times nuclear factor, and the element index
+        };
+        std::vector<Part> parts; // Files with elements in the mixture
+    };
+    Mixture mixture(std::span<const double> fractions) const;
+    double stopping(const Mixture &mixture, double energy) const; // J m²
 
 private:
     enum class Spacing { Logarithmic, Linear, Arbitrary };
@@ -96,17 +116,28 @@ private:
     qsizetype m_maxEnergyElement = 0;
     QStringList m_fileNames;
     bool m_cubic = false;
+    SlowingDownMethod m_slowingDown = SlowingDownMethod::Midpoint;
     std::vector<Grid> m_grids;
     std::vector<ElementStopping> m_elementData; // Of each element
 };
 
 // How the stopping tables and slowing down are calculated, as text for logs
-QString stoppingNumerics();
+QString stoppingNumerics(SlowingDownMethod slowingDown);
 
 // Energy in J after slowing down along a path, as atoms/m², in a mixture of the table's elements. Zero when the
-// particle stops. At most maxSteps Runge-Kutta steps are taken, particles that would need more stop or nearly.
+// particle stops. The path is divided into steps where the particle loses at most a few per cent of its energy, at most
+// maxSteps of them; particles that would need more stop or nearly. Each step is fourth-order Runge-Kutta, second order
+// (the stopping halfway through it) or first order (the stopping at its start), as the table's physics settings say.
 double slowDown(const StoppingTable &table, std::span<const double> fractions, double energy, double pathLength,
                 int maxSteps = 1000);
+// The reverse: energy in J before a path, from the energy after it, with the same steps as slowDown()
+double speedUp(const StoppingTable &table, std::span<const double> fractions, double energy, double pathLength,
+               int maxSteps = 1000);
+// The same in a mixture combined in advance
+double slowDown(const StoppingTable &table, const StoppingTable::Mixture &mixture, double energy, double pathLength,
+                int maxSteps = 1000);
+double speedUp(const StoppingTable &table, const StoppingTable::Mixture &mixture, double energy, double pathLength,
+               int maxSteps = 1000);
 
 // Energy loss of a particle in a foil, with stopping from the physics settings
 class FoilEnergyLoss {

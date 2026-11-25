@@ -1329,8 +1329,8 @@ void DepthProfileView::checkStale() {
 void DepthProfileView::updateKinematicCheck() {
     const bool available = m_measurement->detector && m_measurement->detector->hasAngleCalibration();
     m_kinematicCheck->setVisible(available);
-    m_kinematicCheck->setToolTip("Correct the energy of each event from its detection angle, from the angle calibration "
-                                 "of the detector, to the scattering/recoil angle. Changes start the iterations again.");
+    m_kinematicCheck->setToolTip("Use the detection angle of each event, from the angle calibration of the detector, for "
+                                 "its kinematic factor, exit angle and cross section. Changes start the iterations again.");
 }
 
 void DepthProfileView::setStale(bool stale) {

@@ -251,6 +251,14 @@ enum class StoppingInterpolation { Linear, Cubic };
 constexpr StoppingInterpolation StoppingInterpolations[] = {StoppingInterpolation::Linear, StoppingInterpolation::Cubic};
 QString stoppingInterpolationName(StoppingInterpolation interpolation); // As shown to the user
 
+// How the energy is followed along a path when slowing down, see stopping.h: fourth-order Runge-Kutta, second order
+// (midpoint), the stopping at the energy halfway through each step, or first order (Euler), the stopping at the energy
+// at the start of each step
+enum class SlowingDownMethod { RungeKutta, Midpoint, Euler };
+constexpr SlowingDownMethod SlowingDownMethods[] = {SlowingDownMethod::RungeKutta, SlowingDownMethod::Midpoint,
+                                                    SlowingDownMethod::Euler};
+QString slowingDownMethodName(SlowingDownMethod method); // As shown to the user
+
 constexpr int AnyElement = -1; // As the target of a stopping correction, any element. The same as JIBAL_ANY_Z.
 
 // Stopping of incident ions of one element (Z1) in atoms of another (Z2), or of any element, different from that of
@@ -273,6 +281,7 @@ struct PhysicsSettings {
     double nuclearFactor = 1; // Same for nuclear stopping
     NuclearStoppingMass nuclearMass = NuclearStoppingMass::Average;
     StoppingInterpolation interpolation = StoppingInterpolation::Linear;
+    SlowingDownMethod slowingDown = SlowingDownMethod::Midpoint;
     QString stoppingFile; // Name of the GSTO file of electronic stopping of all elements, empty for JIBAL's choice
     QList<StoppingCorrection> corrections; // At most one for each Z1, Z2 pair
     bool operator==(const PhysicsSettings &) const = default;
