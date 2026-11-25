@@ -12,9 +12,11 @@ detector settings with a [ToF calibration](tof-calibration.md).
 - With **Kinematic correction** and an [angle calibration](angle-calibration.md) of the detector, each event has its
   own detection angle θ + Δθ, θ being the scattering/recoil angle of the detector and Δθ the event's offset from it.
   The timing of each event is spread with the timing smoothing of the calibration first. The event then has its own
-  kinematic factor, exit angle and cross section. The window is assumed to be in the scattering plane, so an event at
-  θ + Δθ leaves the sample at the exit angle + Δθ. Events at an angle no particles reach, or where they would not
-  leave the sample, are calculated at θ. Without the correction, all events are at θ.
+  kinematic factor, exit angle and cross section. The exit angle is measured from the sample surface, like the
+  incident angle α: it is θ − α (IBM geometry), and the path out of the sample is the depth / sin(exit angle). The
+  window is assumed to be in the scattering plane, so an event at θ + Δθ leaves the sample at θ + Δθ − α from the
+  surface: a larger angle leaves more steeply, along a shorter path. Events at an angle no particles reach, or where
+  they would not leave the sample (an exit angle of zero or less), are calculated at θ. Without the correction, all events are at θ.
 - The detected energy of a particle decreases with the depth it comes from: the beam slows down on the way in, the
   particle gets the kinematic fraction of the beam energy and slows down on the way out. Both depend on the
   composition, which is tabulated in stopping bins and calculated with Bragg's rule.

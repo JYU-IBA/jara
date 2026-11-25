@@ -1273,7 +1273,7 @@ QString depthProfileLog(const DepthProfileCalculation &calculation) {
                                          : 0;
         const double exitAngle = inputs.scatteringAngle - inputs.incidentAngle;
         lines << QString("  Each event at its own angle: kinematic factor, exit angle and cross section; scattering/recoil "
-                         "angles %1–%2°, exit angles %3–%4° (window in the scattering plane)")
+                         "angles %1–%2°, exit angles %3–%4° from the surface (window in the scattering plane)")
                          .arg(general((inputs.scatteringAngle - halfAngle) / Units::Degree),
                               general((inputs.scatteringAngle + halfAngle) / Units::Degree))
                          .arg(general((exitAngle - halfAngle) / Units::Degree), general((exitAngle + halfAngle) / Units::Degree));

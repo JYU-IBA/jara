@@ -56,9 +56,10 @@
 // With the kinematic correction of the profile and an angle calibration of the detector, each event is detected at its
 // own angle, from the timing coordinate, see anglecalibration.h. The timing of each event is spread uniformly over the
 // timing smoothing of the calibration first, with a fixed seed for each selection. The event then has its own kinematic
-// factor, exit angle and cross section. The window is assumed to be in the scattering plane, so an event detected at
-// the scattering angle + Δθ leaves the sample at the exit angle + Δθ. Events at an angle no particles reach, or where
-// they would not leave the sample, are calculated at the scattering/recoil angle. Without the correction, all events
+// factor, exit angle and cross section. The exit angle is from the sample surface, the scattering angle minus the
+// incident angle (from the surface), and the path out is depth / sin(exit angle). The window is assumed to be in the
+// scattering plane, so an event detected at the scattering angle + Δθ leaves the sample at the exit angle + Δθ from the
+// surface. Events at an angle no particles reach, or where they would not leave the sample, are calculated at the scattering/recoil angle. Without the correction, all events
 // are at the scattering/recoil angle of the detector.
 //
 // Only the events in the range of the profile are used, see split.h. A selection can use a narrower part of it, e.g.
