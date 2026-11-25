@@ -25,6 +25,7 @@
 #include <limits>
 #include <numeric>
 #include <random>
+#include <span>
 
 #include <QStringList>
 
@@ -414,11 +415,14 @@ void DepthProfileCalculation::initialComposition() {
     for(double &weight : weights) {
         weight /= total;
     }
-    m_composition.assign(m_bins, weights);
+    m_composition.resize(m_bins, weights.size());
+    for(size_t j = 0; j < m_bins; j++) {
+        std::ranges::copy(weights, m_composition.row(j).begin());
+    }
 }
 
 double DepthProfileCalculation::traverse(const Particle &particle, size_t bin, double energy, double pathLength) const {
-    return slowDown(particle.stopping, m_composition[bin], energy, pathLength, MaxSteps);
+    return slowDown(particle.stopping, m_composition.row(bin), energy, pathLength, MaxSteps);
 }
 
 double DepthProfileCalculation::exitEnergy(const Particle &particle, size_t boundary, double energy) const {
@@ -494,7 +498,7 @@ void DepthProfileCalculation::iterate() {
     // Depths and weights of the events. Each event is shared between the two stopping bins with the nearest centres,
     // in proportion to its distance from them, so that the composition changes smoothly when events move.
     const size_t elementCount = static_cast<size_t>(m_elements.size());
-    std::vector<std::vector<double>> binWeights(m_bins, std::vector<double>(elementCount, 0));
+    Matrix<double> binWeights(m_bins, elementCount); // [stopping bin][element]
     std::vector<double> binCounts(m_bins, 0);
     std::vector<double> allWeights(elementCount, 0);
     for(size_t s = 0; s < m_selections.size(); s++) {
@@ -546,10 +550,10 @@ void DepthProfileCalculation::iterate() {
             const double centres = std::clamp(depth / m_binWidth - 0.5, 0.0, static_cast<double>(m_bins - 1));
             const auto lower = static_cast<size_t>(centres);
             const double upperShare = centres - static_cast<double>(lower);
-            binWeights[lower][element] += (1 - upperShare) * weight;
+            binWeights(lower, element) += (1 - upperShare) * weight;
             binCounts[lower] += 1 - upperShare;
             if(upperShare > 0) {
-                binWeights[lower + 1][element] += upperShare * weight;
+                binWeights(lower + 1, element) += upperShare * weight;
                 binCounts[lower + 1] += upperShare;
             }
             allWeights[element] += weight;
@@ -574,19 +578,19 @@ void DepthProfileCalculation::iterate() {
         previous[e] = allWeights[e] / allTotal;
     }
     const double pseudoEvents = std::max(1, m_inputs.minStoppingBinEvents);
-    std::vector<std::vector<double>> composition(m_bins, std::vector<double>(elementCount, 0));
+    Matrix<double> composition(m_bins, elementCount);
     double change = 0;
     for(size_t j = 0; j < m_bins; j++) {
         double total = 0;
-        for(const double weight : binWeights[j]) {
+        for(const double weight : binWeights.row(j)) {
             total += weight;
         }
         for(size_t e = 0; e < elementCount; e++) {
-            const double own = total > 0 ? binWeights[j][e] / total : 0;
-            composition[j][e] = (binCounts[j] * own + pseudoEvents * previous[e]) / (binCounts[j] + pseudoEvents);
-            change = std::max(change, std::abs(composition[j][e] - m_composition[j][e]));
+            const double own = total > 0 ? binWeights(j, e) / total : 0;
+            composition(j, e) = (binCounts[j] * own + pseudoEvents * previous[e]) / (binCounts[j] + pseudoEvents);
+            change = std::max(change, std::abs(composition(j, e) - m_composition(j, e)));
         }
-        previous = composition[j];
+        std::ranges::copy(composition.row(j), previous.begin());
     }
     m_lastChange = change;
     m_composition = std::move(composition);
@@ -643,7 +647,10 @@ bool DepthProfileCalculation::adjustMaxDepth() {
     if(bins == m_bins) {
         return false;
     }
-    m_composition.resize(bins, m_composition.back()); // New bins continue the composition of the last one
+    m_composition.resizeRows(bins); // New bins continue the composition of the last one
+    for(size_t j = m_bins; j < bins; j++) {
+        std::ranges::copy(m_composition.row(m_bins - 1), m_composition.row(j).begin());
+    }
     m_bins = bins;
     return true;
 }
@@ -652,7 +659,7 @@ double DepthProfileCalculation::massDepth(double depth) const {
     auto averageMass = [this](size_t bin) {
         double mass = 0;
         for(qsizetype e = 0; e < m_elements.size(); e++) {
-            mass += m_composition[bin][static_cast<size_t>(e)] * Elements::mass(m_elements[e], 0);
+            mass += m_composition(bin, static_cast<size_t>(e)) * Elements::mass(m_elements[e], 0);
         }
         return mass;
     };
@@ -697,7 +704,7 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
             }
         }
     }
-    const double maxDepth = calculation.stoppingBinWidth() * static_cast<double>(calculation.composition().size());
+    const double maxDepth = calculation.stoppingBinWidth() * static_cast<double>(calculation.composition().rows());
     const double firstBin = std::max(-static_cast<double>(MaxBinsAboveSurface), std::floor(minDepth / width));
     const double binCount = std::ceil(maxDepth / width) - firstBin;
     if(binCount > static_cast<double>(MaxProfileBins)) {
@@ -707,10 +714,12 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     const auto bins = static_cast<size_t>(std::max(1.0, binCount));
     result.firstBinStart = firstBin * width;
 
-    // Sums of the weights of the events and of their squares, the latter are the variances of the former
-    std::vector<std::vector<double>> weights;
-    std::vector<std::vector<double>> variances;
-    for(const auto &selection : calculation.selections()) {
+    // Sums of the weights of the events and of their squares, the latter are the variances of the former, [curve][bin]
+    const size_t selectionCount = calculation.selections().size();
+    Matrix<double> weights(selectionCount, bins);
+    Matrix<double> variances(selectionCount, bins);
+    for(size_t s = 0; s < selectionCount; s++) {
+        const auto &selection = calculation.selections()[s];
         DepthProfileCurve curve;
         curve.cutId = selection.cutId;
         curve.cutIds = {selection.cutId};
@@ -719,8 +728,8 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
         curve.type = selection.type;
         curve.representsElement = selection.representsElement;
         curve.counts.assign(bins, 0);
-        std::vector<double> &binWeights = weights.emplace_back(bins, 0);
-        std::vector<double> &binVariances = variances.emplace_back(bins, 0);
+        const std::span<double> binWeights = weights.row(s);
+        const std::span<double> binVariances = variances.row(s);
         for(size_t i = 0; i < selection.depths.size(); i++) {
             const double position = std::floor((selection.depths[i] - result.firstBinStart) / width);
             if(std::isnan(position) || position < 0 || position >= static_cast<double>(bins)) {
@@ -734,15 +743,15 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
         result.curves.push_back(std::move(curve));
     }
     // The selections' own weights and the curves they are in, for the uncertainties of the range weights
-    const std::vector<std::vector<double>> selectionWeights = weights;
-    std::vector<size_t> curveOf(weights.size());
+    const Matrix<double> selectionWeights = weights;
+    std::vector<size_t> curveOf(selectionCount);
     std::iota(curveOf.begin(), curveOf.end(), size_t{0});
     // Selections of the same element and type summed into a curve of the element. Their events are independent, so
     // the variances add up as well.
     if(!profile.separateIsotopes) {
         std::vector<DepthProfileCurve> curves;
-        std::vector<std::vector<double>> curveWeights;
-        std::vector<std::vector<double>> curveVariances;
+        Matrix<double> curveWeights(selectionCount, bins); // The first curves.size() rows are used
+        Matrix<double> curveVariances(selectionCount, bins);
         for(size_t c = 0; c < result.curves.size(); c++) {
             DepthProfileCurve &curve = result.curves[c];
             const auto same = std::find_if(curves.begin(), curves.end(), [&curve](const DepthProfileCurve &other) {
@@ -750,9 +759,9 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
             });
             if(same == curves.end()) {
                 curveOf[c] = curves.size();
+                std::ranges::copy(weights.row(c), curveWeights.row(curves.size()).begin());
+                std::ranges::copy(variances.row(c), curveVariances.row(curves.size()).begin());
                 curves.push_back(std::move(curve));
-                curveWeights.push_back(std::move(weights[c]));
-                curveVariances.push_back(std::move(variances[c]));
                 continue;
             }
             const auto index = static_cast<size_t>(same - curves.begin());
@@ -763,19 +772,21 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
             same->events += curve.events;
             for(size_t i = 0; i < bins; i++) {
                 same->counts[i] += curve.counts[i];
-                curveWeights[index][i] += weights[c][i];
-                curveVariances[index][i] += variances[c][i];
+                curveWeights(index, i) += weights(c, i);
+                curveVariances(index, i) += variances(c, i);
             }
         }
+        curveWeights.resizeRows(curves.size());
+        curveVariances.resizeRows(curves.size());
         result.curves = std::move(curves);
         weights = std::move(curveWeights);
         variances = std::move(curveVariances);
     }
     std::vector<double> totalWeights(bins, 0);
     std::vector<size_t> totalCounts(bins, 0);
-    for(size_t c = 0; c < weights.size(); c++) {
+    for(size_t c = 0; c < weights.rows(); c++) {
         for(size_t i = 0; i < bins; i++) {
-            totalWeights[i] += weights[c][i];
+            totalWeights[i] += weights(c, i);
             totalCounts[i] += result.curves[c].counts[i];
         }
     }
@@ -894,7 +905,7 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     std::vector<double> selectionScales(selections.size(), 0); // Each selection's part of the scale
     for(size_t s = 0; s < selections.size(); s++) {
         for(const size_t i : normalizationBins) {
-            selectionScales[s] += selectionWeights[s][i];
+            selectionScales[s] += selectionWeights(s, i);
         }
         selectionScales[s] /= static_cast<double>(normalizationBins.size());
     }
@@ -905,8 +916,8 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     double normalizationVariance = 0; // Of the sum of the weights of all selections in the normalization bins
     for(const size_t i : normalizationBins) {
         inNormalization[i] = true;
-        for(const auto &binVariances : variances) {
-            normalizationVariance += binVariances[i];
+        for(size_t c = 0; c < variances.rows(); c++) {
+            normalizationVariance += variances(c, i);
         }
     }
     result.totals.assign(bins, 0);
@@ -915,13 +926,13 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
         curve.concentrations.resize(bins);
         curve.uncertainties.resize(bins);
         for(size_t i = 0; i < bins; i++) {
-            const double concentration = weights[c][i] / scale;
+            const double concentration = weights(c, i) / scale;
             // c = W / S: the bin's own weight enters both, the other normalization bins only the scale
             const double share = inNormalization[i] ? concentration / normalizationCount : 0;
-            double variance = variances[c][i] * ((1 - share) * (1 - share) - share * share)
+            double variance = variances(c, i) * ((1 - share) * (1 - share) - share * share)
                               + concentration * concentration * normalizationVariance / (normalizationCount * normalizationCount);
             for(size_t s = 0; s < selections.size(); s++) {
-                derivatives[s] = (curveOf[s] == c ? selectionWeights[s][i] : 0) - concentration * selectionScales[s];
+                derivatives[s] = (curveOf[s] == c ? selectionWeights(s, i) : 0) - concentration * selectionScales[s];
             }
             variance += rangeVariance(derivatives);
             curve.concentrations[i] = concentration;
@@ -943,7 +954,7 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
     std::vector<double> selectionAverages(selections.size(), 0); // Mean weights of the selections
     for(size_t s = 0; s < selections.size(); s++) {
         for(const size_t i : averageBins) {
-            selectionAverages[s] += selectionWeights[s][i];
+            selectionAverages[s] += selectionWeights(s, i);
         }
         selectionAverages[s] /= std::max(1.0, averageCount);
     }
@@ -952,7 +963,7 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
         for(const size_t i : averageBins) {
             average.concentration += result.curves[c].concentrations[i];
             average.counts += result.curves[c].counts[i];
-            averageVariances[c] += variances[c][i];
+            averageVariances[c] += variances(c, i);
         }
         if(!averageBins.empty()) {
             average.concentration /= averageCount;
@@ -966,7 +977,7 @@ DepthProfileResult binDepthProfile(const DepthProfileCalculation &calculation, c
                     }
                     const double derivative = ((j == c && inAverage[i]) ? 1 / averageCount : 0)
                                               - (inNormalization[i] ? average.concentration / normalizationCount : 0);
-                    variance += derivative * derivative * variances[j][i];
+                    variance += derivative * derivative * variances(j, i);
                 }
             }
             for(size_t s = 0; s < selections.size(); s++) {
@@ -1119,7 +1130,7 @@ QString depthProfileLog(const DepthProfileCalculation &calculation) {
     }
     lines << QString("Elements of the composition: %1").arg(symbols.join(", "));
     lines << QString("Stopping bins: %1 of %2e15 at./cm², to %3e15 at./cm²")
-                     .arg(calculation.composition().size())
+                     .arg(calculation.composition().rows())
                      .arg(general(calculation.stoppingBinWidth() / tfu))
                      .arg(general(calculation.maxDepth() / tfu));
     lines << QString("Stopping data of the beam: %1–%2 keV")

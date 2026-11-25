@@ -22,6 +22,7 @@
 #include <QPointF>
 #include <QString>
 
+#include "matrix.h"
 #include "project.h"
 #include "stopping.h"
 #include "tofedata.h"
@@ -195,8 +196,8 @@ public:
     const std::vector<Selection> &selections() const { return m_selections; }
     const QList<int> &elements() const { return m_elements; } // Atomic numbers of the composition
     double stoppingBinWidth() const { return m_binWidth; }
-    // Atomic fractions of the elements in each stopping bin, used by the next iteration
-    const std::vector<std::vector<double>> &composition() const { return m_composition; }
+    // Atomic fractions of the elements in each stopping bin, used by the next iteration, [stopping bin][element]
+    const Matrix<double> &composition() const { return m_composition; }
     double massDepth(double depth) const; // kg/m² from the composition, extrapolated outside the stopping bins
 
 private:
@@ -229,7 +230,7 @@ private:
     double m_binWidth = 0;
     size_t m_bins = 0;
     QList<int> m_elements;
-    std::vector<std::vector<double>> m_composition; // [bin][element]
+    Matrix<double> m_composition; // [bin][element]
     std::vector<double> m_beamEnergies; // At the boundaries of the stopping bins
     Particle m_beam{};
     std::vector<Particle> m_particles;

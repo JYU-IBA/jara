@@ -16,6 +16,7 @@
 #define JARA_STOPPING_H
 
 #include <limits>
+#include <span>
 #include <vector>
 
 #include <QList>
@@ -59,7 +60,7 @@ public:
     // Name of the electronic stopping file used for each element, in the order of elements()
     const QStringList &fileNames() const { return m_fileNames; }
     // Stopping cross section in J m² in a mixture of the elements, atomic fractions in the order of elements()
-    double stopping(const std::vector<double> &fractions, double energy) const;
+    double stopping(std::span<const double> fractions, double energy) const;
 
 private:
     enum class Spacing { Logarithmic, Linear, Arbitrary };
@@ -104,7 +105,7 @@ QString stoppingNumerics();
 
 // Energy in J after slowing down along a path, as atoms/m², in a mixture of the table's elements. Zero when the
 // particle stops. At most maxSteps Runge-Kutta steps are taken, particles that would need more stop or nearly.
-double slowDown(const StoppingTable &table, const std::vector<double> &fractions, double energy, double pathLength,
+double slowDown(const StoppingTable &table, std::span<const double> fractions, double energy, double pathLength,
                 int maxSteps = 1000);
 
 // Energy loss of a particle in a foil, with stopping from the physics settings

@@ -77,6 +77,7 @@ add_executable(jara
         src/stopping.h
         src/materialeditor.cpp
         src/materialeditor.h
+        src/matrix.h
         src/foildialog.cpp
         src/formlayout.cpp
         src/formlayout.h

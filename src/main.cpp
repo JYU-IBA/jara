@@ -54,7 +54,8 @@ int checkInstallation() {
     if(!table.isValid()) {
         std::printf("Stopping of He in Si could not be calculated: %s\n", qPrintable(table.errorMessage()));
     } else {
-        const double stopping = table.stopping({1.0}, energy);
+        const double fractions[] = {1.0};
+        const double stopping = table.stopping(fractions, energy);
         std::printf("Stopping of 2 MeV 4He in Si: %g eV/(1e15 atoms/cm2)\n",
                     stopping / (C_EV / Units::ThinFilmUnit));
         std::printf("Stopping data of 4He in Si: %g–%g keV\n", table.minEnergy() / Units::Kiloelectronvolt,

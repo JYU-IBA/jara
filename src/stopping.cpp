@@ -294,7 +294,7 @@ StoppingTable::Location StoppingTable::Grid::locate(double energy, bool cubic) c
     return {0, i, t, u};
 }
 
-double StoppingTable::stopping(const std::vector<double> &fractions, double energy) const {
+double StoppingTable::stopping(std::span<const double> fractions, double energy) const {
     double sum = 0;
     for(const Grid &grid : m_grids) {
         const Location at = grid.locate(energy, m_cubic);
@@ -323,7 +323,7 @@ double StoppingTable::stopping(const std::vector<double> &fractions, double ener
     return sum;
 }
 
-double slowDown(const StoppingTable &table, const std::vector<double> &fractions, double energy, double pathLength,
+double slowDown(const StoppingTable &table, std::span<const double> fractions, double energy, double pathLength,
                 int maxSteps) {
     // Runge-Kutta, with steps short enough that the particle loses at most a few per cent of its energy in each
     if(!(energy > 0)) {
