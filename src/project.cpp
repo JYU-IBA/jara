@@ -1299,6 +1299,8 @@ std::unique_ptr<Project> Project::load(const QString &fileName, QString &errorMe
     project->m_files = attachedFilesFromJson(root["files"].toArray(), baseDir);
     project->m_created = timeFromJson(root["created"]);
     project->m_saved = timeFromJson(root["saved"]);
+    project->m_saveCount = std::max(0, root["saveCount"].toInt());
+    project->m_savedBy = root["savedBy"].toString();
     project->m_fileName = fileInfo.absoluteFilePath();
     project->sortByName();
     return project;
@@ -1460,18 +1462,30 @@ bool Project::save(const QString &fileName, QString &errorMessage) {
     const QFileInfo fileInfo(fileName);
     const QDir baseDir = fileInfo.absoluteDir();
     const QDateTime previousSave = m_saved;
+    const int previousSaveCount = m_saveCount;
+    const QString previousSavedBy = m_savedBy;
     m_saved = QDateTime::currentDateTime();
+    m_saveCount++;
+    // From the environment: USER on Unix and macOS, USERNAME on Windows
+    m_savedBy = qEnvironmentVariable("USER");
+    if(m_savedBy.isEmpty()) {
+        m_savedBy = qEnvironmentVariable("USERNAME");
+    }
     const QByteArray json = toJson([&baseDir](const QString &path) { return pathToJson(path, baseDir); });
     QSaveFile file(fileName);
     if(!file.open(QIODevice::WriteOnly)) {
         errorMessage = file.errorString();
         m_saved = previousSave;
+        m_saveCount = previousSaveCount;
+        m_savedBy = previousSavedBy;
         return false;
     }
     file.write(json);
     if(!file.commit()) {
         errorMessage = file.errorString();
         m_saved = previousSave;
+        m_saveCount = previousSaveCount;
+        m_savedBy = previousSavedBy;
         return false;
     }
     m_fileName = fileInfo.absoluteFilePath();
@@ -1563,6 +1577,10 @@ QByteArray Project::toJson(const std::function<QString(const QString &path)> &st
             {"format", FormatName},
             {"version", FormatVersion},
             {"savedWithVersion", Version::version()},
+            // The JIBAL whose masses, abundances and stopping the project was saved with
+            {"savedWithJibal", QJsonObject{{"version", Elements::jibalVersion()},
+                                           {"configSource", Elements::configSourceInUse()},
+                                           {"configFile", Elements::configFileInUse()}}},
             {"experimentalSettings", settings},
             {"detectorSettings", detectors},
             {"physicsSettings", physics},
@@ -1583,6 +1601,12 @@ QByteArray Project::toJson(const std::function<QString(const QString &path)> &st
     }
     if(m_saved.isValid()) {
         root["saved"] = timeToJson(m_saved);
+    }
+    if(m_saveCount > 0) {
+        root["saveCount"] = m_saveCount; // Incremented by one on every save
+    }
+    if(!m_savedBy.isEmpty()) {
+        root["savedBy"] = m_savedBy; // The user of the last save
     }
     return QJsonDocument(root).toJson();
 }

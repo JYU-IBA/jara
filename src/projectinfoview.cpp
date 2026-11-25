@@ -76,6 +76,13 @@ void ProjectInfoView::refresh() {
     m_nameEdit->setPlaceholderText(m_project->displayName());
     m_fileLabel->setText(m_project->fileName().isEmpty() ? QStringLiteral("Not saved yet") : m_project->fileName());
     m_createdLabel->setText(m_project->created().isValid() ? m_project->created().toString(format) : QStringLiteral("Unknown"));
-    m_savedLabel->setText(m_project->saved().isValid() ? m_project->saved().toString(format) : QStringLiteral("Not saved yet"));
+    m_savedLabel->setText(m_project->saved().isValid()
+                                  ? QString("%1%2, saved %3 %4")
+                                            .arg(m_project->saved().toString(format),
+                                                 m_project->savedBy().isEmpty() ? QString()
+                                                                                : QString(" by %1").arg(m_project->savedBy()))
+                                            .arg(m_project->saveCount())
+                                            .arg(m_project->saveCount() == 1 ? "time" : "times")
+                                  : QStringLiteral("Not saved yet"));
     m_fileTable->refresh();
 }

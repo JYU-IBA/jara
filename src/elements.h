@@ -21,6 +21,13 @@
 
 struct jibal;
 
+// Where the JIBAL configuration file comes from, a global preference (see defaults.h) read once at startup
+enum class JibalConfigSource {
+    Distribution, // The one installed with JaRA, or without one the one JIBAL finds itself
+    User, // JIBAL's user configuration, e.g. ~/.jibal/jibal.conf
+    File // A file chosen by the user
+};
+
 // Element and isotope data from JIBAL
 namespace Elements {
 struct Isotope {
@@ -29,7 +36,20 @@ struct Isotope {
     double mass; // kg
 };
 
-bool init(QString &errorMessage); // Call once at startup
+// Initializes JIBAL with the configuration of the source, file being the one of File. Call once at startup.
+bool init(JibalConfigSource source, const QString &file, QString &errorMessage);
+QString sourceId(JibalConfigSource source); // "distribution", "user" or "file", as stored in JSON
+JibalConfigSource sourceFromId(const QString &id); // Distribution for unknown ids
+// Where the configuration file in use comes from, whatever the preference was: "distribution" (installed with JaRA),
+// "user" (JIBAL's user configuration), "file" (another file, chosen or found by JIBAL) or "none" (JIBAL read none).
+// With the distribution preference and no file installed with JaRA, JIBAL finds one itself, e.g. the user's.
+QString configSourceInUse();
+QString configSourceDescription(const QString &id); // Of configSourceInUse(), for people
+QString jibalVersion();
+QString bundledConfigFile(); // Installed with JaRA, empty when there is none
+QString userConfigFile(); // JIBAL's user configuration file, whether it exists or not
+QString configFileFor(JibalConfigSource source, const QString &file); // For init(), file is the one of File
+QString configFileInUse(); // Read by JIBAL, empty when it found none or is not initialized
 void cleanup();
 jibal *library(); // Also for stopping, see stopping.h
 int maxZ();

@@ -30,6 +30,7 @@ const QString HistogramKey = QStringLiteral("defaults/histogram");
 const QString DepthProfileKey = QStringLiteral("defaults/depthProfile");
 const QString CoincidenceKey = QStringLiteral("defaults/coincidence");
 const QString ElementColorsKey = QStringLiteral("defaults/elementColors"); // {"14": "#rrggbb", ...}
+const QString JibalConfigKey = QStringLiteral("defaults/jibalConfig"); // {"source": "distribution", "file": "..."}
 
 QJsonObject load(const QString &key) {
     return QJsonDocument::fromJson(QSettings().value(key).toByteArray()).object();
@@ -267,4 +268,16 @@ CoincidencePreferences Defaults::coincidencePreferences() {
 void Defaults::setCoincidencePreferences(const CoincidencePreferences &preferences) {
     store(CoincidenceKey, QJsonObject{{"plotMargin", preferences.plotMargin}, {"previewSignals", preferences.previewSignals},
                                       {"logScale", preferences.logScale}});
+}
+
+JibalConfigPreference Defaults::jibalConfigPreference() {
+    const QJsonObject json = load(JibalConfigKey);
+    JibalConfigPreference preference;
+    preference.source = Elements::sourceFromId(json["source"].toString());
+    preference.file = json["file"].toString();
+    return preference;
+}
+
+void Defaults::setJibalConfigPreference(const JibalConfigPreference &preference) {
+    store(JibalConfigKey, QJsonObject{{"source", Elements::sourceId(preference.source)}, {"file", preference.file}});
 }

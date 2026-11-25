@@ -4,7 +4,8 @@
 
 A project (`*.json`) holds samples, their measurements and the settings of the experiment. It only refers to the data
 files, which are never copied or moved. Paths inside the project's folder are stored relative to the project file,
-so the folder can be moved as a whole.
+so the folder can be moved as a whole. What a project file records about its saves is described in
+[Project files](project-files.md).
 
 The project panel on the left shows the project information first, then the settings, the samples and the reports.
 Clicking an item, or pressing Enter, opens it in the current tab, like a link in a web browser. Ctrl-click (⌘-click on
@@ -12,10 +13,10 @@ macOS), middle-click or **Open in New Tab** in its context menu opens it in a ne
 File → New Tab adds an empty one. An item that is already open in a tab is shown there. Tabs can be dragged out into
 windows of their own. Items are renamed in place in the tree: choose **Rename** in their context menu or press F2.
 
-The project information has the project's **name**, shown in the tree and in reports
-(the file name when empty), its file, when it was created and last saved, **notes**, and the files attached to the
-project as a whole: **Add Files...** in the context menu of the project information attaches them, e.g. a measurement
-plan or a log, and they are shown under it in the tree like the files of samples.
+The project information has the project's **name**, shown in the tree and in reports (the file name when empty), its
+file, when it was created and last saved, by whom and how many times, **notes**, and the files attached to the project
+as a whole: **Add Files...** in the context menu of the project information attaches them, e.g. a measurement plan or
+a log, and they are shown under it in the tree like the files of samples.
 
 - **File → New / Open / Save**. Recent projects are under File → Open Recent.
 - **File → Export Archive** writes the project and copies of its data files into a `.tar.gz` or `.zip`, so that it

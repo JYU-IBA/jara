@@ -55,6 +55,7 @@ Windows and Linux.
 - [Installing](docs/installing.md): the packages of the releases, and opening JaRA on macOS
 - [Building](docs/building.md): requirements and compiling
 - [Getting started](docs/getting-started.md): projects, samples, measurements, files and exporting
+- [Project files](docs/project-files.md): what a project file records about its saves
 - [Settings](docs/settings.md): experimental, detector and physics settings, efficiencies, the timing detector foil,
   preferences
 - [Coincidence files](docs/coincidences.md): converting list-mode files to measurements

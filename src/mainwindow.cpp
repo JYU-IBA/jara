@@ -1144,7 +1144,7 @@ void MainWindow::about() {
     }
     QMessageBox box(QMessageBox::NoIcon, "About JaRA",
                     QString("<b>JaRA %1</b><p>Analysis of ToF-ERDA data.</p>"
-                            "%2<p>JIBAL %3<br>GSL %4<br>Qt %5</p>"
+                            "%2<p>JIBAL %3, configuration file %6<br>GSL %4<br>Qt %5</p>"
                             "<p>Copyright (C) 2026 Jaakko Julin</p>"
                             "<p>This program is free software; you can redistribute it and/or modify it under the "
                             "terms of the GNU General Public License as published by the Free Software Foundation; "
@@ -1155,7 +1155,12 @@ void MainWindow::about() {
                             "<a href=\"https://www.gnu.org/licenses/old-licenses/gpl-2.0.html\">GNU General Public "
                             "License</a> for more details.</p>"
                             "<p>Source code: <a href=\"https://github.com/JYU-IBA/jara\">github.com/JYU-IBA/jara</a></p>")
-                            .arg(Version::version(), gitInfo, jibal_version(), GSL_VERSION, qVersion()),
+                            .arg(Version::version(), gitInfo, jibal_version(), GSL_VERSION, qVersion(),
+                                 Elements::configFileInUse().isEmpty()
+                                         ? QStringLiteral("none")
+                                         : QString("%1 (%2)").arg(Elements::configFileInUse().toHtmlEscaped(),
+                                                                  Elements::configSourceDescription(
+                                                                          Elements::configSourceInUse()))),
                     QMessageBox::Ok, this);
     box.setTextInteractionFlags(Qt::TextBrowserInteraction); // The links open in the browser
     const qreal dpr = devicePixelRatioF();

@@ -25,7 +25,8 @@
 class QButtonGroup;
 
 // Edits the program-wide default experimental, detector and physics settings, histogram, depth profile and
-// coincidence preferences and the default colors of elements. They are stored when the dialog is accepted.
+// coincidence preferences, the default colors of elements and the JIBAL configuration file. They are stored when the
+// dialog is accepted.
 class PreferencesDialog : public QDialog {
     Q_OBJECT
 
@@ -41,6 +42,7 @@ private:
     QWidget *createElementColorsPage();
     QWidget *createDepthProfilePage();
     QWidget *createCoincidencePage();
+    QWidget *createJibalPage();
     void updateElementButton(int z);
 
     ExperimentalSettings m_experimental;
@@ -49,6 +51,7 @@ private:
     HistogramPreferences m_histogram;
     DepthProfilePreferences m_depthProfile;
     CoincidencePreferences m_coincidence;
+    JibalConfigPreference m_jibalConfig;
     QMap<int, QColor> m_elementColors; // Colors changed by the user, by Z
     QButtonGroup *m_elementGroup = nullptr;
 };

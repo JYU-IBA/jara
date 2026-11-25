@@ -18,6 +18,7 @@
 #include <QColor>
 #include <QMap>
 
+#include "elements.h"
 #include "project.h"
 
 enum class ColorScheme { Viridis, Rainbow, Hot, Grayscale };
@@ -55,6 +56,12 @@ struct CoincidencePreferences {
     bool logScale = true; // Of the distribution of the time differences, also changed from its context menu
 };
 
+// The JIBAL configuration file, read once at startup, so a change takes effect when JaRA is restarted
+struct JibalConfigPreference {
+    JibalConfigSource source = JibalConfigSource::Distribution;
+    QString file; // Of JibalConfigSource::File
+};
+
 // Program-wide default settings, used for new projects and new settings sets. Stored with QSettings.
 namespace Defaults {
 ExperimentalSettings experimentalSettings();
@@ -79,6 +86,9 @@ DepthProfile depthProfile(); // A new depth profile with the parameters from the
 
 CoincidencePreferences coincidencePreferences();
 void setCoincidencePreferences(const CoincidencePreferences &preferences);
+
+JibalConfigPreference jibalConfigPreference();
+void setJibalConfigPreference(const JibalConfigPreference &preference);
 }
 
 #endif // JARA_DEFAULTS_H

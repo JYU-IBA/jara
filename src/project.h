@@ -539,6 +539,8 @@ public:
     // Local time with the offset from UTC, to the second
     const QDateTime &created() const { return m_created; }
     const QDateTime &saved() const { return m_saved; } // Invalid until saved
+    int saveCount() const { return m_saveCount; } // Times the project has been saved, zero until saved
+    const QString &savedBy() const { return m_savedBy; } // User name of the last save, empty when not known
 
     const QString &fileName() const { return m_fileName; }
     // Shown in the project tree and in reports, the file name is used when empty
@@ -611,6 +613,8 @@ private:
     bool m_modified = false;
     QDateTime m_created = QDateTime::currentDateTime();
     QDateTime m_saved;
+    int m_saveCount = 0;
+    QString m_savedBy;
     std::vector<std::unique_ptr<ExperimentalSettings>> m_settings; // Pointers stay valid, measurements refer to them
     std::vector<std::unique_ptr<DetectorSettings>> m_detectors; // Same as above
     std::vector<std::unique_ptr<PhysicsSettings>> m_physics; // Same as above

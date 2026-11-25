@@ -25,13 +25,19 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
+#include <QMessageBox>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QSpinBox>
+#include <QStyle>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -40,7 +46,8 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
     : QDialog(parent), m_experimental(Defaults::experimentalSettings()), m_detector(Defaults::detectorSettings()),
       m_physics(Defaults::physicsSettings()),
       m_histogram(Defaults::histogramPreferences()), m_depthProfile(Defaults::depthProfilePreferences()),
-      m_coincidence(Defaults::coincidencePreferences()), m_elementColors(Defaults::customElementColors()) {
+      m_coincidence(Defaults::coincidencePreferences()), m_jibalConfig(Defaults::jibalConfigPreference()),
+      m_elementColors(Defaults::customElementColors()) {
     setWindowTitle("Preferences");
 
     auto *tabs = new QTabWidget;
@@ -50,6 +57,7 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
     tabs->addTab(createHistogramPage(), "Histogram");
     tabs->addTab(createDepthProfilePage(), "Depth Profiles");
     tabs->addTab(createCoincidencePage(), "Coincidences");
+    tabs->addTab(createJibalPage(), "JIBAL");
     tabs->addTab(createElementColorsPage(), "Element Colors");
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 
@@ -216,6 +224,86 @@ QWidget *PreferencesDialog::createCoincidencePage() {
     connect(preview, &QSpinBox::valueChanged, this, [this](int value) { m_coincidence.previewSignals = value; });
     connect(scaleCombo, &QComboBox::currentIndexChanged, this, [this, scaleCombo]() {
         m_coincidence.logScale = scaleCombo->currentData().toBool();
+    });
+    return page;
+}
+
+QWidget *PreferencesDialog::createJibalPage() {
+    auto pathLabel = [this](const QString &text) {
+        auto *label = new QLabel(text);
+        label->setForegroundRole(QPalette::PlaceholderText);
+        label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        label->setWordWrap(true);
+        label->setContentsMargins(style()->pixelMetric(QStyle::PM_IndicatorWidth) + 6, 0, 0, 0); // Under the text
+        return label;
+    };
+    auto *distribution = new QRadioButton("Distribution");
+    const QString bundled = Elements::bundledConfigFile();
+    auto *distributionPath = pathLabel(bundled.isEmpty()
+                                               ? QStringLiteral("Not installed with this build of JaRA, JIBAL looks for "
+                                                                "its own configuration")
+                                               : bundled);
+    auto *user = new QRadioButton("JIBAL user configuration");
+    const QString userFile = Elements::userConfigFile();
+    auto *userPath = pathLabel(userFile.isEmpty()           ? QStringLiteral("Not known on this system")
+                               : QFileInfo::exists(userFile) ? userFile
+                                                             : QString("%1 (does not exist)").arg(userFile));
+    auto *file = new QRadioButton("File:");
+    auto *fileEdit = new QLineEdit(m_jibalConfig.file);
+    auto *browse = new QPushButton("Browse...");
+    auto *group = new QButtonGroup(this);
+    group->addButton(distribution, static_cast<int>(JibalConfigSource::Distribution));
+    group->addButton(user, static_cast<int>(JibalConfigSource::User));
+    group->addButton(file, static_cast<int>(JibalConfigSource::File));
+    group->button(static_cast<int>(m_jibalConfig.source))->setChecked(true);
+
+    auto *fileRow = new QHBoxLayout;
+    fileRow->addWidget(file);
+    fileRow->addWidget(fileEdit, 1);
+    fileRow->addWidget(browse);
+    auto *configGroup = new QGroupBox("Configuration file");
+    auto *configLayout = new QVBoxLayout(configGroup);
+    configLayout->addWidget(distribution);
+    configLayout->addWidget(distributionPath);
+    configLayout->addWidget(user);
+    configLayout->addWidget(userPath);
+    configLayout->addLayout(fileRow);
+
+    // What JIBAL actually read, which can differ from the preference: without a file installed with JaRA, JIBAL finds
+    // one itself, and a failing one falls back to the distribution one at startup
+    const QString inUse = Elements::configFileInUse();
+    const QString inUseSource = Elements::configSourceDescription(Elements::configSourceInUse());
+    auto *note = new QLabel(QString("JIBAL gives the masses, abundances and stopping of the elements. In use: %1.\n"
+                                    "Changes take effect when JaRA is restarted.")
+                                    .arg(inUse.isEmpty() ? inUseSource : QString("%1, %2").arg(inUse, inUseSource)));
+    note->setWordWrap(true);
+    note->setTextInteractionFlags(Qt::TextSelectableByMouse);
+
+    auto *page = new QWidget;
+    auto *layout = new QVBoxLayout(page);
+    layout->addWidget(note);
+    layout->addWidget(configGroup);
+    layout->addStretch();
+
+    auto updateFileRow = [fileEdit, browse, this]() {
+        const bool enabled = m_jibalConfig.source == JibalConfigSource::File;
+        fileEdit->setEnabled(enabled);
+        browse->setEnabled(enabled);
+    };
+    updateFileRow();
+    connect(group, &QButtonGroup::idClicked, this, [this, updateFileRow](int id) {
+        m_jibalConfig.source = static_cast<JibalConfigSource>(id);
+        updateFileRow();
+    });
+    connect(fileEdit, &QLineEdit::textChanged, this, [this](const QString &text) { m_jibalConfig.file = text.trimmed(); });
+    connect(browse, &QPushButton::clicked, this, [this, fileEdit]() {
+        const QString start = fileEdit->text().isEmpty() ? QFileInfo(Elements::userConfigFile()).absolutePath()
+                                                          : fileEdit->text();
+        const QString chosen = QFileDialog::getOpenFileName(this, "JIBAL Configuration File", start,
+                                                            "JIBAL configuration (*.conf);;All files (*)");
+        if(!chosen.isEmpty()) {
+            fileEdit->setText(chosen);
+        }
     });
     return page;
 }
@@ -396,6 +484,18 @@ void PreferencesDialog::updateElementButton(int z) {
 }
 
 void PreferencesDialog::accept() {
+    if(m_jibalConfig.source == JibalConfigSource::File
+       && (m_jibalConfig.file.isEmpty() || !QFileInfo(m_jibalConfig.file).isFile())) {
+        QMessageBox::warning(this, "Preferences",
+                             m_jibalConfig.file.isEmpty()
+                                     ? QStringLiteral("Choose the JIBAL configuration file.")
+                                     : QString("The JIBAL configuration file %1 does not exist.").arg(m_jibalConfig.file));
+        return;
+    }
+    // The file matters only when it is used
+    const JibalConfigPreference stored = Defaults::jibalConfigPreference();
+    const bool jibalChanged = m_jibalConfig.source != stored.source
+                              || (m_jibalConfig.source == JibalConfigSource::File && m_jibalConfig.file != stored.file);
     Defaults::setExperimentalSettings(m_experimental);
     Defaults::setDetectorSettings(m_detector);
     Defaults::setPhysicsSettings(m_physics);
@@ -403,5 +503,9 @@ void PreferencesDialog::accept() {
     Defaults::setDepthProfilePreferences(m_depthProfile);
     Defaults::setCoincidencePreferences(m_coincidence);
     Defaults::setCustomElementColors(m_elementColors);
+    Defaults::setJibalConfigPreference(m_jibalConfig);
+    if(jibalChanged) {
+        QMessageBox::information(this, "Preferences", "The JIBAL configuration changes when JaRA is restarted.");
+    }
     QDialog::accept();
 }

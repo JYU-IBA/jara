@@ -167,3 +167,22 @@ File → Preferences holds the program-wide defaults:
 - The default coincidence parameters, the plot margin, the size of the preview and the scale of the distribution of
   time differences when [importing event data](coincidences.md)
 - Colours of the elements, used for new selections
+- The JIBAL configuration file, see below
+
+### JIBAL configuration
+
+JIBAL gives JaRA the masses and abundances of the isotopes and the stopping of the elements. Its configuration file
+says where these data files are. The **JIBAL** tab of the preferences chooses the file:
+
+- **Distribution** (the default): the `jibal.conf` installed with JaRA, with the data files of the packages, see
+  [Building](building.md#installing-and-the-jibal-data). A build without it uses the configuration JIBAL finds
+  itself, e.g. that of the user.
+- **JIBAL user configuration**: JIBAL's own configuration of the user, `~/.jibal/jibal.conf`, or
+  `%AppData%\jibal\jibal.conf` on Windows, e.g. with other stopping files.
+- **File**: any JIBAL configuration file. Relative paths in it are relative to the file.
+
+The tab shows the file in use and where it comes from, which can differ from the choice: with **Distribution** and
+no file installed with JaRA, JIBAL finds one itself, e.g. the user configuration. JIBAL is read once when JaRA starts, so a change takes effect when JaRA is restarted.
+If JIBAL cannot be initialized with the user configuration or the chosen file, JaRA says so at startup and uses the
+distribution configuration, so that the preference can be changed. The About dialog shows the configuration file in
+use, and `jara --check-installation` checks the one of the preferences.

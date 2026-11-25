@@ -11,6 +11,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Project and settings files record the version of JaRA that saved them, in `savedWithVersion`.
+- Projects count their saves, in `saveCount`, shown in the project information.
+- Projects record the user name of who saved them, from the environment (`USER`, or `USERNAME` on Windows), in
+  `savedBy`, shown in the project information.
+- A preference for the JIBAL configuration file: the one installed with JaRA (the default), JIBAL's user
+  configuration or a file chosen by the user. It takes effect when JaRA is restarted. The About dialog and
+  `--check-installation` show the configuration file in use. Projects record the JIBAL version and the configuration
+  file they were saved with and where it comes from, in `savedWithJibal`.
 
 ### Changed
 

@@ -15,17 +15,29 @@
 #include "elements.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QRegularExpression>
 
 extern "C" {
 #include <jibal.h>
+#include <jibal_config.h>
 }
 
 namespace {
 jibal *jibalInstance = nullptr;
+
+bool sameFile(const QString &a, const QString &b) {
+    if(a.isEmpty() || b.isEmpty()) {
+        return false;
+    }
+    const QString canonicalA = QFileInfo(a).canonicalFilePath();
+    return !canonicalA.isEmpty() ? canonicalA == QFileInfo(b).canonicalFilePath() : QDir::cleanPath(a) == QDir::cleanPath(b);
+}
 
 const jibal_element *element(int z) {
     if(z < 1 || z > Elements::maxZ()) {
@@ -35,22 +47,107 @@ const jibal_element *element(int z) {
 }
 }
 
-bool Elements::init(QString &errorMessage) {
+QString Elements::bundledConfigFile() {
     // Packages have their own JIBAL configuration and data files (release_scripts/deploy_mac.sh, and on other
-    // platforms the install rules with JARA_BUNDLE_JIBAL_DATA in CMakeLists.txt). Without them the user's JIBAL
-    // configuration is used.
+    // platforms the install rules with JARA_BUNDLE_JIBAL_DATA in CMakeLists.txt)
 #if defined(Q_OS_MACOS)
-    const QString bundledConfigFile = QStringLiteral("/../Resources/jibal.conf");
+    const QString relative = QStringLiteral("/../Resources/jibal.conf");
 #elif defined(Q_OS_WIN)
-    const QString bundledConfigFile = QStringLiteral("/jibal.conf");
+    const QString relative = QStringLiteral("/jibal.conf");
 #else
-    const QString bundledConfigFile = QStringLiteral("/../share/jara/jibal.conf");
+    const QString relative = QStringLiteral("/../share/jara/jibal.conf");
 #endif
-    QString configFile = QCoreApplication::applicationDirPath() + bundledConfigFile;
-    if(!QFile::exists(configFile)) {
-        configFile.clear();
+    const QString file = QDir::cleanPath(QCoreApplication::applicationDirPath() + relative);
+    return QFile::exists(file) ? file : QString();
+}
+
+QString Elements::userConfigFile() {
+    char *file = jibal_config_user_config_filename();
+    const QString result = file ? QString::fromLocal8Bit(file) : QString();
+    free(file);
+    return result;
+}
+
+QString Elements::configFileFor(JibalConfigSource source, const QString &file) {
+    switch(source) {
+        case JibalConfigSource::User:
+            return userConfigFile();
+        case JibalConfigSource::File:
+            return file;
+        case JibalConfigSource::Distribution:
+            break;
     }
-    jibalInstance = jibal_init(configFile.isEmpty() ? nullptr : qPrintable(configFile));
+    return bundledConfigFile(); // Empty without one, JIBAL then finds its configuration itself
+}
+
+QString Elements::configFileInUse() {
+    const char *file = jibalInstance ? jibal_config_filename(jibalInstance) : nullptr;
+    return file ? QString::fromLocal8Bit(file) : QString();
+}
+
+QString Elements::sourceId(JibalConfigSource source) {
+    switch(source) {
+        case JibalConfigSource::User:
+            return QStringLiteral("user");
+        case JibalConfigSource::File:
+            return QStringLiteral("file");
+        case JibalConfigSource::Distribution:
+            break;
+    }
+    return QStringLiteral("distribution");
+}
+
+JibalConfigSource Elements::sourceFromId(const QString &id) {
+    if(id == QStringLiteral("user")) {
+        return JibalConfigSource::User;
+    }
+    if(id == QStringLiteral("file")) {
+        return JibalConfigSource::File;
+    }
+    return JibalConfigSource::Distribution;
+}
+
+QString Elements::jibalVersion() {
+    return QString::fromUtf8(jibal_version());
+}
+
+QString Elements::configSourceInUse() {
+    const QString file = configFileInUse();
+    if(file.isEmpty()) {
+        return QStringLiteral("none");
+    }
+    if(sameFile(file, bundledConfigFile())) {
+        return sourceId(JibalConfigSource::Distribution);
+    }
+    if(sameFile(file, userConfigFile())) {
+        return sourceId(JibalConfigSource::User);
+    }
+    return sourceId(JibalConfigSource::File);
+}
+
+QString Elements::configSourceDescription(const QString &id) {
+    if(id == QStringLiteral("distribution")) {
+        return QStringLiteral("installed with JaRA");
+    }
+    if(id == QStringLiteral("user")) {
+        return QStringLiteral("JIBAL user configuration");
+    }
+    if(id == QStringLiteral("file")) {
+        return QStringLiteral("other file");
+    }
+    return QStringLiteral("no configuration file");
+}
+
+bool Elements::init(JibalConfigSource source, const QString &file, QString &errorMessage) {
+    cleanup();
+    const QString configFile = configFileFor(source, file);
+    // JIBAL would only say that the configuration could not be read
+    if(!configFile.isEmpty() && !QFile::exists(configFile)) {
+        errorMessage = QString("The JIBAL configuration file %1 does not exist.").arg(configFile);
+        return false;
+    }
+    const QByteArray path = configFile.toLocal8Bit();
+    jibalInstance = jibal_init(configFile.isEmpty() ? nullptr : path.constData());
     if(!jibalInstance) {
         errorMessage = QStringLiteral("JIBAL could not be initialized.");
         return false;
