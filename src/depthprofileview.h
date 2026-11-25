@@ -45,7 +45,8 @@ class QTreeWidgetItem;
 // and iterates the profile, updating the plot after each iteration, until it converges or the maximum number of
 // iterations from the preferences is reached. The user can continue iterating. Changes of the calculation made here
 // start the iterations again, changes of the binning, normalization and averages only update the profile. Changes
-// made elsewhere, to the selections or the settings, mark the profile as out of date until it is recalculated.
+// made elsewhere, to the selections or the settings, mark the profile as out of date until it is recalculated. A
+// recalculation requested from elsewhere waits until the tab is shown in the active window.
 class DepthProfileView : public QWidget {
     Q_OBJECT
 
@@ -66,6 +67,8 @@ public slots:
     void recalculate(); // Iterates from the beginning
     void checkStale(); // Call after the project has changed, also updates the selection summary
     void applyPreferences(); // Call after the preferences have changed
+    // Recalculates when out of date, at once when the tab is shown in the active window, otherwise when it is
+    void recalculateWhenShown();
 
 signals:
     void modified();
@@ -84,7 +87,12 @@ private slots:
     void updateLabelMenu(); // Before it is shown, from the curves of the profile
     void exportProfile();
 
+protected:
+    void showEvent(QShowEvent *event) override;
+    void changeEvent(QEvent *event) override;
+
 private:
+    void recalculatePending(); // When a recalculation waits and the tab is shown in the active window
     enum class DepthUnit { ThinFilm, Mass, Length };
     enum class Interval { Normalization, Average };
 
@@ -117,6 +125,7 @@ private:
     std::unique_ptr<DepthProfileCalculation> m_calculation;
     DepthProfileResult m_result;
     bool m_stale = false;
+    bool m_recalculationPending = false; // Requested while the tab was not shown in the active window
     bool m_iterating = false;
     int m_remainingIterations = 0;
     DepthUnit m_unit = DepthUnit::ThinFilm;

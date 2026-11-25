@@ -87,7 +87,8 @@ private:
     void closeTab(QWidget *page); // Wherever it is
     void showTab(QWidget *page, const QString &title, const QString &toolTip); // Opened in the main window
     void connectSettingsView(SettingsView *view);
-    void recalculateStaleSpectra(); // And depth profiles, after settings they depend on were edited
+    // And depth profiles when their tabs are shown, after settings they depend on were edited
+    void recalculateStaleSpectra();
     void closeCalibrations(const DetectorSettings *detector); // The ToF and angle calibrations, nullptr closes all
     void calibrationApplied(DetectorSettings *detector);
     void updateSpectrumTitle(EnergySpectrumView *view); // nullptr is ignored

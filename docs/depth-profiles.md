@@ -114,4 +114,6 @@ averaging interval as an areal density in 10¹⁵ at./cm² (e.g. the amount of a
   its uncertainty and the events, with the averages, also as areal densities, in the header.
   Concentrations are written to 0.0001 at.%. See [Exporting](getting-started.md#exporting).
 
-Changes of the selections or settings made elsewhere mark the profile out of date until it is recalculated.
+Changes of the selections or settings made elsewhere mark the profile out of date until it is recalculated. After an
+edit of the settings, such as the calibrations or the physics settings, the profile is recalculated when its tab is
+shown in the active window.

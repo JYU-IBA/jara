@@ -946,7 +946,7 @@ void MainWindow::recalculateStaleSpectra() {
         }
         auto *profileView = qobject_cast<DepthProfileView *>(page);
         if(profileView && profileView->isStale()) {
-            profileView->recalculate();
+            profileView->recalculateWhenShown(); // They take longer
         }
     }
 }

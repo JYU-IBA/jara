@@ -819,10 +819,38 @@ void DepthProfileView::averageItemChanged(QTreeWidgetItem *item, int column) {
     });
 }
 
+void DepthProfileView::recalculateWhenShown() {
+    m_recalculationPending = true;
+    recalculatePending();
+}
+
+void DepthProfileView::recalculatePending() {
+    if(!m_recalculationPending || !isVisible() || !isActiveWindow()) {
+        return;
+    }
+    m_recalculationPending = false;
+    if(m_stale) {
+        recalculate();
+    }
+}
+
+void DepthProfileView::showEvent(QShowEvent *event) {
+    QWidget::showEvent(event);
+    recalculatePending();
+}
+
+void DepthProfileView::changeEvent(QEvent *event) {
+    QWidget::changeEvent(event);
+    if(event->type() == QEvent::ActivationChange) {
+        recalculatePending();
+    }
+}
+
 void DepthProfileView::recalculate() {
     if(!m_plot) {
         return;
     }
+    m_recalculationPending = false;
     stopIterating();
     m_calculatedInputs = depthProfileInputs(*m_measurement, *m_profile);
     QApplication::setOverrideCursor(Qt::WaitCursor);
