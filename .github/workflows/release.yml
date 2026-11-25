@@ -1,5 +1,5 @@
 # Makes a draft release of a version tag from the packages of a successful Build run of the tagged commit, with their
-# SHA-256 sums. Check the packages of the run first. The draft is published by hand, after e.g. replacing the ad hoc
+# SHA-256 sums. The notes are the changes of the version in CHANGELOG.md. Check the packages of the run first. The draft is published by hand, after e.g. replacing the ad hoc
 # signed DMG with one signed locally (gh release upload --clobber).
 name: Release
 
@@ -42,5 +42,19 @@ jobs:
           cd release
           sha256sum -- * > SHA256SUMS.txt
           cat SHA256SUMS.txt
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          path: jara
+      - name: Release notes from the changelog
+        run: |
+          # The section of the version in CHANGELOG.md, without its heading
+          awk -v heading="## [${TAG#v}]" 'index($0, heading) == 1 {found = 1; next} found && /^## \[/ {exit} found {print}' \
+              jara/CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+              echo "CHANGELOG.md has no changes for ${TAG#v}"
+              exit 1
+          fi
+          cat notes.md
       - name: Make the draft release
-        run: gh release create "$TAG" --draft --verify-tag --generate-notes --title "JaRA ${TAG#v}" release/*
+        run: gh release create "$TAG" --draft --verify-tag --notes-file notes.md --title "JaRA ${TAG#v}" release/*

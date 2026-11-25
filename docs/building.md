@@ -99,12 +99,22 @@ Each package is checked with `--check-installation` and uploaded as an artifact 
 with the Ubuntu 26.04 packages as described above, to check these instructions. The commit of JIBAL used is in
 `build-info-*.txt` of the artifacts.
 
+Changes are listed in [CHANGELOG.md](../CHANGELOG.md), in the style of [Keep a Changelog](https://keepachangelog.com/):
+user-visible changes are added under `## [Unreleased]`, grouped as Added, Changed, Deprecated, Removed, Fixed and
+Security, as they are made.
+
 To make a release:
 
-1. Run `release_scripts/bump_version.sh` and push the commit and the tag.
-2. Run the Build workflow for the tag and check its packages.
-3. Run the Release workflow (`.github/workflows/release.yml`) by hand with the tag. It makes a draft release with the
-   packages of that run and their SHA-256 sums.
-4. Optionally replace the ad hoc signed disk image with one signed locally (`gh release upload <tag> <dmg> --clobber`,
+1. Check that the [Unreleased] section of the changelog lists the changes of the release.
+2. Run `release_scripts/bump_version.sh` and push the commit and the tag. The script moves the [Unreleased] changes
+   under a heading of the new version with today's date and updates the comparison links at the end of the changelog.
+3. Run the Build workflow for the tag and check its packages.
+4. Run the Release workflow (`.github/workflows/release.yml`) by hand with the tag. It makes a draft release with the
+   packages of that run and their SHA-256 sums. The notes of the release are the changes of the version in the
+   changelog, and the workflow fails if the changelog has no section for it.
+5. Optionally replace the ad hoc signed disk image with one signed locally (`gh release upload <tag> <dmg> --clobber`,
    and update `SHA256SUMS.txt`).
-5. Publish the draft.
+6. Publish the draft.
+
+Users of the macOS disk image must allow it in System Settings the first time, as it is not notarized, see
+[Installing](installing.md#macos).

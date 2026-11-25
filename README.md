@@ -29,9 +29,20 @@ and turns the selections into energy spectra and depth profiles. Stopping, masse
   split analyses in an appendix, marked out of date when the profiles change. See [Reports](docs/reports.md).
 - **Export** of spectra, profiles and split analyses as text files with a short header or as CSV.
 
+## Download
+
+Packages for macOS (disk image), Windows (MSI installer and zip) and Linux (AppImage) are on the
+[releases page](https://github.com/JYU-IBA/jara/releases). They contain everything JaRA needs. What changed in each
+version is in the [changelog](CHANGELOG.md).
+
+**macOS:** the app is signed ad hoc, not notarized by Apple, so macOS blocks it the first time it is opened. Open it
+once, then click **Open Anyway** in System Settings → Privacy & Security, or run
+`xattr -dr com.apple.quarantine /Applications/JaRA.app`. See [Installing](docs/installing.md) for the details and for
+Windows and Linux.
+
 ## Quick start
 
-1. Build JaRA, see [Building](docs/building.md).
+1. Download JaRA, see [Installing](docs/installing.md), or build it, see [Building](docs/building.md).
 2. Create a project (File → New), add a sample and its measurement files (`*.asc`).
 3. Add experimental and detector settings and assign them to the measurements.
 4. Open the ToF-E histogram of a measurement and draw a selection around the events of each element.
@@ -41,6 +52,7 @@ and turns the selections into energy spectra and depth profiles. Stopping, masse
 
 ## Documentation
 
+- [Installing](docs/installing.md): the packages of the releases, and opening JaRA on macOS
 - [Building](docs/building.md): requirements and compiling
 - [Getting started](docs/getting-started.md): projects, samples, measurements, files and exporting
 - [Settings](docs/settings.md): experimental, detector and physics settings, efficiencies, the timing detector foil,
@@ -48,6 +60,7 @@ and turns the selections into energy spectra and depth profiles. Stopping, masse
 - [Coincidence files](docs/coincidences.md): converting list-mode files to measurements
 - [Selections](docs/selections.md): the ToF-E histogram and selections
 - [ToF calibration](docs/tof-calibration.md)
+- [Angle calibration](docs/angle-calibration.md)
 - [Energy spectra](docs/energy-spectra.md)
 - [Depth profiles](docs/depth-profiles.md)
 - [Split analysis](docs/split-analysis.md)
@@ -70,6 +83,7 @@ reviews and tests the changes.
 ## Versions
 
 Releases are tagged `vX.Y.Z` and the same number is kept in `version.txt` for builds without git.
-`release_scripts/bump_version.sh` changes the version, commits it and tags the commit. Packages for Linux (AppImage),
-Windows (zip, MSI) and macOS (disk image) are on the [releases page](https://github.com/JYU-IBA/jara/releases), see
-[Packages and releases](docs/building.md#packages-and-releases-on-github).
+`release_scripts/bump_version.sh` changes the version, moves the [Unreleased] changes of the [changelog](CHANGELOG.md)
+under it, commits and tags the commit. Packages for Linux (AppImage), Windows (zip, MSI) and macOS (disk image) are on
+the [releases page](https://github.com/JYU-IBA/jara/releases), with the changes of the version from the changelog as
+the release notes. See [Packages and releases](docs/building.md#packages-and-releases-on-github).
