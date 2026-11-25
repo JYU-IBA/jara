@@ -78,6 +78,8 @@ add_executable(jara
         src/materialeditor.cpp
         src/materialeditor.h
         src/matrix.h
+        src/crosssection.cpp
+        src/crosssection.h
         src/foildialog.cpp
         src/formlayout.cpp
         src/formlayout.h

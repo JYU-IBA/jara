@@ -14,6 +14,7 @@
 
 #include "depthprofile.h"
 #include "anglecalibration.h"
+#include "crosssection.h"
 #include "defaults.h"
 #include "elements.h"
 #include "energyspectrum.h"
@@ -31,7 +32,6 @@
 
 extern "C" {
 #include <jibal.h>
-#include <jibal_cross_section.h>
 }
 
 namespace {
@@ -50,13 +50,6 @@ constexpr int AutoNormalizationSmoothing = 2; // Bins on each side in the moving
 constexpr double AutoNormalizationTolerance = 0.1; // Relative difference of the total from its typical level allowed
 constexpr double AutoNormalizationDeviations = 3; // Statistical deviations allowed, when more than the above
 
-jibal_isotope isotope(int z, int a, double mass) {
-    jibal_isotope result{};
-    result.Z = z;
-    result.A = a;
-    result.mass = mass;
-    return result;
-}
 }
 
 DepthProfileInputs depthProfileInputs(const Measurement &measurement, const DepthProfile &profile) {
@@ -383,14 +376,12 @@ DepthProfileCalculation::DepthProfileCalculation(const std::vector<ToFEEvent> &e
 
 double DepthProfileCalculation::crossSection(const Selection &selection, double beamEnergy) const {
     const SelectionPhysics &physics = m_physics[static_cast<size_t>(&selection - m_selections.data())];
-    const jibal_isotope beam = isotope(m_inputs.beamZ, m_inputs.beamA, m_beamMass);
-    const jibal_isotope target = isotope(selection.z, selection.a, physics.targetMass);
-    const jibal_cross_section_type type = m_inputs.physics.screening == ScreeningModel::Andersen ? JIBAL_CS_ANDERSEN
-                                                                                                : JIBAL_CS_RUTHERFORD;
+    const bool andersen = m_inputs.physics.screening == ScreeningModel::Andersen;
+    const double angle = m_inputs.scatteringAngle;
     if(selection.type == CutType::Scattered) {
-        return jibal_cross_section_rbs(&beam, &target, m_inputs.scatteringAngle, beamEnergy, type);
+        return rbsCrossSection(m_inputs.beamZ, m_beamMass, selection.z, physics.targetMass, angle, beamEnergy, andersen);
     }
-    return jibal_cross_section_erd(&beam, &target, m_inputs.scatteringAngle, beamEnergy, type);
+    return erdCrossSection(m_inputs.beamZ, m_beamMass, selection.z, physics.targetMass, angle, beamEnergy, andersen);
 }
 
 void DepthProfileCalculation::initialComposition() {
