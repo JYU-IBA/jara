@@ -16,6 +16,7 @@
 #include "archive.h"
 #include "defaults.h"
 #include "elements.h"
+#include "version.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1212,6 +1213,7 @@ QByteArray settingsCollectionToJson(const SettingsCollection &collection) {
     const QJsonObject root{
             {"format", SettingsFormatName},
             {"version", FormatVersion},
+            {"savedWithVersion", Version::version()},
             {"experimentalSettings", settings},
             {"detectorSettings", detectors},
             {"physicsSettings", physics}};
@@ -1560,6 +1562,7 @@ QByteArray Project::toJson(const std::function<QString(const QString &path)> &st
     QJsonObject root{
             {"format", FormatName},
             {"version", FormatVersion},
+            {"savedWithVersion", Version::version()},
             {"experimentalSettings", settings},
             {"detectorSettings", detectors},
             {"physicsSettings", physics},

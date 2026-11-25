@@ -53,9 +53,12 @@ If CMake does not find Qt or JIBAL, add their installation prefixes to `CMAKE_PR
 
 ## Version information
 
-The version is taken from the latest `vX.Y.Z` tag, or from `version.txt` when there is no git. Every build records
-the git state, so the About dialog tells which commit the program was built from and whether it had uncommitted
-changes.
+The version is taken from the latest `vX.Y.Z` tag, or from `version.txt` when there is no git. JaRA uses
+[semantic versioning](https://semver.org/). Every build records the git state, so the About dialog tells which commit
+the program was built from and whether it had uncommitted changes. The version JaRA reports, e.g. in the About dialog,
+reports and saved files, is the version of the tag with what `git describe` adds as build metadata: `0.2.1` for a
+build of the tag, `0.2.1+dirty` with uncommitted changes and `0.2.1+3.gabcdef0` three commits after the tag at commit
+`abcdef0`.
 
 ## Installing and the JIBAL data
 

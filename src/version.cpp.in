@@ -16,7 +16,7 @@
 
 namespace Version {
 QString version() {
-    return gitPopulated() ? QStringLiteral("@GIT_DESCRIBE@") : versionSimple();
+    return gitPopulated() ? QStringLiteral("@JARA_SEMVER@") : versionSimple();
 }
 
 QString versionSimple() {

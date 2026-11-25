@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Project and settings files record the version of JaRA that saved them, in `savedWithVersion`.
+
+### Changed
+
+- The version of JaRA is a semantic version, with the commits since the release and uncommitted changes as build
+  metadata, e.g. `0.2.1+3.gabcdef0.dirty` instead of `v0.2.1-3-gabcdef0-dirty`.
+
 ## [0.2.1] - 2026-11-25
 
 ### Added
