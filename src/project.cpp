@@ -896,25 +896,40 @@ QJsonObject coincidenceToJson(const CoincidenceSettings &settings) {
 }
 
 QJsonObject angleCalibrationToJson(const AngleCalibration &calibration) {
-    return QJsonObject{{"centre", calibration.centre},
-                       {"centreSlope", calibration.centreSlope},
+    QJsonArray centre;
+    for(const double coefficient : calibration.centre) {
+        centre.append(coefficient);
+    }
+    return QJsonObject{{"referenceTof", calibration.referenceTof},
+                       {"centre", centre},
+                       {"tofRange", QJsonArray{calibration.tofMin, calibration.tofMax}},
+                       {"centreOrder", calibration.centreOrder},
+                       {"slices", calibration.slices},
+                       {"sliceMode", calibration.equalTofSlices ? "equalTof" : "equalCounts"},
                        {"halfWidth", calibration.halfWidth},
                        {"sigma", calibration.sigma},
                        {"reversed", calibration.reversed},
-                       {"maxTof", calibration.maxTof},
                        {"timingSmoothing", calibration.timingSmoothing}};
 }
 
 AngleCalibration angleCalibrationFromJson(const QJsonObject &json) {
     AngleCalibration calibration;
-    calibration.centre = json["centre"].toDouble();
-    calibration.centreSlope = json["centreSlope"].toDouble();
+    calibration.referenceTof = json["referenceTof"].toDouble();
+    const QJsonArray centre = json["centre"].toArray();
+    for(size_t k = 0; k < calibration.centre.size(); k++) {
+        calibration.centre[k] = centre.at(static_cast<qsizetype>(k)).toDouble();
+    }
+    calibration.centreOrder = std::clamp(json["centreOrder"].toInt(1), 0, MaxCentreOrder);
+    const QJsonArray tofRange = json["tofRange"].toArray();
+    calibration.tofMin = tofRange.at(0).toDouble();
+    calibration.tofMax = tofRange.at(1).toDouble();
+    calibration.slices = std::max(1, json["slices"].toInt(5));
+    calibration.equalTofSlices = json["sliceMode"].toString() == QStringLiteral("equalTof");
     calibration.halfWidth = json["halfWidth"].toDouble();
     calibration.sigma = std::max(0.0, json["sigma"].toDouble());
     calibration.reversed = json["reversed"].toBool();
-    calibration.maxTof = json["maxTof"].toDouble();
     calibration.timingSmoothing = std::max(0.0, json["timingSmoothing"].toDouble());
-    calibration.valid = calibration.halfWidth > 0;
+    calibration.valid = calibration.halfWidth > 0 && calibration.tofMax > calibration.tofMin;
     return calibration;
 }
 

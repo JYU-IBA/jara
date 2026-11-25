@@ -46,6 +46,7 @@ constexpr double NaN = std::numeric_limits<double>::quiet_NaN();
 constexpr int MeasurementRole = Qt::UserRole;
 constexpr int CutIdRole = Qt::UserRole + 1;
 constexpr int EdgePoints = 41; // Across the window
+constexpr int CentrePoints = 101; // Of the fitted window lines over the ToF of the events
 constexpr int FitPointsPerBin = 4; // Of the fitted curve
 const QColor RangeColor(0x80, 0x80, 0x80);
 const QColor FitColor(0x1f, 0x77, 0xb4);
@@ -53,7 +54,7 @@ const QColor EdgeColor(0x80, 0x00, 0x00);
 constexpr double EdgeWidth = 3; // Pixels
 const QColor DataColor(0x40, 0x40, 0x40);
 
-enum SliceColumn { SliceTofColumn, SliceEventsColumn, SliceCentreColumn };
+enum SliceColumn { SliceTofColumn, SliceEventsColumn, SliceCentreColumn, SliceResidualColumn };
 
 QString nameOrUnnamed(const QString &name) {
     return name.isEmpty() ? QStringLiteral("(unnamed)") : name;
@@ -75,19 +76,38 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
     m_edgeCombo = new QComboBox;
     m_edgeCombo->setToolTip("The expected leading edge of the selection over the window is drawn for the chosen "
                             "direction of the angle. Needs the experimental settings and the ToF calibration.");
+    const AngleCalibration &stored = detector->angleCalibration;
+    m_minTofSpin = new QSpinBox;
+    m_minTofSpin->setRange(0, 1000000);
+    m_minTofSpin->setSuffix(" ch");
+    m_minTofSpin->setValue(stored.tofMax > stored.tofMin ? static_cast<int>(stored.tofMin) : 0);
+    m_minTofSpin->setToolTip("Events with a shorter ToF are left out of the fit, also by dragging the left line in the "
+                             "plot. Events outside the range of ToF get no kinematic correction.");
     m_maxTofSpin = new QSpinBox;
     m_maxTofSpin->setRange(0, 1000000);
     m_maxTofSpin->setSuffix(" ch");
-    m_maxTofSpin->setToolTip("Events with a longer ToF are left out of the fit, also by dragging the line in the plot");
+    m_maxTofSpin->setToolTip("Events with a longer ToF are left out of the fit, also by dragging the right line in the "
+                             "plot. Events outside the range of ToF get no kinematic correction.");
     m_binWidthSpin = new QSpinBox;
     m_binWidthSpin->setRange(1, 100);
     m_binWidthSpin->setSuffix(" ticks");
     m_binWidthSpin->setToolTip("Of the distribution and the fit. Wider bins even out ticks of unequal widths.");
     m_slicesSpin = new QSpinBox;
     m_slicesSpin->setRange(1, 50);
-    m_slicesSpin->setValue(5);
-    m_slicesSpin->setToolTip("The centre of the window is fitted in this many slices of ToF with equal counts, and a "
-                             "straight line through them gives its shift with ToF. One slice for a constant centre.");
+    m_slicesSpin->setValue(detector->angleCalibration.slices);
+    m_slicesSpin->setToolTip("The centre of the window is fitted in this many slices of ToF, and a polynomial through "
+                             "them gives its shift with ToF. At least one more than the order is needed.");
+    m_orderCombo = new QComboBox;
+    m_orderCombo->addItems({"Constant", "Linear", "Quadratic", "Cubic"});
+    m_orderCombo->setCurrentIndex(detector->angleCalibration.centreOrder);
+    m_orderCombo->setToolTip("Order of the polynomial of the centre against ToF, fitted to the centres of the slices. "
+                             "With a constant centre, the slices are still fitted and their residuals shown as a check.");
+    m_sliceModeCombo = new QComboBox;
+    m_sliceModeCombo->addItems({"Equal counts", "Equal ToF width"});
+    m_sliceModeCombo->setCurrentIndex(detector->angleCalibration.equalTofSlices ? 1 : 0);
+    m_sliceModeCombo->setToolTip("Slices with equal numbers of events, or of equal widths in ToF up to the maximum. "
+                                 "Equal widths reach further into the slow tail, slices with too few events are left "
+                                 "out.");
     m_smoothingSpin = new QDoubleSpinBox;
     m_smoothingSpin->setRange(0, 50);
     m_smoothingSpin->setDecimals(1);
@@ -107,17 +127,20 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
     m_edgeNote->setWordWrap(true);
 
     auto *form = createFormLayout();
+    form->addRow("Minimum ToF:", m_minTofSpin);
     form->addRow("Maximum ToF:", m_maxTofSpin);
     form->addRow("Timing smoothing:", m_smoothingSpin);
     form->addRow("Bin width:", m_binWidthSpin);
+    form->addRow("Centre vs ToF:", m_orderCombo);
     form->addRow("ToF slices:", m_slicesSpin);
+    form->addRow("Slicing:", m_sliceModeCombo);
     form->addRow("Expected edge of:", m_edgeCombo);
     form->addRow(m_reversedCheck);
     form->addRow(m_edgeNote);
 
     m_sliceTable = new QTreeWidget;
     m_sliceTable->setRootIsDecorated(false);
-    m_sliceTable->setHeaderLabels({"ToF (ch)", "Events", "Centre (ticks)"});
+    m_sliceTable->setHeaderLabels({"ToF (ch)", "Events", "Centre (ticks)", "Residual (ticks)"});
     m_sliceTable->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
 
     auto *left = new QWidget;
@@ -135,7 +158,7 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
     m_histogram->setLogScale(true);
     m_histogram->setEvents(&m_plotEvents);
     m_histogram->setMarkersDraggable(true);
-    m_histogram->setToolTip("Drag the dashed line to change the maximum ToF");
+    m_histogram->setToolTip("Drag the dashed lines to change the minimum and maximum ToF");
     m_distribution = new SpectrumPlotWidget;
     SpectrumPlotWidget::YAxis yAxis;
     yAxis.legendEvents = false;
@@ -190,9 +213,7 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
             return;
         }
         QApplication::setOverrideCursor(Qt::WaitCursor);
-        m_fit = fitAngleCalibration(m_smoothedEvents, {static_cast<double>(m_maxTofSpin->value()),
-                                               static_cast<double>(m_binWidthSpin->value()), m_slicesSpin->value(),
-                                               m_fitMin, m_fitMax});
+        m_fit = fitAngleCalibration(m_smoothedEvents, fitOptions());
         QApplication::restoreOverrideCursor();
         showFit();
     });
@@ -206,15 +227,27 @@ AngleCalibrationWindow::AngleCalibrationWindow(Project *project, DetectorSetting
         collectEvents();
         updateEdgeChoices();
     });
-    for(QSpinBox *spinBox : {m_maxTofSpin, m_binWidthSpin, m_slicesSpin}) {
+    for(QSpinBox *spinBox : {m_minTofSpin, m_maxTofSpin, m_binWidthSpin, m_slicesSpin}) {
         connect(spinBox, &QSpinBox::valueChanged, this, &AngleCalibrationWindow::fit);
     }
     connect(m_smoothingSpin, &QDoubleSpinBox::valueChanged, this, &AngleCalibrationWindow::fit);
-    connect(m_maxTofSpin, &QSpinBox::valueChanged, this, [this](int value) {
-        m_histogram->setVerticalMarkers({value + 0.5});
-    });
-    connect(m_histogram, &HistogramWidget::markerMoved, this, [this](int, double x) {
-        m_maxTofSpin->setValue(static_cast<int>(std::floor(x)));
+    for(QComboBox *combo : {m_orderCombo, m_sliceModeCombo}) {
+        connect(combo, &QComboBox::currentIndexChanged, this, &AngleCalibrationWindow::fit);
+    }
+    for(QSpinBox *spinBox : {m_minTofSpin, m_maxTofSpin}) {
+        connect(spinBox, &QSpinBox::valueChanged, this, [this]() {
+            updateTofLimits();
+            updateTofMarkers();
+        });
+    }
+    connect(m_histogram, &HistogramWidget::markerMoved, this, [this](int index, double x) {
+        // Clamped by the limits of the spin boxes, the line goes back to the value when it was dragged past the other
+        if(index == 0) {
+            m_minTofSpin->setValue(static_cast<int>(std::ceil(x)));
+        } else {
+            m_maxTofSpin->setValue(static_cast<int>(std::floor(x)));
+        }
+        updateTofMarkers();
     });
     connect(m_distribution, &SpectrumPlotWidget::markerMoved, this, [this](int index, double x) {
         if(index > 1 || (!m_fit.window.ok && std::isnan(m_fitMin))) {
@@ -386,18 +419,17 @@ void AngleCalibrationWindow::collectEvents() {
         m_minTof = min->tof;
         m_maxTof = max->tof;
     }
-    // At first the maximum ToF of the calibration, or the median ToF of the events
+    // At first the maximum ToF of the calibration, or the longest ToF of the events
     const QSignalBlocker blocker(m_maxTofSpin);
+    const AngleCalibration &stored = m_detector->angleCalibration;
     if(m_maxTofSpin->value() > 0) {
         // Kept
-    } else if(m_detector->angleCalibration.maxTof > 0) {
-        m_maxTofSpin->setValue(static_cast<int>(m_detector->angleCalibration.maxTof));
+    } else if(stored.tofMax > stored.tofMin) {
+        m_maxTofSpin->setValue(static_cast<int>(stored.tofMax));
     } else if(!m_events.empty()) {
-        std::vector<double> tofs(m_events.size());
-        std::transform(m_events.begin(), m_events.end(), tofs.begin(), [](const ToFEEvent &event) { return event.tof; });
-        std::nth_element(tofs.begin(), tofs.begin() + static_cast<std::ptrdiff_t>(tofs.size() / 2), tofs.end());
-        m_maxTofSpin->setValue(static_cast<int>(tofs[tofs.size() / 2]));
+        m_maxTofSpin->setValue(static_cast<int>(std::ceil(m_maxTof)));
     }
+    updateTofLimits();
     smoothEvents();
 }
 
@@ -411,11 +443,9 @@ void AngleCalibrationWindow::smoothEvents() {
         m_plotEvents.push_back({event.tof, event.timing});
     }
     m_histogram->setEvents(&m_plotEvents);
-    m_histogram->setVerticalMarkers({m_maxTofSpin->value() + 0.5});
+    updateTofMarkers();
     m_fitTimer->stop();
-    m_fit = fitAngleCalibration(m_smoothedEvents, {static_cast<double>(m_maxTofSpin->value()),
-                                           static_cast<double>(m_binWidthSpin->value()), m_slicesSpin->value(), m_fitMin,
-                                           m_fitMax});
+    m_fit = fitAngleCalibration(m_smoothedEvents, fitOptions());
     // The timing axis covers the distribution, without outliers
     if(!m_fit.histogram.counts.empty()) {
         m_histogram->setFullYRange(m_fit.histogram.binStart(0), m_fit.histogram.binStart(m_fit.histogram.counts.size()));
@@ -425,6 +455,35 @@ void AngleCalibrationWindow::smoothEvents() {
     m_distribution->resetZoom();
 }
 
+void AngleCalibrationWindow::updateTofLimits() {
+    // Not before the maximum is known: it starts at zero, which would pull the minimum down to it
+    if(m_maxTofSpin->value() <= 0) {
+        return;
+    }
+    const QSignalBlocker minBlocker(m_minTofSpin);
+    const QSignalBlocker maxBlocker(m_maxTofSpin);
+    m_minTofSpin->setMaximum(m_maxTofSpin->value());
+    m_maxTofSpin->setMinimum(m_minTofSpin->value());
+}
+
+void AngleCalibrationWindow::updateTofMarkers() {
+    // Between the channels, the events of both channels are in the fit
+    m_histogram->setVerticalMarkers({m_minTofSpin->value() - 0.5, m_maxTofSpin->value() + 0.5});
+}
+
+AngleFitOptions AngleCalibrationWindow::fitOptions() const {
+    AngleFitOptions options;
+    options.minTof = m_minTofSpin->value();
+    options.maxTof = m_maxTofSpin->value();
+    options.binWidth = m_binWidthSpin->value();
+    options.order = m_orderCombo->currentIndex();
+    options.slices = m_slicesSpin->value();
+    options.equalTofSlices = m_sliceModeCombo->currentIndex() == 1;
+    options.fitMin = m_fitMin;
+    options.fitMax = m_fitMax;
+    return options;
+}
+
 void AngleCalibrationWindow::fit() {
     m_fitTimer->start();
 }
@@ -432,7 +491,7 @@ void AngleCalibrationWindow::fit() {
 void AngleCalibrationWindow::showFit() {
     const TimingHistogram &histogram = m_fit.histogram;
     SpectrumPlotWidget::XAxis axis;
-    axis.title = m_fit.centreSlope != 0 ? QString("Timing at ToF %1 ch (ticks)").arg(m_fit.referenceTof, 0, 'f', 0)
+    axis.title = m_fit.order > 0 ? QString("Timing at ToF %1 ch (ticks)").arg(m_fit.referenceTof, 0, 'f', 0)
                                         : QStringLiteral("Timing (ticks)");
     axis.unit = QStringLiteral("ticks");
     axis.decimals = 1;
@@ -468,6 +527,8 @@ void AngleCalibrationWindow::showFit() {
         item->setText(SliceEventsColumn, QString::number(slice.events));
         item->setText(SliceCentreColumn, slice.ok ? QString("%1 ± %2").arg(slice.centre, 0, 'f', 2).arg(slice.centreError, 0, 'f', 2)
                                                   : QStringLiteral("—"));
+        item->setText(SliceResidualColumn, slice.ok && m_fit.ok ? QString("%1").arg(slice.residual, 0, 'f', 2)
+                                                                : QStringLiteral("—"));
     }
     updateOverlay();
     updateResults();
@@ -481,9 +542,13 @@ void AngleCalibrationWindow::updateOverlay() {
         return;
     }
     const WindowFit &window = m_fit.window;
-    // The fitted window over the ToF of the events
+    // The fitted window over the ToF of the events in the fit, the polynomial is not known beyond them
     for(const double offset : {-window.halfWidth, 0.0, window.halfWidth}) {
-        QPolygonF line{{m_minTof, m_fit.centreAt(m_minTof) + offset}, {m_maxTof, m_fit.centreAt(m_maxTof) + offset}};
+        QPolygonF line;
+        for(int i = 0; i < CentrePoints; i++) {
+            const double tof = m_fit.tofMin + (m_fit.tofMax - m_fit.tofMin) * i / (CentrePoints - 1);
+            line.append({tof, m_fit.centreAt(tof) + offset});
+        }
         lines.append({line, FitColor, offset == 0 ? Qt::DotLine : Qt::SolidLine});
     }
 
@@ -530,7 +595,7 @@ void AngleCalibrationWindow::updateResults() {
                                                    : QStringLiteral("The checked measurements have no timing values."));
         return;
     }
-    QString text = QString("%1 events up to ToF %2 ch.").arg(m_fit.events).arg(m_maxTofSpin->value());
+    QString text = QString("%1 events at ToF %2–%3 ch.").arg(m_fit.events).arg(m_minTofSpin->value()).arg(m_maxTofSpin->value());
     if(!m_fit.ok) {
         m_resultLabel->setText(QString("%1 <b>%2</b>").arg(text, m_fit.errorMessage.toHtmlEscaped()));
         return;
@@ -540,10 +605,21 @@ void AngleCalibrationWindow::updateResults() {
                     .arg(window.centre, 0, 'f', 2)
                     .arg(window.centreError, 0, 'f', 2)
                     .arg(m_fit.referenceTof, 0, 'f', 0);
-    if(m_fit.slopeMessage.isEmpty() && !m_fit.slices.empty()) {
-        text += QString(", shifting %1 ± %2 ticks/ch").arg(m_fit.centreSlope, 0, 'g', 3).arg(m_fit.centreSlopeError, 0, 'g', 2);
-    } else if(!m_fit.slopeMessage.isEmpty()) {
-        text += QString(" (%1)").arg(m_fit.slopeMessage.toHtmlEscaped());
+    if(!m_fit.centreMessage.isEmpty()) {
+        text += QString(" (%1)").arg(m_fit.centreMessage.toHtmlEscaped());
+    } else if(m_fit.order > 0) {
+        static const QString powers[] = {QString(), QString(), QStringLiteral("²"), QStringLiteral("³")};
+        QStringList terms;
+        for(int k = 1; k <= m_fit.order; k++) {
+            terms.append(QString("%1 ± %2 ticks/ch%3")
+                                 .arg(m_fit.coefficients[k], 0, 'g', 3)
+                                 .arg(m_fit.errors[k], 0, 'g', 2)
+                                 .arg(powers[k]));
+        }
+        text += QString(", shifting %1").arg(terms.join(QStringLiteral(", ")));
+        if(std::isfinite(m_fit.sliceChiSquared)) {
+            text += QString(" (χ²/ndf of the slices %1)").arg(m_fit.sliceChiSquared, 0, 'f', 2);
+        }
     }
     text += QString(". Half width <b>%1 ± %2 ticks</b>, resolution σ %3 ticks.")
                     .arg(window.halfWidth, 0, 'f', 2)
@@ -565,6 +641,9 @@ QString AngleCalibrationWindow::angleText(double tof, double timing) const {
     if(!m_fit.ok || halfAngle <= 0) {
         return {};
     }
+    if(tof < m_fit.tofMin || tof > m_fit.tofMax) {
+        return QStringLiteral("Outside the ToF of the calibration, no correction");
+    }
     double position = (timing - m_fit.centreAt(tof)) / m_fit.window.halfWidth;
     if(m_reversedCheck->isChecked()) {
         position = -position;
@@ -584,8 +663,10 @@ void AngleCalibrationWindow::apply() {
         return;
     }
     AngleCalibration calibration = m_fit.calibration(m_reversedCheck->isChecked());
-    calibration.maxTof = m_maxTofSpin->value();
     calibration.timingSmoothing = m_smoothingSpin->value();
+    calibration.centreOrder = m_orderCombo->currentIndex();
+    calibration.slices = m_slicesSpin->value();
+    calibration.equalTofSlices = m_sliceModeCombo->currentIndex() == 1;
     m_detector->angleCalibration = calibration;
     emit calibrationApplied();
 }

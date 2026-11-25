@@ -21,7 +21,7 @@
 
 #include <gsl/gsl_blas.h>
 #include <gsl/gsl_cdf.h>
-#include <gsl/gsl_fit.h>
+#include <gsl/gsl_multifit.h>
 #include <gsl/gsl_multifit_nlinear.h>
 #include <gsl/gsl_randist.h>
 
@@ -263,14 +263,15 @@ struct Selected {
     double timing;
 };
 
-TimingHistogram makeHistogram(const std::vector<Selected> &events, double binWidth, double slope, double referenceTof,
-                              double origin, size_t bins) {
+// With the shift of the fit taken out, nullptr for none
+TimingHistogram makeHistogram(const std::vector<Selected> &events, double binWidth, const AngleFit *shift, double origin,
+                              size_t bins) {
     TimingHistogram histogram;
     histogram.origin = origin;
     histogram.binWidth = binWidth;
     histogram.counts.assign(bins, 0);
     for(const Selected &event : events) {
-        const double x = event.timing - slope * (event.tof - referenceTof);
+        const double x = event.timing - (shift ? shift->shiftAt(event.tof) : 0);
         const double bin = std::floor((x - histogram.binStart(0)) / binWidth);
         if(bin >= 0 && bin < static_cast<double>(bins)) {
             histogram.counts[static_cast<size_t>(bin)]++;
@@ -279,25 +280,132 @@ TimingHistogram makeHistogram(const std::vector<Selected> &events, double binWid
     return histogram;
 }
 
-// Initial values from the fit of all events, the range moved to the slice's events in it
-WindowFit sliceInitial(const std::vector<Selected> &events, size_t begin, size_t end, const WindowFit &all) {
+// Initial values from the fit of all events, the range moved by shift, or without a shift (NaN) to the slice's events
+// in it
+WindowFit sliceInitial(const std::vector<Selected> &events, size_t begin, size_t end, const WindowFit &all, double shift) {
     WindowFit initial = all;
-    double sum = 0;
-    size_t count = 0;
-    for(size_t i = begin; i < end; i++) {
-        if(events[i].timing >= all.fitMin && events[i].timing < all.fitMax) {
-            sum += events[i].timing;
-            count++;
+    if(!std::isfinite(shift)) {
+        double sum = 0;
+        size_t count = 0;
+        for(size_t i = begin; i < end; i++) {
+            if(events[i].timing >= all.fitMin && events[i].timing < all.fitMax) {
+                sum += events[i].timing;
+                count++;
+            }
         }
+        shift = count > 0 ? sum / static_cast<double>(count) - all.centre : 0;
     }
-    const double centre = count > 0 ? sum / static_cast<double>(count) : all.centre;
-    const double shift = centre - all.centre;
-    initial.centre = centre;
+    initial.centre += shift;
     initial.fitMin += shift;
     initial.fitMax += shift;
-    initial.area = static_cast<double>(count);
+    initial.area = 0;
+    for(size_t i = begin; i < end; i++) {
+        if(events[i].timing >= initial.fitMin && events[i].timing < initial.fitMax) {
+            initial.area++;
+        }
+    }
     initial.background = 0;
     return initial;
+}
+
+struct SliceRange {
+    size_t begin;
+    size_t end;
+};
+
+// Centres of the slices with the width and resolution of the window, which is that of all events with the shift of
+// the fit taken out. Without a shift (shift nullptr), each slice starts from the average timing of its events.
+void fitSlices(const std::vector<Selected> &selected, const std::vector<SliceRange> &ranges, const WindowFit &window,
+               const AngleFit *shift, double binWidth, double origin, size_t bins, std::vector<SliceCentre> &slices) {
+    slices.clear();
+    for(const SliceRange &range : ranges) {
+        SliceCentre slice;
+        slice.events = range.end - range.begin;
+        for(size_t i = range.begin; i < range.end; i++) {
+            slice.tof += selected[i].tof;
+        }
+        slice.tof /= std::max<double>(1, static_cast<double>(slice.events));
+        if(slice.events >= MinSliceEvents) {
+            const std::vector<Selected> part(selected.begin() + static_cast<std::ptrdiff_t>(range.begin),
+                                             selected.begin() + static_cast<std::ptrdiff_t>(range.end));
+            const TimingHistogram sliceHistogram = makeHistogram(part, binWidth, nullptr, origin, bins);
+            const double expected = shift ? shift->shiftAt(slice.tof) : std::numeric_limits<double>::quiet_NaN();
+            const WindowFit sliceFit = fitWindow(sliceHistogram,
+                                                 sliceInitial(selected, range.begin, range.end, window, expected), true);
+            if(sliceFit.ok && sliceFit.centreError > 0) {
+                slice.ok = true;
+                slice.centre = sliceFit.centre;
+                slice.centreError = sliceFit.centreError;
+            }
+        }
+        slices.push_back(slice);
+    }
+}
+
+// Weighted polynomial in ToF - referenceTof through the centres of the slices of the fit, into its coefficients and
+// order. False, with the centre message, when it cannot be fitted.
+bool fitPolynomial(AngleFit &fit, int order) {
+    std::vector<const SliceCentre *> okSlices;
+    for(const SliceCentre &slice : fit.slices) {
+        if(slice.ok) {
+            okSlices.push_back(&slice);
+        }
+    }
+    const auto parameters = static_cast<size_t>(order) + 1;
+    const bool distinct = okSlices.size() >= 2 && okSlices.front()->tof != okSlices.back()->tof;
+    if(okSlices.size() < parameters || !distinct) {
+        fit.centreMessage = QString("The centres of at least %1 slices are needed for the polynomial of order %2.")
+                                    .arg(parameters)
+                                    .arg(order);
+        return false;
+    }
+    const size_t n = okSlices.size();
+    gsl_matrix *x = gsl_matrix_alloc(n, parameters);
+    gsl_vector *y = gsl_vector_alloc(n);
+    gsl_vector *w = gsl_vector_alloc(n);
+    gsl_vector *c = gsl_vector_alloc(parameters);
+    gsl_matrix *covariance = gsl_matrix_alloc(parameters, parameters);
+    for(size_t i = 0; i < n; i++) {
+        const double d = okSlices[i]->tof - fit.referenceTof;
+        double power = 1;
+        for(size_t k = 0; k < parameters; k++) {
+            gsl_matrix_set(x, i, k, power);
+            power *= d;
+        }
+        gsl_vector_set(y, i, okSlices[i]->centre);
+        gsl_vector_set(w, i, 1 / (okSlices[i]->centreError * okSlices[i]->centreError));
+    }
+    gsl_multifit_linear_workspace *workspace = gsl_multifit_linear_alloc(n, parameters);
+    gsl_error_handler_t *handler = gsl_set_error_handler_off();
+    double chiSquared = 0;
+    const int status = gsl_multifit_wlinear(x, w, y, c, covariance, &chiSquared, workspace);
+    gsl_set_error_handler(handler);
+    const double scale = n > parameters ? std::max(1.0, chiSquared / static_cast<double>(n - parameters)) : 1;
+    bool finite = status == GSL_SUCCESS;
+    for(size_t k = 0; k < parameters; k++) {
+        finite = finite && std::isfinite(gsl_vector_get(c, k));
+    }
+    if(finite) {
+        fit.order = order;
+        fit.coefficients = {};
+        fit.errors = {};
+        for(size_t k = 1; k < parameters; k++) {
+            fit.coefficients[k] = gsl_vector_get(c, k);
+            fit.errors[k] = std::sqrt(gsl_matrix_get(covariance, k, k) * scale);
+        }
+        fit.sliceChiSquared = n > parameters ? chiSquared / static_cast<double>(n - parameters)
+                                             : std::numeric_limits<double>::quiet_NaN();
+        fit.centreMessage.clear();
+    } else {
+        fit.centreMessage = QStringLiteral("The polynomial through the centres of the slices could not be fitted.");
+    }
+    gsl_multifit_linear_free(workspace);
+    gsl_matrix_free(covariance);
+    gsl_vector_free(c);
+    gsl_vector_free(w);
+    gsl_vector_free(y);
+    gsl_matrix_free(x);
+    return finite;
 }
 }
 
@@ -308,8 +416,12 @@ double WindowFit::value(double x, double binWidth) const {
 AngleCalibration AngleFit::calibration(bool reversed) const {
     AngleCalibration calibration;
     calibration.valid = ok;
-    calibration.centre = window.centre - centreSlope * referenceTof;
-    calibration.centreSlope = centreSlope;
+    calibration.referenceTof = referenceTof;
+    calibration.tofMin = tofMin;
+    calibration.tofMax = tofMax;
+    calibration.centre = coefficients;
+    calibration.centre[0] = window.centre;
+    calibration.centreOrder = order;
     calibration.halfWidth = window.halfWidth;
     calibration.sigma = window.sigma;
     calibration.reversed = reversed;
@@ -321,13 +433,15 @@ AngleFit fitAngleCalibration(std::span<const ToFEEvent> events, const AngleFitOp
     const double binWidth = std::max(1.0, std::round(options.binWidth));
     std::vector<Selected> selected;
     for(const ToFEEvent &event : events) {
-        if(std::isfinite(event.timing) && event.tof <= options.maxTof) {
+        if(std::isfinite(event.timing) && event.tof >= options.minTof && event.tof <= options.maxTof) {
             selected.push_back({event.tof, event.timing});
         }
     }
     fit.events = selected.size();
+    fit.tofMin = options.minTof;
+    fit.tofMax = options.maxTof;
     if(selected.empty()) {
-        fit.errorMessage = QStringLiteral("There are no events with a timing value up to the maximum ToF.");
+        fit.errorMessage = QStringLiteral("There are no events with a timing value between the minimum and maximum ToF.");
         return fit;
     }
     std::sort(selected.begin(), selected.end(), [](const Selected &a, const Selected &b) { return a.tof < b.tof; });
@@ -353,7 +467,7 @@ AngleFit fitAngleCalibration(std::span<const ToFEEvent> events, const AngleFitOp
     const auto bins = static_cast<size_t>(std::ceil(span / binWidth));
 
     // All events without the shift
-    TimingHistogram histogram = makeHistogram(selected, binWidth, 0, fit.referenceTof, origin, bins);
+    TimingHistogram histogram = makeHistogram(selected, binWidth, nullptr, origin, bins);
     WindowFit initial = findWindow(histogram);
     if(!initial.ok) {
         fit.histogram = histogram;
@@ -368,63 +482,72 @@ AngleFit fitAngleCalibration(std::span<const ToFEEvent> events, const AngleFitOp
     }
     WindowFit all = fitWindow(histogram, initial, false);
 
-    // Centres of the slices with the width of all events
+    // Centres of the slices with the width of all events. Fitted also for a constant centre, the residuals show
+    // whether it is enough.
     const int slices = std::max(1, options.slices);
-    if(all.ok && slices > 1) {
-        std::vector<double> x, y, w;
+    const int order = std::clamp(options.order, 0, MaxCentreOrder);
+    fit.tofMin = options.minTof;
+    fit.tofMax = options.maxTof;
+    std::vector<SliceRange> ranges;
+    if(slices > 1) {
+        // Equal widths over the ToF of the events, not over empty parts of the range
+        const double firstTof = selected.front().tof;
+        const double tofSpan = selected.back().tof - firstTof;
+        auto boundary = [&](int s) -> size_t {
+            if(s >= slices) {
+                return selected.size();
+            }
+            if(!options.equalTofSlices) {
+                return selected.size() * static_cast<size_t>(s) / static_cast<size_t>(slices);
+            }
+            const double tof = firstTof + tofSpan * s / slices;
+            return static_cast<size_t>(std::lower_bound(selected.begin(), selected.end(), tof,
+                                                        [](const Selected &event, double value) { return event.tof < value; })
+                                       - selected.begin());
+        };
         for(int s = 0; s < slices; s++) {
-            const size_t begin = selected.size() * static_cast<size_t>(s) / static_cast<size_t>(slices);
-            const size_t end = selected.size() * static_cast<size_t>(s + 1) / static_cast<size_t>(slices);
-            SliceCentre slice;
-            slice.events = end - begin;
-            for(size_t i = begin; i < end; i++) {
-                slice.tof += selected[i].tof;
-            }
-            slice.tof /= std::max<double>(1, static_cast<double>(slice.events));
-            if(slice.events >= MinSliceEvents) {
-                const std::vector<Selected> part(selected.begin() + static_cast<std::ptrdiff_t>(begin),
-                                                 selected.begin() + static_cast<std::ptrdiff_t>(end));
-                const TimingHistogram sliceHistogram = makeHistogram(part, binWidth, 0, fit.referenceTof, origin, bins);
-                const WindowFit sliceFit = fitWindow(sliceHistogram, sliceInitial(selected, begin, end, all), true);
-                if(sliceFit.ok && sliceFit.centreError > 0) {
-                    slice.ok = true;
-                    slice.centre = sliceFit.centre;
-                    slice.centreError = sliceFit.centreError;
-                    x.push_back(slice.tof);
-                    y.push_back(slice.centre);
-                    w.push_back(1 / (slice.centreError * slice.centreError));
-                }
-            }
-            fit.slices.push_back(slice);
+            ranges.push_back({boundary(s), boundary(s + 1)});
         }
-        if(x.size() < 2 || x.front() == x.back()) {
-            fit.slopeMessage = QStringLiteral("The centres of at least two slices are needed for the slope.");
-        } else {
-            double c0, c1, cov00, cov01, cov11, chiSquared;
-            gsl_fit_wlinear(x.data(), 1, w.data(), 1, y.data(), 1, x.size(), &c0, &c1, &cov00, &cov01, &cov11, &chiSquared);
-            const double scale = x.size() > 2 ? std::max(1.0, chiSquared / static_cast<double>(x.size() - 2)) : 1;
-            if(std::isfinite(c1)) {
-                fit.centreSlope = c1;
-                fit.centreSlopeError = std::sqrt(cov11 * scale);
-            } else {
-                fit.slopeMessage = QStringLiteral("The line through the centres of the slices could not be fitted.");
-            }
-        }
+    }
+    if(all.ok) {
+        fitSlices(selected, ranges, all, nullptr, binWidth, origin, bins, fit.slices);
     }
 
     // The width and resolution with the shift of the centre taken out
-    if(fit.centreSlope != 0) {
-        histogram = makeHistogram(selected, binWidth, fit.centreSlope, fit.referenceTof, origin, bins);
+    auto refitWindow = [&]() {
+        histogram = makeHistogram(selected, binWidth, &fit, origin, bins);
         initial = all.ok ? all : initial;
         if(manualRange) {
             initial.fitMin = options.fitMin;
             initial.fitMax = options.fitMax;
         }
         all = fitWindow(histogram, initial, false);
+    };
+    if(all.ok && order > 0 && fitPolynomial(fit, order)) {
+        refitWindow();
+        // Second pass: the slices with the width and resolution of the window without the shift, which the shift
+        // widened in the first pass, and starting from the centres of the first polynomial. Kept only when it works.
+        if(all.ok) {
+            AngleFit second = fit;
+            fitSlices(selected, ranges, all, &fit, binWidth, origin, bins, second.slices);
+            if(fitPolynomial(second, order)) {
+                fit.slices = std::move(second.slices);
+                fit.coefficients = second.coefficients;
+                fit.errors = second.errors;
+                fit.sliceChiSquared = second.sliceChiSquared;
+                refitWindow();
+            }
+        }
     }
     fit.histogram = std::move(histogram);
     fit.window = all;
     fit.ok = all.ok;
+    // Residuals of the slices from the final centre
+    if(all.ok) {
+        for(SliceCentre &slice : fit.slices) {
+            slice.residual = slice.ok ? slice.centre - fit.centreAt(slice.tof) : 0;
+        }
+    }
     fit.errorMessage = all.errorMessage;
     if(!all.ok && binWidth > initial.halfWidth / 2) {
         fit.errorMessage += QStringLiteral(" The bins are too wide for the window, try narrower ones.");
@@ -445,6 +568,25 @@ std::vector<ToFEEvent> smoothTiming(std::span<const ToFEEvent> events, double sm
     return result;
 }
 
+QString centreText(const AngleCalibration &calibration, int centreDigits, int coefficientDigits) {
+    QString text = QString::number(calibration.centre[0], 'g', centreDigits);
+    const QString d = calibration.referenceTof == 0
+                              ? QStringLiteral("ToF")
+                              : QString("(ToF − %1)").arg(QString::number(calibration.referenceTof, 'g', 6));
+    auto term = [&](double coefficient, const QString &variable) {
+        if(coefficient != 0) {
+            text += QString(" %1 %2 × %3")
+                            .arg(coefficient < 0 ? "−" : "+", QString::number(std::abs(coefficient), 'g', coefficientDigits),
+                                 variable);
+        }
+    };
+    const QString powers[] = {QString(), QString(), QStringLiteral("²"), QStringLiteral("³")};
+    for(size_t k = 1; k < calibration.centre.size(); k++) {
+        term(calibration.centre[k], d + powers[std::min<size_t>(k, 3)]);
+    }
+    return text + QStringLiteral(" ticks");
+}
+
 double windowHalfAngle(const DetectorSettings &detector) {
     if(detector.detectorDistance <= 0 || detector.windowWidth <= 0) {
         return 0;
@@ -453,11 +595,11 @@ double windowHalfAngle(const DetectorSettings &detector) {
 }
 
 double angleOffset(const AngleCalibration &calibration, double distance, double windowWidth, const ToFEEvent &event) {
-    if(!calibration.valid || calibration.halfWidth <= 0 || distance <= 0 || windowWidth <= 0 || !std::isfinite(event.timing)) {
+    if(!calibration.valid || calibration.halfWidth <= 0 || distance <= 0 || windowWidth <= 0 || !std::isfinite(event.timing)
+       || event.tof < calibration.tofMin || event.tof > calibration.tofMax) {
         return 0;
     }
-    const double centre = calibration.centre + calibration.centreSlope * event.tof;
-    double position = std::clamp((event.timing - centre) / calibration.halfWidth, -1.0, 1.0);
+    double position = std::clamp((event.timing - calibration.centreAt(event.tof)) / calibration.halfWidth, -1.0, 1.0);
     if(calibration.reversed) {
         position = -position;
     }

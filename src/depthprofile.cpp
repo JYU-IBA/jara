@@ -1277,10 +1277,11 @@ QString depthProfileLog(const DepthProfileCalculation &calculation) {
                          .arg(general((inputs.scatteringAngle - halfAngle) / Units::Degree),
                               general((inputs.scatteringAngle + halfAngle) / Units::Degree))
                          .arg(general((exitAngle - halfAngle) / Units::Degree), general((exitAngle + halfAngle) / Units::Degree));
-        lines << QString("  Angle calibration: centre %1 ticks + %2 ticks/ch × ToF, half width %3 ticks, sigma %4 ticks, "
-                         "%5, timing smoothing ±%6 ticks")
-                         .arg(general(a.centre), general(a.centreSlope), general(a.halfWidth), general(a.sigma),
+        lines << QString("  Angle calibration: centre %1, half width %2 ticks, sigma %3 ticks, %4, timing smoothing ±%5 ticks")
+                         .arg(centreText(a, 10, 10), general(a.halfWidth), general(a.sigma),
                               a.reversed ? QStringLiteral("reversed") : QStringLiteral("not reversed"), general(a.timingSmoothing));
+        lines << QString("  Events outside ToF %1–%2 ch, the range of the calibration, are not corrected")
+                         .arg(general(a.tofMin), general(a.tofMax));
     } else {
         lines << QStringLiteral("  Kinematic correction: off");
     }

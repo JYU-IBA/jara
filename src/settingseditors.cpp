@@ -465,11 +465,11 @@ void DetectorSettingsEditor::showAngleCalibration() {
     if(!calibration.valid) {
         text = QStringLiteral("Not calibrated");
     } else {
-        text = QString("Centre %1 %2 %3 ticks/ch × ToF, ± %4 ticks")
-                       .arg(calibration.centre, 0, 'f', 2)
-                       .arg(calibration.centreSlope < 0 ? "−" : "+")
-                       .arg(std::abs(calibration.centreSlope), 0, 'g', 3)
-                       .arg(calibration.halfWidth, 0, 'f', 2);
+        text = QString("Centre %1, ± %2 ticks, ToF %3–%4 ch")
+                       .arg(centreText(calibration, 4))
+                       .arg(calibration.halfWidth, 0, 'f', 2)
+                       .arg(calibration.tofMin, 0, 'f', 0)
+                       .arg(calibration.tofMax, 0, 'f', 0);
         if(calibration.reversed) {
             text += QStringLiteral(", reversed");
         }

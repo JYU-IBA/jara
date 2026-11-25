@@ -118,12 +118,12 @@ QString settingsText(const QString &item, const Measurement &measurement, const 
             return QStringLiteral("none");
         }
         const AngleCalibration &calibration = detector->angleCalibration;
-        QString text = QString("± %1° (window %2 mm at %3 mm), timing %4 %5 %6 ticks/ch × ToF ± %7 ticks")
+        QString text = QString("± %1° (window %2 mm at %3 mm), timing centre %4, ± %5 ticks, ToF %6–%7 ch")
                                .arg(number(windowHalfAngle(*detector) / Units::Degree),
                                     number(detector->windowWidth / Units::Millimetre),
-                                    number(detector->detectorDistance / Units::Millimetre),
-                                    number(calibration.centre, 6), calibration.centreSlope < 0 ? "−" : "+",
-                                    number(std::abs(calibration.centreSlope), 3), number(calibration.halfWidth));
+                                    number(detector->detectorDistance / Units::Millimetre), centreText(calibration),
+                                    number(calibration.halfWidth), number(calibration.tofMin, 5),
+                                    number(calibration.tofMax, 5));
         if(calibration.reversed) {
             text += QStringLiteral(", larger timing is a smaller angle");
         }

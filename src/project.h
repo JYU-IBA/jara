@@ -15,6 +15,7 @@
 #ifndef JARA_PROJECT_H
 #define JARA_PROJECT_H
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -164,16 +165,33 @@ void sortEfficiencies(QList<EfficiencyCurve> &curves); // By Z, then the mass nu
 constexpr double DefaultFoilThickness = 3 * Units::MicrogramPerSquareCentimetre; // kg/m²
 
 // Timing coordinate of the events (third column of event files, ticks) to the detection angle, see anglecalibration.h.
-// The detector window spans centre(tof) ± halfWidth, with centre(tof) = centre + centreSlope * ToF channel.
+constexpr int MaxCentreOrder = 3; // Of the polynomial of the angle calibration's centre
+
+// The detector window spans centre(tof) ± halfWidth, with centre(tof) a polynomial of at most third order in
+// d = tof - referenceTof, the sum of centre[k] * d^k.
 struct AngleCalibration {
     bool valid = false; // Fitted and applied in the angle calibration tool
-    double centre = 0; // Ticks, at ToF channel 0
-    double centreSlope = 0; // Ticks/ch
+    double referenceTof = 0; // ToF channel
+    // ToF channels of the events in the fit, set in the tool. Events outside get no kinematic correction, the centre is
+    // not known there.
+    double tofMin = 0;
+    double tofMax = 0;
+    std::array<double, MaxCentreOrder + 1> centre{}; // Ticks/ch^k, centre[0] at the reference ToF
+    int centreOrder = 1; // Of the polynomial in the tool, 0–MaxCentreOrder, remembered for it
+    int slices = 5; // Of ToF in the fit, remembered for the tool
+    bool equalTofSlices = false; // Slices of equal ToF width instead of equal counts, remembered for the tool
     double halfWidth = 0; // Ticks
     double sigma = 0; // Ticks, timing resolution, for information
     bool reversed = false; // Larger timing is a smaller angle
-    double maxTof = 0; // ToF channel, the longest ToF used in the fit, remembered for the tool
     double timingSmoothing = 0; // Ticks, timing values are spread uniformly over ± this, in the fit and the correction
+    double centreAt(double tof) const {
+        const double d = tof - referenceTof;
+        double sum = 0;
+        for(auto k = centre.size(); k-- > 0;) {
+            sum = sum * d + centre[k];
+        }
+        return sum;
+    }
     bool operator==(const AngleCalibration &) const = default;
 };
 

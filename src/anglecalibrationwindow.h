@@ -74,6 +74,9 @@ private:
     void smoothEvents(); // Spreads their timing values, the plots start over
     void fit(); // With the current options, after a moment so that the controls can settle
     void showFit();
+    AngleFitOptions fitOptions() const;
+    void updateTofMarkers(); // At the minimum and maximum ToF
+    void updateTofLimits(); // The minimum ToF can not go above the maximum, nor the maximum below the minimum
     void updateOverlay(); // Fitted window and expected edges in the timing against ToF plot
     void updateResults();
     QString angleText(double tof, double timing) const; // At the position, empty when not known
@@ -98,9 +101,12 @@ private:
 
     QListWidget *m_list;
     QComboBox *m_edgeCombo;
+    QSpinBox *m_minTofSpin;
     QSpinBox *m_maxTofSpin;
     QSpinBox *m_binWidthSpin;
     QSpinBox *m_slicesSpin;
+    QComboBox *m_orderCombo;
+    QComboBox *m_sliceModeCombo;
     QDoubleSpinBox *m_smoothingSpin;
     QCheckBox *m_reversedCheck;
     HistogramWidget *m_histogram;
